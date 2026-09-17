@@ -18,8 +18,8 @@ public:
     /** SoftAP always on — phone WebUI in car without home WiFi / without Pi */
     bool enableSoftAp = true;
     String softApPass = "pidrive12";  // min 8 chars
-    /** Try STA via WiFiManager; false = SoftAP-only (default for car-only tests) */
-    bool enableSta = false;
+    /** Try STA via WiFiManager; SoftAP bleibt parallel (Lab + Car) */
+    bool enableSta = true;
 
     void begin();
     void load();

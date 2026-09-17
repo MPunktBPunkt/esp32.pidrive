@@ -20,6 +20,8 @@ void App::begin() {
     Serial.printf("\n=== esp32.pidrive v%s ===\n", FW_VERSION);
     Serial.println("[MODE] TinyUSB OTG MSC + UART Serial (dual-USB board: OTG->car, UART->PC)");
 
+    led.begin();
+
     config.begin();
     events.begin();
     menu.begin();
@@ -146,6 +148,18 @@ void App::loop() {
     hub.loop();
     msc.loop();
     uart.loop();
+
+    // RGB priority: error > OTG mount > UART activity > idle green
+    if (!msc.ready()) {
+        led.setMode(StatusLed::Mode::Error);
+    } else if (msc.plugged()) {
+        led.setMode(StatusLed::Mode::OtgMount);
+    } else if (uart.linkUp()) {
+        led.setMode(StatusLed::Mode::UartLink);
+    } else {
+        led.setMode(StatusLed::Mode::Idle);
+    }
+    led.loop();
 }
 
 void App::buildHeartbeat(JsonDocument& doc) {
@@ -205,6 +219,7 @@ void App::buildStatus(JsonDocument& doc) {
     doc["playingName"] = menu.playingName();
     doc["labMode"] = config.labMode;
     doc["chipModel"] = NetUtil::chipModel();
+    doc["led"] = led.modeName();
     JsonObject m = doc["msc"].to<JsonObject>();
     msc.toJson(m);
     JsonObject u = doc["uart"].to<JsonObject>();

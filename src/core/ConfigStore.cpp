@@ -15,7 +15,7 @@ void ConfigStore::applyDefaults() {
     timingProfile = 0;
     enableSoftAp = true;
     softApPass = "pidrive12";
-    enableSta = false;  // SoftAP-only until home WiFi needed
+    enableSta = true;  // Lab: WLAN wiederfinden nach OTA; SoftAP parallel
 }
 
 void ConfigStore::begin() {

@@ -240,7 +240,8 @@ async function refreshStatus(){
     ['Plug → play guess', fmtMs(mm.msPlugToPlayGuess)],
     ['Playing', (s.playingName||'-')+' ('+(s.playingUid||'-')+')'],
     ['Heap', s.freeHeap],
-    ['Uptime', s.uptime]
+    ['Uptime', s.uptime],
+    ['LED', s.led||'-']
   ].map(([k,v])=>`<div class="metric"><span>${k}</span><b>${v}</b></div>`).join('');
 }
 async function refreshMenu(){

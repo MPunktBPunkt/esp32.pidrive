@@ -7,6 +7,7 @@
 #include "core/EventLog.h"
 #include "core/MenuStore.h"
 #include "core/UartLinkMonitor.h"
+#include "core/StatusLed.h"
 #include "msc/UsbMscGadget.h"
 
 class App {
@@ -21,6 +22,7 @@ public:
     MenuStore menu;
     UsbMscGadget msc;
     UartLinkMonitor uart;
+    StatusLed led;
 
     bool pumpUp = false;
     uint16_t bufferMs = 0;
