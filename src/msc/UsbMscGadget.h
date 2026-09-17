@@ -19,15 +19,21 @@ public:
     void loop();
     bool ready() const { return ready_; }
     bool plugged() const { return plugged_; }
+    bool suspended() const { return suspended_; }
     uint32_t readCount() const { return readCount_; }
     uint32_t lastReadLba() const { return lastReadLba_; }
     uint32_t msSincePlug() const;
+    uint32_t msSinceChange() const;
     uint32_t msPlugToFirstRead() const { return msPlugToFirstRead_; }
     uint32_t msPlugToPlayGuess() const { return msPlugToPlayGuess_; }
+    uint32_t plugCount() const { return plugCount_; }
+    uint32_t unplugCount() const { return unplugCount_; }
     void toJson(JsonObject obj) const;
 
     // called from USB callbacks (static trampolines)
     void onUsbPlugged(bool on);
+    void onUsbSuspend(bool on);
+    void onHostStartStop(bool start, bool loadEject);
     int32_t onRead(uint32_t lba, uint32_t offset, void* buffer, uint32_t bufsize);
     int32_t onWrite(uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_t bufsize);
 
@@ -39,7 +45,9 @@ private:
     MenuStore* menu_ = nullptr;
     bool ready_ = false;
     bool plugged_ = false;
+    bool suspended_ = false;
     uint32_t plugMs_ = 0;
+    uint32_t changeMs_ = 0;
     uint32_t firstReadMs_ = 0;
     uint32_t playGuessMs_ = 0;
     uint32_t msPlugToFirstRead_ = 0;
@@ -50,4 +58,6 @@ private:
     uint32_t seqLba_ = 0;
     const MscFileMap* seqFile_ = nullptr;
     uint32_t lastEventMs_ = 0;
+    uint32_t plugCount_ = 0;
+    uint32_t unplugCount_ = 0;
 };

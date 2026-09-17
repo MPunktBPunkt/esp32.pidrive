@@ -19,12 +19,29 @@ h1{font-size:1.35rem;font-weight:700;letter-spacing:-.02em}
 .chip b{color:var(--ink)}
 .chip.on{border-color:rgba(61,214,140,.45);color:var(--ok)}
 .chip.off{opacity:.55}
+.chip.warn{border-color:rgba(245,165,36,.45);color:var(--warn)}
 nav{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:12px 0 16px;overflow:auto}
 .tab{appearance:none;border:0;background:0;color:var(--muted);padding:10px 12px;cursor:pointer;font:inherit;border-bottom:2px solid transparent;white-space:nowrap}
 .tab.active{color:var(--acc);border-bottom-color:var(--acc)}
 .pane{display:none}.pane.active{display:block}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px}
 .panel h3{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px}
+.ports{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+@media(max-width:640px){.ports{grid-template-columns:1fr}}
+.port{border:1px solid var(--line);border-radius:12px;padding:16px 14px;background:#0c1016;transition:border-color .2s,box-shadow .2s}
+.port.up{border-color:rgba(61,214,140,.55);box-shadow:inset 0 0 0 1px rgba(61,214,140,.12)}
+.port.sus{border-color:rgba(245,165,36,.5)}
+.port .topline{display:flex;align-items:center;gap:10px}
+.port .dot{width:16px;height:16px;border-radius:50%;background:#3a4555;flex-shrink:0;transition:background .2s,box-shadow .2s}
+.port.up .dot{background:var(--ok);box-shadow:0 0 14px rgba(61,214,140,.6)}
+.port.sus .dot{background:var(--warn);box-shadow:0 0 14px rgba(245,165,36,.45)}
+.port .plabel{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.port .pname{font-size:1.05rem;font-weight:700;letter-spacing:-.02em}
+.port .pstate{margin-top:10px;font-size:1.35rem;font-weight:700;letter-spacing:-.02em}
+.port.up .pstate{color:var(--ok)}
+.port.sus .pstate{color:var(--warn)}
+.port .phint{margin-top:6px;font-size:12px;color:var(--muted);line-height:1.4}
+.port .pmeta{margin-top:10px;font-family:ui-monospace,monospace;font-size:11px;color:var(--muted)}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th,td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:left}
 th{color:var(--muted);font-size:10px;text-transform:uppercase}
@@ -51,7 +68,8 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
   <p class="sub">USB-MSC Auto-Test · SoftAP WebUI · ohne Pi</p>
   <div class="bar" id="bar">
     <span class="chip" id="c-ver">v-</span>
-    <span class="chip off" id="c-usb">USB</span>
+    <span class="chip off" id="c-otg">AUTO</span>
+    <span class="chip off" id="c-uart">PI</span>
     <span class="chip off" id="c-msc">MSC</span>
     <span class="chip" id="c-play">PLAY -</span>
     <span class="chip" id="c-lat">LAT -</span>
@@ -67,11 +85,26 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
 
   <section class="pane active" id="p-car">
     <div class="panel">
+      <h3>USB-Anschlüsse</h3>
+      <div class="ports">
+        <div class="port" id="port-otg">
+          <div class="topline"><span class="dot"></span><div><div class="plabel">OTG · Auto</div><div class="pname">Car Host</div></div></div>
+          <div class="pstate" id="otg-state">—</div>
+          <div class="phint">TinyUSB Mount am nativen USB. Event bei Stecken/Trennen.</div>
+          <div class="pmeta" id="otg-meta"></div>
+        </div>
+        <div class="port" id="port-uart">
+          <div class="topline"><span class="dot"></span><div><div class="plabel">UART · Pi / PC</div><div class="pname">Serial Bridge</div></div></div>
+          <div class="pstate" id="uart-state">—</div>
+          <div class="phint">Kein Plug-Sensor am Bridge-Chip — Status = Seriellaktivität (später PUMP).</div>
+          <div class="pmeta" id="uart-meta"></div>
+        </div>
+      </div>
       <h3>SoftAP Zugang</h3>
       <div class="apbox" id="ap-box">lädt…</div>
       <h3>MSC Timing / Metriken</h3>
       <div id="metrics"></div>
-      <p class="meta">Ablauf: ESP OTG → USB-Host Auto · Handy → SoftAP · Radio öffnet USB-Medien · Events zeigen Reaktionszeiten.</p>
+      <p class="meta">Events: <code>usb.otg.up/down</code>, <code>usb.uart.up/down</code>, <code>msc.*</code>, <code>play.guess</code>.</p>
     </div>
   </section>
 
@@ -143,17 +176,54 @@ function tabs(){
   });
 }
 async function j(url,opt){const r=await fetch(url,opt);return r.json()}
-function chip(el,on){el.classList.toggle('on',!!on);el.classList.toggle('off',!on)}
+function chip(el,on,warn){
+  el.classList.toggle('on',!!on && !warn);
+  el.classList.toggle('warn',!!warn);
+  el.classList.toggle('off',!on && !warn);
+}
 function fmtMs(v){return (v===undefined||v===null||v===0)?'—':v+' ms'}
+function fmtAgo(ms){
+  if(ms===undefined||ms===null) return '—';
+  if(ms<1000) return ms+' ms';
+  if(ms<60000) return Math.round(ms/1000)+' s';
+  return Math.round(ms/60000)+' min';
+}
+function setPort(el, state, label, meta){
+  el.classList.toggle('up', state==='up');
+  el.classList.toggle('sus', state==='sus');
+  $(label).textContent = state==='up'?'VERBUNDEN':(state==='sus'?'SUSPEND':'GETRENNT');
+  $(meta).textContent = arguments[3]||'';
+}
 async function refreshStatus(){
   const s=await j('/api/status');
   $('#c-ver').innerHTML='v<b>'+s.version+'</b>';
-  const u=$('#c-usb'); u.textContent='USB '+(s.usbEnumerated?'●':'○'); chip(u,s.usbEnumerated);
+  const otgUp=!!s.otgUp, otgSus=!!s.otgSuspended, uartUp=!!s.uartUp;
+  const cO=$('#c-otg');
+  cO.textContent='AUTO '+(otgUp?(otgSus?'◐':'●'):'○');
+  chip(cO, otgUp, otgUp&&otgSus);
+  const cU=$('#c-uart');
+  cU.textContent='PI '+(uartUp?'●':'○');
+  chip(cU, uartUp);
   const m=$('#c-msc'); m.textContent='MSC '+(s.mscReady?'●':'○'); chip(m,s.mscReady);
   $('#c-play').innerHTML='PLAY <b>'+(s.playingName||'-')+'</b>';
   const lat=(s.msc&&s.msc.msPlugToPlayGuess)||0;
   $('#c-lat').innerHTML='LAT <b>'+(lat?lat+'ms':'-')+'</b>';
   $('#c-ap').innerHTML='AP <b>'+(s.softApIp||'-')+'</b>';
+
+  const otg=s.ports&&s.ports.otg||{};
+  const uart=s.ports&&s.ports.uart||{};
+  const otgState=otgUp?(otgSus?'sus':'up'):'down';
+  setPort($('#port-otg'), otgState, '#otg-state');
+  $('#otg-meta').textContent=
+    'seit '+fmtAgo(otg.msSinceChange)+
+    ' · up '+((s.msc&&s.msc.plugCount)||otg.plugCount||0)+
+    ' · down '+((s.msc&&s.msc.unplugCount)||otg.unplugCount||0)+
+    (otgUp?' · mounted '+fmtAgo((s.msc&&s.msc.msSincePlug)||0):'');
+  setPort($('#port-uart'), uartUp?'up':'down', '#uart-state');
+  $('#uart-meta').textContent=
+    'seit '+fmtAgo(uart.msSinceChange)+
+    ' · rx '+(uart.rxBytes||0)+' B · sense serial-activity';
+
   $('#ap-box').innerHTML=
     'SSID <code>'+(s.softApSsid||'?')+'</code><br>'+
     'Pass <code>'+(s.softApPass||'?')+'</code><br>'+
@@ -161,14 +231,13 @@ async function refreshStatus(){
     (s.ip?'<br>STA <code>'+s.ip+'</code>':'');
   const mm=s.msc||{};
   $('#metrics').innerHTML=[
-    ['USB plugged', s.usbEnumerated?'yes':'no'],
+    ['OTG (Auto)', otgUp?(otgSus?'suspend':'up'):'down'],
+    ['UART (Pi)', uartUp?'activity':'idle'],
     ['MSC ready', s.mscReady?'yes':'no'],
     ['Reads', mm.readCount||0],
     ['Last LBA', mm.lastReadLba||0],
-    ['Since plug', fmtMs(mm.msSincePlug)],
     ['Plug → first read', fmtMs(mm.msPlugToFirstRead)],
     ['Plug → play guess', fmtMs(mm.msPlugToPlayGuess)],
-    ['Image', (mm.imageBytes||0)+' B / '+(mm.sectorCount||0)+' sectors'],
     ['Playing', (s.playingName||'-')+' ('+(s.playingUid||'-')+')'],
     ['Heap', s.freeHeap],
     ['Uptime', s.uptime]

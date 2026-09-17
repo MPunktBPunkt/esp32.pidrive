@@ -19,7 +19,7 @@ BMW / Werksradio USB-Host (Medienliste + MP3-Decode)
 
 | | |
 |--|--|
-| **Phase** | **Firmware 0.2.0-dev** (SoftAP + USB-MSC Demo + Timing) |
+| **Phase** | **Firmware 0.2.1-dev** (SoftAP + MSC + Port-UI AUTO/PI) |
 | **Stand** | [`STATE.md`](STATE.md) |
 | **Build** | PlatformIO: `pio run -e pidrive-s3` |
 | **Car-Test** | [`docs/planung/CAR-STANDALONE.md`](docs/planung/CAR-STANDALONE.md) — ESP allein im Auto |

@@ -5,10 +5,10 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 | Feld | Wert |
 |------|------|
 | Stand | 2026-09-17 |
-| Phase | **Firmware 0.2.0-dev** — SoftAP + USB-MSC Demo + Timing-Events |
+| Phase | **Firmware 0.2.1-dev** — SoftAP + MSC + OTG/UART Port-UI |
 | Repo | `MPunktBPunkt/esp32.pidrive` |
 | Build | PlatformIO `env:pidrive-s3` (`pio run`) |
-| Dist | `dist/pidrive.0.2.0-dev.usb.esp32s3.bin` |
+| Dist | `dist/pidrive.0.2.1-dev.usb.esp32s3.bin` |
 | Hardware | ESP32-S3-DevKitC-1 (OTG + UART) |
 | Pi-Link V1 | PUMP — noch Stub |
 | Auto-Link | USB-MSC FAT12-Demo (Ton-MP3s) live |
@@ -25,5 +25,6 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 
 ## Letzte Änderung
 
+- 2026-09-17: 0.2.1-dev Port-Status AUTO/PI + klarere USB-Events
 - 2026-09-17: 0.2.0-dev Car-Standalone (SoftAP, MSC, Metriken)
 - 2026-09-17: 0.1.0-dev WebUI + Hub

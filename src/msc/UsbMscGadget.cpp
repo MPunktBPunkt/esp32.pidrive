@@ -29,10 +29,7 @@ static int32_t pidrive_msc_write(uint32_t lba, uint32_t offset, uint8_t* buffer,
 
 static bool pidrive_msc_start_stop(uint8_t power_condition, bool start, bool load_eject) {
     (void)power_condition;
-    (void)load_eject;
-    if (g_msc) {
-        Serial.printf("[MSC] START/STOP start=%u eject=%u\n", start ? 1 : 0, load_eject ? 1 : 0);
-    }
+    if (g_msc) g_msc->onHostStartStop(start, load_eject);
     return true;
 }
 
@@ -47,6 +44,12 @@ static void usb_event_cb(void* arg, esp_event_base_t event_base, int32_t event_i
         case ARDUINO_USB_STOPPED_EVENT:
             g_msc->onUsbPlugged(false);
             break;
+        case ARDUINO_USB_SUSPEND_EVENT:
+            g_msc->onUsbSuspend(true);
+            break;
+        case ARDUINO_USB_RESUME_EVENT:
+            g_msc->onUsbSuspend(false);
+            break;
         default:
             break;
     }
@@ -56,6 +59,7 @@ bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
     events_ = events;
     menu_ = menu;
     g_msc = this;
+    changeMs_ = millis();
 
     if (DEMO_FAT_SECTOR_COUNT == 0 || DEMO_FAT_SIZE < 512) {
         if (events_) events_->push("msc.fail", "empty image");
@@ -82,9 +86,12 @@ bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
 }
 
 void UsbMscGadget::onUsbPlugged(bool on) {
+    if (plugged_ == on) return;
     plugged_ = on;
+    suspended_ = false;
+    changeMs_ = millis();
     if (on) {
-        plugMs_ = millis();
+        plugMs_ = changeMs_;
         firstReadMs_ = 0;
         playGuessMs_ = 0;
         msPlugToFirstRead_ = 0;
@@ -92,10 +99,32 @@ void UsbMscGadget::onUsbPlugged(bool on) {
         readCount_ = 0;
         seqBytes_ = 0;
         seqFile_ = nullptr;
-        if (events_) events_->push("usb.enumerated", "plugged");
+        plugCount_++;
+        if (events_) events_->push("usb.otg.up", "car-host");
+        Serial.println("[OTG] UP car-host mounted");
     } else {
-        if (events_) events_->push("usb.gone", "unplugged");
+        unplugCount_++;
+        if (events_) events_->push("usb.otg.down", "car-host");
+        Serial.println("[OTG] DOWN car-host gone");
         if (menu_) menu_->clearPlaying();
+    }
+}
+
+void UsbMscGadget::onUsbSuspend(bool on) {
+    if (!plugged_) return;
+    if (suspended_ == on) return;
+    suspended_ = on;
+    if (events_) events_->push(on ? "usb.otg.suspend" : "usb.otg.resume", "car-host");
+    Serial.printf("[OTG] %s\n", on ? "SUSPEND" : "RESUME");
+}
+
+void UsbMscGadget::onHostStartStop(bool start, bool loadEject) {
+    char det[40];
+    snprintf(det, sizeof(det), "start=%u eject=%u", start ? 1 : 0, loadEject ? 1 : 0);
+    Serial.printf("[MSC] START/STOP %s\n", det);
+    if (events_ && millis() - lastEventMs_ > 200) {
+        lastEventMs_ = millis();
+        events_->push(start ? "msc.host.start" : "msc.host.stop", det);
     }
 }
 
@@ -114,7 +143,6 @@ int32_t UsbMscGadget::onWrite(uint32_t lba, uint32_t offset, uint8_t* buffer, ui
     (void)lba;
     (void)offset;
     (void)buffer;
-    // read-only demo image — accept & discard (some hosts probe write)
     return (int32_t)bufsize;
 }
 
@@ -152,7 +180,6 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
     seqLba_ = lba;
     seqBytes_ += bufsize;
 
-    // Heuristic: ~2 KiB sequential into a file cluster ≈ play (not just dir scan)
     if (seqBytes_ >= 2048) {
         bool fresh = !menu_ || strcmp(menu_->playingUid(), f->uid) != 0;
         if (menu_) menu_->playByUid(f->uid);
@@ -172,25 +199,34 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
     }
 }
 
-void UsbMscGadget::loop() {
-    // reserved for deferred event flush
-}
+void UsbMscGadget::loop() {}
 
 uint32_t UsbMscGadget::msSincePlug() const {
     if (!plugged_ || !plugMs_) return 0;
     return millis() - plugMs_;
 }
 
+uint32_t UsbMscGadget::msSinceChange() const {
+    if (!changeMs_) return 0;
+    return millis() - changeMs_;
+}
+
 void UsbMscGadget::toJson(JsonObject obj) const {
     obj["ready"] = ready_;
     obj["plugged"] = plugged_;
+    obj["suspended"] = suspended_;
     obj["readCount"] = readCount_;
     obj["lastReadLba"] = lastReadLba_;
     obj["msSincePlug"] = msSincePlug();
+    obj["msSinceChange"] = msSinceChange();
     obj["msPlugToFirstRead"] = msPlugToFirstRead_;
     obj["msPlugToPlayGuess"] = msPlugToPlayGuess_;
+    obj["plugCount"] = plugCount_;
+    obj["unplugCount"] = unplugCount_;
     obj["sectorCount"] = DEMO_FAT_SECTOR_COUNT;
     obj["imageBytes"] = DEMO_FAT_SIZE;
+    obj["port"] = "otg";
+    obj["role"] = "car-host";
 }
 
 #else  // ARDUINO_USB_MODE == 1 (HW CDC) — MSC unavailable
@@ -204,9 +240,12 @@ bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
 }
 void UsbMscGadget::loop() {}
 void UsbMscGadget::onUsbPlugged(bool) {}
+void UsbMscGadget::onUsbSuspend(bool) {}
+void UsbMscGadget::onHostStartStop(bool, bool) {}
 int32_t UsbMscGadget::onRead(uint32_t, uint32_t, void*, uint32_t) { return -1; }
 int32_t UsbMscGadget::onWrite(uint32_t, uint32_t, uint8_t*, uint32_t) { return -1; }
 uint32_t UsbMscGadget::msSincePlug() const { return 0; }
+uint32_t UsbMscGadget::msSinceChange() const { return 0; }
 void UsbMscGadget::toJson(JsonObject obj) const {
     obj["ready"] = false;
     obj["plugged"] = false;

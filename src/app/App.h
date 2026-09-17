@@ -6,6 +6,7 @@
 #include "core/HubClient.h"
 #include "core/EventLog.h"
 #include "core/MenuStore.h"
+#include "core/UartLinkMonitor.h"
 #include "msc/UsbMscGadget.h"
 
 class App {
@@ -19,6 +20,7 @@ public:
     EventLog events;
     MenuStore menu;
     UsbMscGadget msc;
+    UartLinkMonitor uart;
 
     bool pumpUp = false;
     uint16_t bufferMs = 0;

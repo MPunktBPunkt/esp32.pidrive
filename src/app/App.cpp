@@ -27,6 +27,7 @@ void App::begin() {
 
     // MSC before WiFi so car USB enumerates quickly when bus-powered
     msc.begin(&events, &menu);
+    uart.begin(&events);
 
     setupWifi();
 
@@ -144,6 +145,7 @@ void App::loop() {
     server_.handleClient();
     hub.loop();
     msc.loop();
+    uart.loop();
 }
 
 void App::buildHeartbeat(JsonDocument& doc) {
@@ -161,6 +163,9 @@ void App::buildHeartbeat(JsonDocument& doc) {
 
     JsonDocument ios;
     ios["usbEnumerated"] = msc.plugged();
+    ios["otgUp"] = msc.plugged();
+    ios["otgSuspended"] = msc.suspended();
+    ios["uartUp"] = uart.linkUp();
     ios["mscReady"] = msc.ready();
     ios["pumpState"] = pumpUp ? "up" : "down";
     ios["bufferMs"] = bufferMs;
@@ -189,6 +194,9 @@ void App::buildStatus(JsonDocument& doc) {
     doc["wifiRssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
     doc["hubOk"] = hub.lastOk();
     doc["usbEnumerated"] = msc.plugged();
+    doc["otgUp"] = msc.plugged();
+    doc["otgSuspended"] = msc.suspended();
+    doc["uartUp"] = uart.linkUp();
     doc["mscReady"] = msc.ready();
     doc["pumpUp"] = pumpUp;
     doc["bufferMs"] = bufferMs;
@@ -199,6 +207,25 @@ void App::buildStatus(JsonDocument& doc) {
     doc["chipModel"] = NetUtil::chipModel();
     JsonObject m = doc["msc"].to<JsonObject>();
     msc.toJson(m);
+    JsonObject u = doc["uart"].to<JsonObject>();
+    uart.toJson(u);
+    JsonObject ports = doc["ports"].to<JsonObject>();
+    JsonObject otg = ports["otg"].to<JsonObject>();
+    otg["label"] = "AUTO";
+    otg["role"] = "car-host";
+    otg["up"] = msc.plugged();
+    otg["suspended"] = msc.suspended();
+    otg["msSinceChange"] = msc.msSinceChange();
+    otg["plugCount"] = msc.plugCount();
+    otg["unplugCount"] = msc.unplugCount();
+    otg["sense"] = "tinyusb-mount";
+    JsonObject pi = ports["uart"].to<JsonObject>();
+    pi["label"] = "PI";
+    pi["role"] = "uart-bridge";
+    pi["up"] = uart.linkUp();
+    pi["msSinceChange"] = uart.msSinceChange();
+    pi["rxBytes"] = uart.rxBytes();
+    pi["sense"] = "serial-activity";
 }
 
 void App::handleRoot() {
@@ -290,6 +317,10 @@ void App::handleApiMetrics() {
     doc["freeHeap"] = ESP.getFreeHeap();
     JsonObject m = doc["msc"].to<JsonObject>();
     msc.toJson(m);
+    JsonObject u = doc["uart"].to<JsonObject>();
+    uart.toJson(u);
+    doc["otgUp"] = msc.plugged();
+    doc["uartUp"] = uart.linkUp();
     doc["playingUid"] = menu.playingUid();
     doc["playingName"] = menu.playingName();
     doc["eventCount"] = events.count();
