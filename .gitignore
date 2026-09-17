@@ -36,3 +36,5 @@ wifi_credentials.h
 dist/
 *.bin
 !docs/**/*.bin
+!src/msc/demo_fat.bin
+!src/msc/demo_fat.img
