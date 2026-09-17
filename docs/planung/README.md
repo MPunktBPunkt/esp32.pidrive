@@ -10,6 +10,7 @@ Planung für `esp32.pidrive` (USB-MSC-Medienpfad für PiDrive).
 | [IDEE-USB-MSC-MENUE.md](IDEE-USB-MSC-MENUE.md) | Idee, Dension-Analyse, Voraussetzungen P/W/O |
 | [PFAD-PFLICHTENHEFT.md](PFAD-PFLICHTENHEFT.md) | Gates, Pflichtenheft-TOC, PiDrive-Umbaupakete U0–U8 |
 | [HUB-INTEGRATION.md](HUB-INTEGRATION.md) | iobroker.esp-hub: USB-Flash, OTA, `fwType`/`chipModel` |
+| [WEBUI.md](WEBUI.md) | Tabs: Menü (Filebrowser), Events, Config, OTA + Statusleiste |
 | [PIDRIVE-INTEGRATION.md](PIDRIVE-INTEGRATION.md) | Was in `pidrive` additiv gebaut wird |
 | [PHASE-0-LAB.md](PHASE-0-LAB.md) | Lab an Debian/Proxmox vor dem Auto |
 | [OFFENE-PUNKTE.md](OFFENE-PUNKTE.md) | Q-USB-*, Entscheidungen, Risiken |

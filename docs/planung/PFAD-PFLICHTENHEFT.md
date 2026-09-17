@@ -219,7 +219,7 @@ Marken später `[FIX]` / `[ENTWURF — Gate: …]` wie im BT-Gateway.
 | 8 | Protokoll **PUMP** + **Transport** (UART/CDC V1, WLAN optional) | Q-USB-3 |
 | 9 | Auswahl-Erkennung (Read-Heuristik → `activate`/`next`) | Phase 0 |
 | 10 | Betriebsmodi (USB enumerated, Streaming, Fail-Soft; WLAN-Setup nur wenn Transport B) | — |
-| 11 | Diagnose / WebUI / Logs | Hub optional |
+| 11 | Diagnose / **WebUI** (Menü-Browser, Events, Config, OTA) | [WEBUI.md](WEBUI.md) |
 | 12 | Flash-Budget, Partitionen, OTA | Hub / Flash-Messung |
 | 13 | Abnahmekriterien (Erkennung, 3 min Dauerbetrieb, Umschaltzeit, CLI) | — |
 
@@ -312,5 +312,6 @@ Später eigenes Dokument unter `docs/planung/`. Arbeitspakete (Vorschlag):
 | 2026-09-17 | §1.1 Parallel-BT; §2a PUMP-Transport (UART/CDC V1, WLAN optional, BLE nicht für Audio); Q-USB-1/2/3 Tendenzen |
 | 2026-09-17 | Konzept: [KONZEPT.md](KONZEPT.md) |
 | 2026-09-17 | **Repo `esp32.pidrive` angelegt**; Hub-Pflicht; Lab-Plan |
+| 2026-09-17 | WebUI-Konzept: [WEBUI.md](WEBUI.md) (Menü/Events/Config/OTA) |
 
 Nächstes Spec-Dokument: `PFLICHTENHEFT.md` nach G-USB-0/1. Lab: [PHASE-0-LAB.md](PHASE-0-LAB.md).
