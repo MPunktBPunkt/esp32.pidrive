@@ -1,0 +1,55 @@
+# Offene Punkte — `esp32.pidrive`
+
+**Stand:** 2026-09-17
+
+---
+
+## Owner-Fragen
+
+| ID | Frage | Tendenz | Status |
+|----|--------|---------|--------|
+| **Q-USB-1** | USB neben BT? | **neben** | □ Owner-OK |
+| **Q-USB-2** | Encode Pi oder S3? | **Pi → MP3** | □ |
+| **Q-USB-3** | PUMP-Transport V1? | **UART/CDC** | □ (WLAN = V1.1) |
+| **Q-USB-4** | V1 nur flache Stationsliste? | ja empfohlen | □ |
+| **Q-USB-5** | Hub-OTA Tag 1? | **ja** (Familie) | □ bestätigt |
+| **Q-USB-6** | Max. Umschaltzeit? | messen | □ |
+| **Q-USB-7** | Dension als Messgerät? | optional | □ |
+
+---
+
+## Entscheidungen (A)
+
+| ID | Thema | Status |
+|----|--------|--------|
+| **A1** | ESP-IDF (nicht Arduino-App) | Tendenz bestätigt |
+| **A-HUB** | Hub USB+OTA Pflicht, `fwType=pidrive`, `chipModel=esp32s3` | Tendenz bestätigt |
+| **A-CHIP** | ESP32-S3 | bestätigt |
+| **A-PAR** | Parallel `audio_output=bt` \| `usb_gadget` | Tendenz bestätigt |
+
+---
+
+## Risiken (Auszug)
+
+| ID | Risiko | Mitigation |
+|----|--------|------------|
+| R1 | Lab ≠ NBT Evo | G-USB-0 Stick-Spike |
+| R2 | Prefetch-False-Activate | Observe-first |
+| R3 | Hub-Familien-Sperre falscher Bin-Name | Artefakt `*.esp32s3.bin` |
+| R4 | OTG+Serial-JTAG PHY-Konflikt | UART-Bridge-Buchse für PUMP |
+| R5 | STREAMING+OTA | Defer wie bt-gateway |
+
+---
+
+## Empfohlene Reihenfolge
+
+```
+0. Lab L1–L3 (sobald MSC-Skeleton)
+1. HubClient + Merged-Flash @0x0
+2. Statische MP3 über MSC
+3. PUMP UART + Live-MP3
+4. G-USB-0 Fahrzeug (pidrive)
+5. PiDrive audio_output=usb_gadget
+```
+
+Keine volle Komponentenstruktur vor erstem MSC-Hello am Lab-Host — außer Hub-/Partition-Gerüst.
