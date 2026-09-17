@@ -43,9 +43,14 @@ void PumpServer::handleBinaryByte(uint8_t c) {
             if (c == 0x01) binState_ = BinState::GotMagic1;
             break;
         case BinState::GotMagic1:
-            if (c == 0x55) binState_ = BinState::GotMagic2;
-            else if (c == 0x01) binState_ = BinState::GotMagic1;
-            else binState_ = BinState::Idle;
+            if (c == 0x55 || c == 0x56) {
+                binKind_ = c;
+                binState_ = BinState::GotMagic2;
+            } else if (c == 0x01) {
+                binState_ = BinState::GotMagic1;
+            } else {
+                binState_ = BinState::Idle;
+            }
             break;
         case BinState::GotMagic2:
             binLen_ = c;
@@ -64,7 +69,11 @@ void PumpServer::handleBinaryByte(uint8_t c) {
             binBuf_[binGot_++] = c;
             if (binGot_ >= binLen_) {
                 if (stream_ && stream_->active()) {
-                    stream_->push(binBuf_, binLen_);
+                    if (binKind_ == 0x56) {
+                        stream_->appendId3(binBuf_, binLen_);
+                    } else {
+                        stream_->push(binBuf_, binLen_);
+                    }
                 }
                 binState_ = BinState::Idle;
             }
@@ -132,7 +141,10 @@ void PumpServer::handleLine(char* line) {
 
     if (!strcmp(t, "audio_start")) {
         const char* uid = doc["uid"] | "";
-        if (stream_) stream_->start(uid);
+        if (stream_) {
+            stream_->start(uid);
+            stream_->clearId3();
+        }
         if (msc_) msc_->startStream(uid);
         up_ = true;
         JsonDocument ack;
@@ -140,6 +152,7 @@ void PumpServer::handleLine(char* line) {
         ack["ok"] = true;
         ack["op"] = "start";
         ack["uid"] = uid;
+        ack["id3"] = true;
         sendJson(ack);
         if (events_) events_->push("audio.start", uid);
         return;

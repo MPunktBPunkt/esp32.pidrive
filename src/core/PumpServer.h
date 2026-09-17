@@ -33,9 +33,10 @@ private:
     char line_[384];
     size_t lineLen_ = 0;
 
-    // Binary frame: 0x01 0x55 | len_lo | len_hi | payload
+    // Binary: 0x01 0x55 = audio, 0x01 0x56 = sticky ID3 append
     enum class BinState : uint8_t { Idle, GotMagic1, GotMagic2, GotLenLo, Payload };
     BinState binState_ = BinState::Idle;
+    uint8_t binKind_ = 0x55;
     uint16_t binLen_ = 0;
     uint16_t binGot_ = 0;
     uint8_t binBuf_[512];

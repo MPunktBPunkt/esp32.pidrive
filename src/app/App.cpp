@@ -352,16 +352,16 @@ void App::handleApiLabPlay() {
 }
 
 void App::handleApiLabStream() {
-    if (!stream.active() || stream.size() == 0) {
+    if (!stream.active() || (stream.size() == 0 && stream.id3Len() == 0)) {
         server_.send(204, F("text/plain"), F(""));
         return;
     }
-    static uint8_t buf[8192];
-    size_t n = stream.copyFrom(stream.absBase(), buf, sizeof(buf));
-    if (!n) n = stream.copyFrom(stream.absEnd() > sizeof(buf) ? stream.absEnd() - sizeof(buf) : stream.absBase(), buf, sizeof(buf));
+    static uint8_t buf[12288];
+    size_t n = stream.copyId3AndAudio(buf, sizeof(buf));
     server_.sendHeader(F("Cache-Control"), F("no-store"));
     server_.sendHeader(F("X-Stream-Uid"), stream.uid());
     server_.sendHeader(F("X-Stream-Size"), String((unsigned)stream.size()));
+    server_.sendHeader(F("X-Stream-Id3"), String((unsigned)stream.id3Len()));
     server_.sendHeader(F("X-Stream-AbsEnd"), String(stream.absEnd()));
     server_.setContentLength(n);
     server_.send(200, F("audio/mpeg"), "");

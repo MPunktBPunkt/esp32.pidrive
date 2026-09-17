@@ -2,8 +2,9 @@
 """PiDrive ↔ esp32.pidrive PUMP bridge (line-JSON + binary audio over UART).
 
 - Syncs /tmp/pidrive_menu.json (≤4 slots) via menu_set
-- On play_uid: activate:<uid> + optional live MP3 forward (audio_start + 0x01 0x55 frames)
-- Station URL from menu node meta.url; re-encoded with ffmpeg to ~48 kbit/s for 115200 baud
+- On play_uid: activate:<uid> + live MP3 (audio_start + ID3/APIC + 0x01 0x55 frames)
+- Station URL from menu node meta.url; ffmpeg → ~48 kbit/s
+- ID3v2 + generated cover JPEG (sticky on ESP via 0x01 0x56 frames)
 
 Usage:
   python3 tools/pump_bridge.py [--port /dev/ttyACM0] [--baud 115200] [--bitrate 48k]
@@ -11,6 +12,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import select
@@ -25,8 +27,21 @@ except ImportError:
     print("pip/apt install pyserial / python3-serial", file=sys.stderr)
     sys.exit(1)
 
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ImportError:
+    Image = None  # type: ignore
+
+try:
+    from mutagen.id3 import ID3, TIT2, TPE1, TALB, APIC, ID3NoHeaderError
+    from mutagen.mp3 import MP3
+except ImportError:
+    ID3 = None  # type: ignore
+
 MENU_PATH = Path("/tmp/pidrive_menu.json")
+STATUS_PATH = Path("/tmp/pidrive_status.json")
 CMD_PATH = Path("/tmp/pidrive_cmd")
+PROBE_PATH = Path("/tmp/pump_id3_probe.mp3")
 MAX_SLOTS = 4
 FRAME_MAX = 480
 
@@ -58,11 +73,109 @@ def read_menu() -> tuple[int, list[dict], dict[str, dict]]:
     return rev, items, by_uid
 
 
+def read_status() -> dict:
+    if not STATUS_PATH.exists():
+        return {}
+    try:
+        return json.loads(STATUS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
 def inject(cmd: str) -> None:
     CMD_PATH.parent.mkdir(parents=True, exist_ok=True)
     with CMD_PATH.open("a", encoding="utf-8") as f:
         f.write(cmd.rstrip() + "\n")
     print(f"[inject] {cmd}", flush=True)
+
+
+def make_cover_jpeg(title: str, subtitle: str, footer: str) -> bytes:
+    """Small JPEG for ID3 APIC / BMW-ish size."""
+    if Image is None:
+        # minimal 1x1 jpeg fallback
+        return (
+            b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+            b"\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t"
+            b"\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a"
+            b"\x1f\x1e\x1d\x1a\x1c\x1c $.\' \",#\x1c\x1c(7),01444\x1f\'9=82<.342"
+            b"\xff\xc0\x00\x0b\x08\x00\x01\x00\x01\x01\x01\x11\x00"
+            b"\xff\xc4\x00\x1f\x00\x00\x01\x05\x01\x01\x01\x01\x01\x01\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b"
+            b"\xff\xda\x00\x08\x01\x01\x00\x00?\x00\x7f\xff\xd9"
+        )
+    w = h = 320
+    img = Image.new("RGB", (w, h), (12, 28, 48))
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([0, 0, w, 48], fill=(30, 90, 160))
+    draw.rectangle([0, h - 40, w, h], fill=(20, 50, 80))
+    try:
+        font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+        font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 13)
+    except Exception:
+        font_b = font = font_s = ImageFont.load_default()
+    draw.text((12, 12), "PiDrive", fill=(220, 235, 255), font=font_b)
+    draw.text((12, 90), (title or "Station")[:28], fill=(255, 255, 255), font=font_b)
+    draw.text((12, 130), (subtitle or "")[:36], fill=(180, 210, 240), font=font)
+    draw.text((12, h - 28), (footer or "")[:40], fill=(160, 190, 220), font=font_s)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=70, optimize=True)
+    return buf.getvalue()
+
+
+def build_id3_tag(title: str, artist: str, album: str, jpeg: bytes) -> bytes:
+    """Return raw ID3v2 tag bytes (no audio)."""
+    if ID3 is None:
+        raise RuntimeError("python3-mutagen missing")
+    # mutagen wants a file; build empty MP3 then strip audio
+    raw_mp3 = (
+        b"\xff\xfb\x90\x00" + b"\x00" * 200
+    )  # tiny frame-ish padding; we'll take only ID3
+    PROBE_PATH.write_bytes(raw_mp3)
+    try:
+        tags = ID3()
+    except Exception:
+        tags = ID3()
+    tags.delall("APIC")
+    tags.add(TIT2(encoding=3, text=title or "PiDrive"))
+    tags.add(TPE1(encoding=3, text=artist or "PiDrive"))
+    tags.add(TALB(encoding=3, text=album or "USB"))
+    tags.add(
+        APIC(
+            encoding=3,
+            mime="image/jpeg",
+            type=3,
+            desc="Cover",
+            data=jpeg,
+        )
+    )
+    tags.save(PROBE_PATH)
+    data = PROBE_PATH.read_bytes()
+    if data[:3] != b"ID3":
+        raise RuntimeError("ID3 header missing after mutagen save")
+    # ID3 size synchsafe at bytes 6..9
+    size = (
+        ((data[6] & 0x7F) << 21)
+        | ((data[7] & 0x7F) << 14)
+        | ((data[8] & 0x7F) << 7)
+        | (data[9] & 0x7F)
+    )
+    total = 10 + size
+    tag = data[:total]
+    # keep probe = tag + tiny silence for local ffprobe
+    PROBE_PATH.write_bytes(tag + raw_mp3)
+    return tag
+
+
+def send_bin(ser: serial.Serial, kind: int, payload: bytes) -> None:
+    """kind 0x55 audio, 0x56 sticky ID3 append."""
+    off = 0
+    while off < len(payload):
+        chunk = payload[off : off + FRAME_MAX]
+        hdr = bytes((0x01, kind, len(chunk) & 0xFF, (len(chunk) >> 8) & 0xFF))
+        ser.write(hdr + chunk)
+        off += len(chunk)
+    ser.flush()
 
 
 class AudioFwd:
@@ -87,7 +200,7 @@ class AudioFwd:
             print(f"[tx] {line}", flush=True)
         self.uid = ""
 
-    def start(self, uid: str, url: str) -> None:
+    def start(self, uid: str, url: str, node: dict | None = None) -> None:
         self.stop()
         self.uid = uid
         line = json.dumps(
@@ -97,6 +210,27 @@ class AudioFwd:
         self.ser.write((line + "\n").encode())
         self.ser.flush()
         print(f"[tx] {line}", flush=True)
+
+        meta = (node or {}).get("meta") or {}
+        st = read_status()
+        station = (
+            meta.get("name")
+            or (node or {}).get("label")
+            or st.get("radio_name")
+            or "Station"
+        )
+        title = st.get("track") or station
+        artist = st.get("artist") or meta.get("genre") or "Webradio"
+        album = st.get("radio_name") or station
+        footer = f"BT:{st.get('bt_device') or '-'} WiFi:{'on' if st.get('wifi') else 'off'}"
+        try:
+            jpeg = make_cover_jpeg(str(station)[:40], f"{artist} — {title}"[:48], footer)
+            tag = build_id3_tag(str(title)[:60], str(artist)[:40], str(album)[:40], jpeg)
+            send_bin(self.ser, 0x56, tag)
+            print(f"[id3] sent {len(tag)} B (jpeg {len(jpeg)} B) → {PROBE_PATH}", flush=True)
+        except Exception as e:
+            print(f"[id3] skip: {e}", flush=True)
+
         print(f"[audio] ffmpeg {url} @ {self.bitrate}", flush=True)
         self.proc = subprocess.Popen(
             [
@@ -127,7 +261,6 @@ class AudioFwd:
         )
 
     def pump(self) -> int:
-        """Read ffmpeg stdout and write binary frames. Returns bytes sent."""
         if not self.proc or not self.proc.stdout:
             return 0
         if self.proc.poll() is not None:
@@ -140,9 +273,7 @@ class AudioFwd:
         data = self.proc.stdout.read(FRAME_MAX)
         if not data:
             return 0
-        # 0x01 0x55 | len_lo | len_hi | payload
-        hdr = bytes((0x01, 0x55, len(data) & 0xFF, (len(data) >> 8) & 0xFF))
-        self.ser.write(hdr + data)
+        send_bin(self.ser, 0x55, data)
         return len(data)
 
 
@@ -190,7 +321,6 @@ def main() -> int:
                     text = line.decode("utf-8", errors="replace").strip()
                     if not text:
                         continue
-                    # skip binary leftovers that look non-text
                     if not text.startswith("{") and not text.startswith("["):
                         if text.startswith("[") or "EVT" in text or "MSC" in text or "UART" in text:
                             print(f"[rx] {text}", flush=True)
@@ -208,14 +338,13 @@ def main() -> int:
                         inject(f"activate:{uid}")
                         if args.no_audio:
                             continue
-                        # refresh menu map then resolve URL
                         _, _, by_uid = read_menu()
                         node = by_uid.get(uid) or {}
                         typ = node.get("type") or ""
                         meta = node.get("meta") or {}
                         url = meta.get("url") if isinstance(meta, dict) else None
                         if typ == "station" and url:
-                            audio.start(uid, str(url))
+                            audio.start(uid, str(url), node)
                         else:
                             audio.stop()
                     elif t == "menu_ack":

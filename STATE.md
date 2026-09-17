@@ -5,7 +5,7 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 | Feld | Wert |
 |------|------|
 | Stand | 2026-09-17 |
-| Phase | **Firmware 0.4.1-dev** — WebUI Live-Audio hören |
+| Phase | **Firmware 0.4.2-dev** — ID3/APIC sticky im Stream |
 | Repo | `MPunktBPunkt/esp32.pidrive` |
 | Build | PlatformIO `env:pidrive-s3` (`pio run`) |
 | Dist | `dist/pidrive.0.4.0-dev.usb.esp32s3.bin` / `.ota.esp32s3.bin` |
@@ -27,8 +27,8 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 
 ## Letzte Änderung
 
-- 2026-09-17: **0.4.1-dev** WebUI „Stream hören“ → `/api/lab/listen` (Browser-Audio)
-- 2026-09-17: **0.4.0-dev** StreamBuffer, Binärframes, Bridge/ffmpeg 48k
+- 2026-09-17: **0.4.2-dev** sticky ID3+APIC (Cover-JPEG); Lab `/api/lab/stream` zeigt Tags am PC (ffprobe)
+- 2026-09-17: **0.4.1-dev** WebUI „Stream hören“ → `/api/lab/listen`
 - 2026-09-17: Messung 0.3.1 — ohne Stream nur Demo-FAT
 - 2026-09-17: **0.3.1-dev** WebUI Pi-Menü · PUMP-Chip
 - 2026-09-17: **0.3.0-dev** PumpServer, MenuStore, MSC-Slots, Bridge
