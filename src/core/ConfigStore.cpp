@@ -13,6 +13,9 @@ void ConfigStore::applyDefaults() {
     bufferTargetMs = 5000;
     labMode = true;
     timingProfile = 0;
+    enableSoftAp = true;
+    softApPass = "pidrive12";
+    enableSta = false;  // SoftAP-only until home WiFi needed
 }
 
 void ConfigStore::begin() {
@@ -39,9 +42,13 @@ void ConfigStore::load() {
     bufferTargetMs = prefs.getUShort("buf_ms", bufferTargetMs);
     labMode = prefs.getBool("lab", labMode);
     timingProfile = prefs.getUInt("tprof", timingProfile);
+    enableSoftAp = prefs.getBool("softap", enableSoftAp);
+    softApPass = prefs.getString("ap_pass", softApPass);
+    enableSta = prefs.getBool("en_sta", enableSta);
     prefs.end();
     if (heartbeatIntervalS < 5) heartbeatIntervalS = 5;
     if (bufferTargetMs < 500) bufferTargetMs = 500;
+    if (softApPass.length() < 8) softApPass = "pidrive12";
 }
 
 void ConfigStore::save() {
@@ -59,6 +66,9 @@ void ConfigStore::save() {
     prefs.putUShort("buf_ms", bufferTargetMs);
     prefs.putBool("lab", labMode);
     prefs.putUInt("tprof", timingProfile);
+    prefs.putBool("softap", enableSoftAp);
+    prefs.putString("ap_pass", softApPass);
+    prefs.putBool("en_sta", enableSta);
     prefs.end();
 }
 
@@ -80,6 +90,9 @@ void ConfigStore::toJson(JsonObject obj) const {
     obj["bufferTargetMs"] = bufferTargetMs;
     obj["labMode"] = labMode;
     obj["timingProfile"] = timingProfile;
+    obj["enableSoftAp"] = enableSoftAp;
+    obj["softApPass"] = softApPass;
+    obj["enableSta"] = enableSta;
 }
 
 bool ConfigStore::fromJson(JsonVariantConst obj) {
@@ -92,9 +105,13 @@ bool ConfigStore::fromJson(JsonVariantConst obj) {
     if (!obj["bufferTargetMs"].isNull()) bufferTargetMs = obj["bufferTargetMs"].as<uint16_t>();
     if (!obj["labMode"].isNull()) labMode = obj["labMode"].as<bool>();
     if (!obj["timingProfile"].isNull()) timingProfile = obj["timingProfile"].as<uint32_t>();
+    if (!obj["enableSoftAp"].isNull()) enableSoftAp = obj["enableSoftAp"].as<bool>();
+    if (obj["softApPass"].is<const char*>()) softApPass = obj["softApPass"].as<String>();
+    if (!obj["enableSta"].isNull()) enableSta = obj["enableSta"].as<bool>();
     if (deviceName.length() == 0) deviceName = DEVICE_NAME_DEFAULT;
     if (hubPort <= 0 || hubPort > 65535) hubPort = HUB_PORT_DEFAULT;
     if (heartbeatIntervalS < 5) heartbeatIntervalS = 5;
     if (bufferTargetMs < 500) bufferTargetMs = 500;
+    if (softApPass.length() < 8) softApPass = "pidrive12";
     return true;
 }

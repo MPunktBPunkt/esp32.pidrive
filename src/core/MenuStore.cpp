@@ -12,17 +12,18 @@ void MenuStore::loadDemo() {
     auto add = [&](const char* path, const char* name, const char* uid, const char* kind) {
         if (count_ >= MENU_MAX_ITEMS) return;
         MenuItem& it = items_[count_++];
+        memset(&it, 0, sizeof(it));
         strncpy(it.path, path, sizeof(it.path) - 1);
         strncpy(it.name, name, sizeof(it.name) - 1);
         strncpy(it.uid, uid, sizeof(it.uid) - 1);
         strncpy(it.kind, kind, sizeof(it.kind) - 1);
         it.playing = false;
     };
-    add("Stations/01_ROCK_FM.mp3", "ROCK FM", "demo:rock_fm", "station");
-    add("Stations/02_Antenne.mp3", "Antenne 1", "demo:antenne", "station");
-    add("Stations/03_SWR3.mp3", "SWR3", "demo:swr3", "station");
-    add("Settings/About.mp3", "About", "action:about", "action");
-    add("Settings/Refresh.mp3", "Refresh", "action:refresh", "action");
+    // Paths match USB FAT demo image (8.3 names)
+    add("STATIONS/01ROCK.MP3", "ROCK FM", "demo:rock_fm", "station");
+    add("STATIONS/02ANTENN.MP3", "Antenne 1", "demo:antenne", "station");
+    add("STATIONS/03SWR3.MP3", "SWR3", "demo:swr3", "station");
+    add("SETTINGS/ABOUT.MP3", "About", "action:about", "action");
 }
 
 void MenuStore::setPlaying(const char* uid) {

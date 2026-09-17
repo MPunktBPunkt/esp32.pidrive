@@ -5,22 +5,25 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 | Feld | Wert |
 |------|------|
 | Stand | 2026-09-17 |
-| Phase | **Firmware 0.1.0-dev** — WebUI + Hub + Demo-Menü (kein MSC noch) |
+| Phase | **Firmware 0.2.0-dev** — SoftAP + USB-MSC Demo + Timing-Events |
 | Repo | `MPunktBPunkt/esp32.pidrive` |
 | Build | PlatformIO `env:pidrive-s3` (`pio run`) |
-| Hardware | ESP32-S3-DevKitC-1 |
+| Dist | `dist/pidrive.0.2.0-dev.usb.esp32s3.bin` |
+| Hardware | ESP32-S3-DevKitC-1 (OTG + UART) |
 | Pi-Link V1 | PUMP — noch Stub |
-| Auto-Link | USB-MSC — noch Stub (Lab-Toggle in WebUI) |
+| Auto-Link | USB-MSC FAT12-Demo (Ton-MP3s) live |
+| Car-Test | SoftAP WebUI ohne Pi — [CAR-STANDALONE.md](docs/planung/CAR-STANDALONE.md) |
 | ESP-Hub | Heartbeat `fwType=pidrive`, `chipModel=esp32s3` |
-| WebUI | Menü · Events · Config · OTA |
+| WebUI | Auto-Test · Menü · Events · Config · OTA |
 | Parallel | PiDrive `audio_output=bt` bleibt |
 
 ## Aktueller Fokus
 
-1. `pio run -e pidrive-s3` grün halten
-2. Flash am S3, WebUI + Hub-Register prüfen
-3. Als Nächstes: TinyUSB / USBMSC Device
+1. Auto-Test nur ESP: SoftAP + MSC-Latenz / Play-Guess
+2. Lab-Host (Debian) Enumeration bestätigen
+3. Danach: PUMP-Stub + Live-MP3 vom Pi
 
 ## Letzte Änderung
 
-- 2026-09-17: Erste Firmware 0.1.0-dev (PlatformIO Arduino)
+- 2026-09-17: 0.2.0-dev Car-Standalone (SoftAP, MSC, Metriken)
+- 2026-09-17: 0.1.0-dev WebUI + Hub

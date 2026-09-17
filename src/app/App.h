@@ -6,6 +6,7 @@
 #include "core/HubClient.h"
 #include "core/EventLog.h"
 #include "core/MenuStore.h"
+#include "msc/UsbMscGadget.h"
 
 class App {
 public:
@@ -17,16 +18,17 @@ public:
     HubClient hub;
     EventLog events;
     MenuStore menu;
+    UsbMscGadget msc;
 
-    // Stubs until MSC/PUMP land
-    bool usbEnumerated = false;
     bool pumpUp = false;
     uint16_t bufferMs = 0;
-    String lastPumpDetail = "-";
+    String softApSsid;
+    String softApIp = "192.168.4.1";
 
 private:
     App() = default;
     void setupWifi();
+    void startSoftAp();
     void setupWeb();
     void buildHeartbeat(JsonDocument& doc);
     void buildStatus(JsonDocument& doc);
@@ -38,7 +40,7 @@ private:
     void handleApiConfigGet();
     void handleApiConfigPost();
     void handleApiLabPlay();
-    void handleApiLabUsbToggle();
+    void handleApiMetrics();
     void handleOtaUpload();
     void handleRestart();
 

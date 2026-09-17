@@ -41,32 +41,46 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
 .drop{border:1px dashed var(--line);border-radius:10px;padding:24px;text-align:center;color:var(--muted);cursor:pointer}
 .drop:hover{border-color:var(--acc);color:var(--ink)}
 .meta{color:var(--muted);font-size:12px;margin-top:8px}
+.metric{font-family:ui-monospace,monospace;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px}
+.metric b{color:var(--ok)}
+.apbox{background:#0c1016;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px}
+.apbox code{color:var(--acc)}
 </style></head><body>
 <div class="shell">
   <h1>esp32.pidrive</h1>
-  <p class="sub">USB-MSC-Gadget für PiDrive · Diagnose-WebUI</p>
+  <p class="sub">USB-MSC Auto-Test · SoftAP WebUI · ohne Pi</p>
   <div class="bar" id="bar">
     <span class="chip" id="c-ver">v-</span>
     <span class="chip off" id="c-usb">USB</span>
-    <span class="chip off" id="c-pump">PUMP</span>
-    <span class="chip" id="c-buf">BUF -</span>
+    <span class="chip off" id="c-msc">MSC</span>
     <span class="chip" id="c-play">PLAY -</span>
-    <span class="chip" id="c-ip">IP -</span>
+    <span class="chip" id="c-lat">LAT -</span>
+    <span class="chip" id="c-ap">AP -</span>
   </div>
   <nav>
-    <button class="tab active" data-t="menu">Menü</button>
+    <button class="tab active" data-t="car">Auto-Test</button>
+    <button class="tab" data-t="menu">Menü</button>
     <button class="tab" data-t="events">Events</button>
     <button class="tab" data-t="config">Config</button>
     <button class="tab" data-t="ota">OTA</button>
   </nav>
 
-  <section class="pane active" id="p-menu">
+  <section class="pane active" id="p-car">
+    <div class="panel">
+      <h3>SoftAP Zugang</h3>
+      <div class="apbox" id="ap-box">lädt…</div>
+      <h3>MSC Timing / Metriken</h3>
+      <div id="metrics"></div>
+      <p class="meta">Ablauf: ESP OTG → USB-Host Auto · Handy → SoftAP · Radio öffnet USB-Medien · Events zeigen Reaktionszeiten.</p>
+    </div>
+  </section>
+
+  <section class="pane" id="p-menu">
     <div class="panel">
       <h3>Virtuelles FAT <span id="menu-meta"></span></h3>
       <table><thead><tr><th>Pfad</th><th>Name</th><th>UID</th><th></th></tr></thead>
       <tbody id="menu-body"></tbody></table>
-      <div class="meta">V0.1: Demo-Menü. Echtes MSC folgt. Lab: Simulate play / USB-Toggle.</div>
-      <button class="btn" id="btn-usb">USB lab-toggle</button>
+      <div class="meta">FAT12-Demo mit kurzen Ton-MP3s. Play-Guess bei ≥2 KiB sequentiellem LBA-Read.</div>
       <button class="btn" id="btn-refresh">Refresh</button>
     </div>
   </section>
@@ -84,18 +98,27 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
       <h3>Config</h3>
       <div class="row">
         <div><label>Gerätename</label><input id="cfg-name"></div>
-        <div><label>Hub Host</label><input id="cfg-host"></div>
+        <div><label>SoftAP Pass (≥8)</label><input id="cfg-appass"></div>
       </div>
       <div class="row">
+        <div><label>SoftAP (0/1)</label><input id="cfg-softap" type="number" min="0" max="1"></div>
+        <div><label>STA / WiFiManager (0/1)</label><input id="cfg-sta" type="number" min="0" max="1"></div>
+      </div>
+      <div class="row">
+        <div><label>Hub Host</label><input id="cfg-host"></div>
         <div><label>Hub Port</label><input id="cfg-port" type="number"></div>
-        <div><label>Buffer Ziel (ms)</label><input id="cfg-buf" type="number"></div>
       </div>
       <div class="row">
         <div><label>Hub aktiv (0/1)</label><input id="cfg-hub" type="number" min="0" max="1"></div>
         <div><label>Lab-Mode (0/1)</label><input id="cfg-lab" type="number" min="0" max="1"></div>
       </div>
+      <div class="row">
+        <div><label>Buffer Ziel (ms)</label><input id="cfg-buf" type="number"></div>
+        <div></div>
+      </div>
       <button class="btn btn-a" id="btn-save">Speichern</button>
       <button class="btn" id="btn-restart">Neustart</button>
+      <p class="meta">Car-Default: SoftAP an, STA aus. STA nur für Hub/Home-WLAN einschalten.</p>
     </div>
   </section>
 
@@ -104,7 +127,7 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
       <h3>OTA Upload</h3>
       <div class="drop" id="drop">Firmware .bin hierher oder klicken</div>
       <input type="file" id="ota-file" accept=".bin" hidden>
-      <div class="meta" id="ota-msg">Auch via esp-hub OTA-Push (Carport).</div>
+      <div class="meta" id="ota-msg">Über SoftAP möglich — auch ohne Hub.</div>
     </div>
   </section>
 </div>
@@ -121,14 +144,35 @@ function tabs(){
 }
 async function j(url,opt){const r=await fetch(url,opt);return r.json()}
 function chip(el,on){el.classList.toggle('on',!!on);el.classList.toggle('off',!on)}
+function fmtMs(v){return (v===undefined||v===null||v===0)?'—':v+' ms'}
 async function refreshStatus(){
   const s=await j('/api/status');
   $('#c-ver').innerHTML='v<b>'+s.version+'</b>';
   const u=$('#c-usb'); u.textContent='USB '+(s.usbEnumerated?'●':'○'); chip(u,s.usbEnumerated);
-  const p=$('#c-pump'); p.textContent='PUMP '+(s.pumpUp?'●':'○'); chip(p,s.pumpUp);
-  $('#c-buf').innerHTML='BUF <b>'+s.bufferMs+'</b>/'+s.bufferTargetMs+'ms';
+  const m=$('#c-msc'); m.textContent='MSC '+(s.mscReady?'●':'○'); chip(m,s.mscReady);
   $('#c-play').innerHTML='PLAY <b>'+(s.playingName||'-')+'</b>';
-  $('#c-ip').innerHTML='IP <b>'+s.ip+'</b>';
+  const lat=(s.msc&&s.msc.msPlugToPlayGuess)||0;
+  $('#c-lat').innerHTML='LAT <b>'+(lat?lat+'ms':'-')+'</b>';
+  $('#c-ap').innerHTML='AP <b>'+(s.softApIp||'-')+'</b>';
+  $('#ap-box').innerHTML=
+    'SSID <code>'+(s.softApSsid||'?')+'</code><br>'+
+    'Pass <code>'+(s.softApPass||'?')+'</code><br>'+
+    'URL <code>http://'+(s.softApIp||'192.168.4.1')+'/</code>'+
+    (s.ip?'<br>STA <code>'+s.ip+'</code>':'');
+  const mm=s.msc||{};
+  $('#metrics').innerHTML=[
+    ['USB plugged', s.usbEnumerated?'yes':'no'],
+    ['MSC ready', s.mscReady?'yes':'no'],
+    ['Reads', mm.readCount||0],
+    ['Last LBA', mm.lastReadLba||0],
+    ['Since plug', fmtMs(mm.msSincePlug)],
+    ['Plug → first read', fmtMs(mm.msPlugToFirstRead)],
+    ['Plug → play guess', fmtMs(mm.msPlugToPlayGuess)],
+    ['Image', (mm.imageBytes||0)+' B / '+(mm.sectorCount||0)+' sectors'],
+    ['Playing', (s.playingName||'-')+' ('+(s.playingUid||'-')+')'],
+    ['Heap', s.freeHeap],
+    ['Uptime', s.uptime]
+  ].map(([k,v])=>`<div class="metric"><span>${k}</span><b>${v}</b></div>`).join('');
 }
 async function refreshMenu(){
   const m=await j('/api/menu');
@@ -155,6 +199,9 @@ async function refreshEvents(){
 async function loadConfig(){
   const c=(await j('/api/config')).config;
   $('#cfg-name').value=c.deviceName||'';
+  $('#cfg-appass').value=c.softApPass||'';
+  $('#cfg-softap').value=c.enableSoftAp?1:0;
+  $('#cfg-sta').value=c.enableSta?1:0;
   $('#cfg-host').value=c.hubHost||'';
   $('#cfg-port').value=c.hubPort||8093;
   $('#cfg-buf').value=c.bufferTargetMs||5000;
@@ -164,6 +211,9 @@ async function loadConfig(){
 async function saveConfig(){
   const body={
     deviceName:$('#cfg-name').value,
+    softApPass:$('#cfg-appass').value,
+    enableSoftAp:+$('#cfg-softap').value===1,
+    enableSta:+$('#cfg-sta').value===1,
     hubHost:$('#cfg-host').value,
     hubPort:+$('#cfg-port').value,
     bufferTargetMs:+$('#cfg-buf').value,
@@ -188,13 +238,12 @@ async function upload(f){
 }
 tabs();
 $('#btn-refresh').onclick=()=>{refreshMenu();refreshStatus()};
-$('#btn-usb').onclick=async()=>{await j('/api/lab/usb-toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});refreshStatus();refreshEvents()};
 $('#btn-ev-clear').onclick=async()=>{await fetch('/api/events',{method:'DELETE'}); $('#ev-list').innerHTML=''; since=0; refreshEvents()};
 $('#btn-save').onclick=saveConfig;
 $('#btn-restart').onclick=()=>fetch('/api/restart',{method:'POST'});
 setupOta();
 refreshStatus(); refreshMenu(); refreshEvents(); loadConfig();
-setInterval(()=>{refreshStatus(); refreshEvents()},2000);
+setInterval(()=>{refreshStatus(); refreshEvents()},1000);
 </script>
 </body></html>
 )HTML";

@@ -13,6 +13,7 @@ Planung für `esp32.pidrive` (USB-MSC-Medienpfad für PiDrive).
 | [WEBUI.md](WEBUI.md) | Tabs: Menü (Filebrowser), Events, Config, OTA + Statusleiste |
 | [PIDRIVE-INTEGRATION.md](PIDRIVE-INTEGRATION.md) | Was in `pidrive` additiv gebaut wird |
 | [PHASE-0-LAB.md](PHASE-0-LAB.md) | Lab an Debian/Proxmox vor dem Auto |
+| [CAR-STANDALONE.md](CAR-STANDALONE.md) | **ESP ohne Pi im Auto** — SoftAP, MSC-Demo, Timing |
 | [OFFENE-PUNKTE.md](OFFENE-PUNKTE.md) | Q-USB-*, Entscheidungen, Risiken |
 
 ## Kurzfassung

@@ -6,6 +6,7 @@
 #include <ESPmDNS.h>
 #include <Update.h>
 #include <esp_system.h>
+#include <cstring>
 
 App& App::instance() {
     static App app;
@@ -17,11 +18,15 @@ void App::begin() {
     Serial.begin(115200);
     delay(200);
     Serial.printf("\n=== esp32.pidrive v%s ===\n", FW_VERSION);
+    Serial.println("[MODE] TinyUSB OTG MSC + UART Serial (dual-USB board: OTG->car, UART->PC)");
 
     config.begin();
     events.begin();
     menu.begin();
     events.push("boot", FW_VERSION);
+
+    // MSC before WiFi so car USB enumerates quickly when bus-powered
+    msc.begin(&events, &menu);
 
     setupWifi();
 
@@ -36,13 +41,44 @@ void App::begin() {
     setupWeb();
     hub.begin(&config);
     hub.setPayloadBuilder([](JsonDocument& doc) { App::instance().buildHeartbeat(doc); });
-    if (config.enableHub) hub.sendNow();
+    if (config.enableHub && WiFi.status() == WL_CONNECTED) hub.sendNow();
 
-    events.push("ready", NetUtil::localIp().c_str());
+    char ready[64];
+    snprintf(ready, sizeof(ready), "AP %s STA %s", softApIp.c_str(),
+             WiFi.status() == WL_CONNECTED ? NetUtil::localIp().c_str() : "-");
+    events.push("ready", ready);
+}
+
+void App::startSoftAp() {
+    softApSsid = String("pidrive-") + NetUtil::macNoColon().substring(6);
+    bool ok = WiFi.softAP(softApSsid.c_str(), config.softApPass.c_str());
+    softApIp = WiFi.softAPIP().toString();
+    if (ok) {
+        Serial.printf("[SoftAP] SSID=%s pass=%s IP=%s\n", softApSsid.c_str(), config.softApPass.c_str(),
+                      softApIp.c_str());
+        events.push("softap.up", softApSsid.c_str());
+    } else {
+        events.push("softap.fail", "");
+    }
 }
 
 void App::setupWifi() {
-    WiFi.mode(WIFI_STA);
+    // Car-standalone: SoftAP so phone reaches WebUI without home WiFi / Pi
+    if (config.enableSoftAp && config.enableSta) {
+        WiFi.mode(WIFI_AP_STA);
+    } else if (config.enableSoftAp) {
+        WiFi.mode(WIFI_AP);
+    } else {
+        WiFi.mode(WIFI_STA);
+    }
+
+    if (config.enableSoftAp) startSoftAp();
+
+    if (!config.enableSta) {
+        events.push("wifi.sta", "disabled (car SoftAP-only)");
+        return;
+    }
+
     WiFiManager wm;
     WiFiManagerParameter pName("name", "Geraetename", config.deviceName.c_str(), 32);
     WiFiManagerParameter pHost("hub_host", "ESP-Hub IP", config.hubHost.c_str(), 40);
@@ -50,20 +86,27 @@ void App::setupWifi() {
     wm.addParameter(&pName);
     wm.addParameter(&pHost);
     wm.addParameter(&pPort);
-    wm.setConfigPortalTimeout(180);
-    String ap = String("pidrive-") + NetUtil::macNoColon().substring(8);
-    bool ok = wm.autoConnect(ap.c_str());
+    wm.setConfigPortalTimeout(90);  // don't block car tests forever
+    wm.setHostname(softApSsid.c_str());
+    bool ok = wm.autoConnect(softApSsid.c_str(), config.softApPass.c_str());
     if (pName.getValue()[0]) config.deviceName = pName.getValue();
     if (pHost.getValue()[0]) config.hubHost = pHost.getValue();
     int port = atoi(pPort.getValue());
     if (port > 0) config.hubPort = port;
     config.save();
+
+    // WiFiManager may tear SoftAP — restore for car phone access
+    if (config.enableSoftAp) {
+        WiFi.mode(WIFI_AP_STA);
+        startSoftAp();
+    }
+
     if (!ok) {
-        events.push("wifi.fail", "portal timeout");
-        Serial.println("[WiFi] Portal timeout — SoftAP bleibt ggf. aktiv");
+        events.push("wifi.sta", "timeout — SoftAP remains");
+        Serial.println("[WiFi] STA timeout — use SoftAP for WebUI");
     } else {
         events.push("wifi.up", NetUtil::localIp().c_str());
-        Serial.printf("[WiFi] %s\n", NetUtil::localIp().c_str());
+        Serial.printf("[WiFi] STA %s\n", NetUtil::localIp().c_str());
     }
 }
 
@@ -76,7 +119,7 @@ void App::setupWeb() {
     server_.on("/api/config", HTTP_GET, [this]() { handleApiConfigGet(); });
     server_.on("/api/config", HTTP_POST, [this]() { handleApiConfigPost(); });
     server_.on("/api/lab/play", HTTP_POST, [this]() { handleApiLabPlay(); });
-    server_.on("/api/lab/usb-toggle", HTTP_POST, [this]() { handleApiLabUsbToggle(); });
+    server_.on("/api/metrics", HTTP_GET, [this]() { handleApiMetrics(); });
     server_.on("/api/restart", HTTP_POST, [this]() { handleRestart(); });
     server_.on(
         "/ota-upload", HTTP_POST,
@@ -100,6 +143,7 @@ void App::setupWeb() {
 void App::loop() {
     server_.handleClient();
     hub.loop();
+    msc.loop();
 }
 
 void App::buildHeartbeat(JsonDocument& doc) {
@@ -109,19 +153,22 @@ void App::buildHeartbeat(JsonDocument& doc) {
     doc["chipModel"] = "esp32s3";
     doc["version"] = FW_VERSION;
     doc["fwType"] = FW_TYPE;
-    doc["ip"] = NetUtil::localIp();
-    doc["rssi"] = WiFi.RSSI();
+    doc["ip"] = WiFi.status() == WL_CONNECTED ? NetUtil::localIp() : softApIp;
+    doc["rssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
     doc["uptime"] = (millis() - bootMs_) / 1000UL;
     doc["freeHeap"] = ESP.getFreeHeap();
     doc["freeSketch"] = ESP.getFreeSketchSpace();
 
     JsonDocument ios;
-    ios["usbEnumerated"] = usbEnumerated;
+    ios["usbEnumerated"] = msc.plugged();
+    ios["mscReady"] = msc.ready();
     ios["pumpState"] = pumpUp ? "up" : "down";
     ios["bufferMs"] = bufferMs;
     ios["activeName"] = menu.playingName();
     ios["otaState"] = hub.otaPending() ? "pending" : "idle";
     ios["labMode"] = config.labMode;
+    ios["softAp"] = softApSsid;
+    ios["msPlugToPlay"] = msc.msPlugToPlayGuess();
     String iosStr;
     serializeJson(ios, iosStr);
     doc["ios"] = iosStr;
@@ -132,13 +179,17 @@ void App::buildStatus(JsonDocument& doc) {
     doc["version"] = FW_VERSION;
     doc["fwType"] = FW_TYPE;
     doc["name"] = config.deviceName;
-    doc["ip"] = NetUtil::localIp();
+    doc["ip"] = WiFi.status() == WL_CONNECTED ? NetUtil::localIp() : "";
+    doc["softApSsid"] = softApSsid;
+    doc["softApIp"] = softApIp;
+    doc["softApPass"] = config.softApPass;
     doc["mac"] = NetUtil::macNoColon();
     doc["uptime"] = NetUtil::fmtUptime((millis() - bootMs_) / 1000UL);
     doc["freeHeap"] = ESP.getFreeHeap();
-    doc["wifiRssi"] = WiFi.RSSI();
+    doc["wifiRssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
     doc["hubOk"] = hub.lastOk();
-    doc["usbEnumerated"] = usbEnumerated;
+    doc["usbEnumerated"] = msc.plugged();
+    doc["mscReady"] = msc.ready();
     doc["pumpUp"] = pumpUp;
     doc["bufferMs"] = bufferMs;
     doc["bufferTargetMs"] = config.bufferTargetMs;
@@ -146,6 +197,8 @@ void App::buildStatus(JsonDocument& doc) {
     doc["playingName"] = menu.playingName();
     doc["labMode"] = config.labMode;
     doc["chipModel"] = NetUtil::chipModel();
+    JsonObject m = doc["msc"].to<JsonObject>();
+    msc.toJson(m);
 }
 
 void App::handleRoot() {
@@ -198,11 +251,8 @@ void App::handleApiConfigPost() {
     JsonDocument body;
     if (!NetUtil::readJsonBody(server_, body)) return;
     JsonVariantConst cfgIn = body["config"];
-    if (!cfgIn.isNull()) {
-        config.fromJson(cfgIn);
-    } else {
-        config.fromJson(body.as<JsonVariantConst>());
-    }
+    if (!cfgIn.isNull()) config.fromJson(cfgIn);
+    else config.fromJson(body.as<JsonVariantConst>());
     config.save();
     events.push("config.save", config.deviceName.c_str());
     JsonDocument doc;
@@ -225,7 +275,7 @@ void App::handleApiLabPlay() {
         return;
     }
     events.push("play.guess", uid);
-    events.push("event.sent", uid);
+    events.push("event.sent", "lab-simulate");
     JsonDocument doc;
     doc["ok"] = true;
     doc["playingUid"] = menu.playingUid();
@@ -233,16 +283,16 @@ void App::handleApiLabPlay() {
     NetUtil::sendJson(server_, 200, doc);
 }
 
-void App::handleApiLabUsbToggle() {
-    if (!config.labMode) {
-        NetUtil::sendError(server_, 403, "labMode aus");
-        return;
-    }
-    usbEnumerated = !usbEnumerated;
-    events.push(usbEnumerated ? "usb.enumerated" : "usb.gone", "lab-toggle");
+void App::handleApiMetrics() {
     JsonDocument doc;
     doc["ok"] = true;
-    doc["usbEnumerated"] = usbEnumerated;
+    doc["uptimeMs"] = millis() - bootMs_;
+    doc["freeHeap"] = ESP.getFreeHeap();
+    JsonObject m = doc["msc"].to<JsonObject>();
+    msc.toJson(m);
+    doc["playingUid"] = menu.playingUid();
+    doc["playingName"] = menu.playingName();
+    doc["eventCount"] = events.count();
     NetUtil::sendJson(server_, 200, doc);
 }
 

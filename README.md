@@ -19,11 +19,12 @@ BMW / Werksradio USB-Host (Medienliste + MP3-Decode)
 
 | | |
 |--|--|
-| **Phase** | **Firmware 0.1.0-dev** (WebUI + Hub; MSC/PUMP noch Stub) |
+| **Phase** | **Firmware 0.2.0-dev** (SoftAP + USB-MSC Demo + Timing) |
 | **Stand** | [`STATE.md`](STATE.md) |
 | **Build** | PlatformIO: `pio run -e pidrive-s3` |
+| **Car-Test** | [`docs/planung/CAR-STANDALONE.md`](docs/planung/CAR-STANDALONE.md) — ESP allein im Auto |
 | **Planung** | [`docs/planung/`](docs/planung/) |
-| **Chip** | ESP32-S3 (USB-OTG) — **nicht** Classic-ESP32 |
+| **Chip** | ESP32-S3 (USB-OTG, `ARDUINO_USB_MODE=0`) |
 | **Hub** | Heartbeat + OTA-Pull + `/ota-upload` — [HUB-INTEGRATION.md](docs/planung/HUB-INTEGRATION.md) |
 
 Gegenstück / Herkunft der Idee: [`pidrive` Planung](https://github.com/MPunktBPunkt/pidrive/tree/main/docs/planung) (`KONZEPT-USB-MSC.md`, …).  

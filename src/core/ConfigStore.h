@@ -14,7 +14,12 @@ public:
     bool enableMdns = true;
     uint16_t bufferTargetMs = 5000;
     bool labMode = true;
-    uint32_t timingProfile = 0;  // 0 = default; later K61-like
+    uint32_t timingProfile = 0;
+    /** SoftAP always on — phone WebUI in car without home WiFi / without Pi */
+    bool enableSoftAp = true;
+    String softApPass = "pidrive12";  // min 8 chars
+    /** Try STA via WiFiManager; false = SoftAP-only (default for car-only tests) */
+    bool enableSta = false;
 
     void begin();
     void load();
@@ -25,5 +30,5 @@ public:
     bool fromJson(JsonVariantConst obj);
 
 private:
-    static constexpr uint8_t kConfigVersion = 1;
+    static constexpr uint8_t kConfigVersion = 2;
 };

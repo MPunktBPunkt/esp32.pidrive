@@ -23,20 +23,21 @@ Zusätzlich braucht dieses Gerät **produkt-spezifische** Tabs — Vorschlag unt
 
 | Reihenfolge | Tab | Rolle |
 |-------------|-----|--------|
-| 1 (Default) | **Menü** | Read-only-Spiegel des virtuellen FAT / der aktuellen Senderliste |
-| 2 | **Events** | Ringpuffer der wichtigsten Zustands- und Debug-Ereignisse |
-| 3 | **Config** | Familie + Gerät |
-| 4 | **OTA** | Familie |
-
-Optional später (nicht V1): **Status**-Kachel nur als Header-Leiste über allen Tabs statt eigenem Tab (weniger Klicks).
+| 1 (Default) | **Auto-Test** | SoftAP-Zugang, MSC-Timing (Plug→Read→Play), Metriken |
+| 2 | **Menü** | Spiegel des virtuellen FAT / Senderliste |
+| 3 | **Events** | Ringpuffer inkl. `usb.*` / `msc.*` / `play.guess` |
+| 4 | **Config** | SoftAP/STA, Hub, Lab |
+| 5 | **OTA** | Upload auch über SoftAP |
 
 ```
-┌──────────────────────────────────────────────┐
-│  esp32.pidrive · v0.x · [USB ●] [PUMP ●]     │  ← Statusleiste (immer)
-├──────────────────────────────────────────────┤
-│  Menü  │  Events  │  Config  │  OTA          │
-└──────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  esp32.pidrive · v0.2 · [USB ●] [MSC ●] [LAT 340ms]     │
+├──────────────────────────────────────────────────────────┤
+│  Auto-Test  │  Menü  │  Events  │  Config  │  OTA        │
+└──────────────────────────────────────────────────────────┘
 ```
+
+Car-ohne-Pi: siehe [CAR-STANDALONE.md](CAR-STANDALONE.md).
 
 ---
 
