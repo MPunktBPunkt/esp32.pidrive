@@ -8,6 +8,7 @@
 #include "core/MenuStore.h"
 #include "core/UartLinkMonitor.h"
 #include "core/StatusLed.h"
+#include "core/PumpServer.h"
 #include "msc/UsbMscGadget.h"
 
 class App {
@@ -23,6 +24,7 @@ public:
     UsbMscGadget msc;
     UartLinkMonitor uart;
     StatusLed led;
+    PumpServer pump;
 
     bool pumpUp = false;
     uint16_t bufferMs = 0;

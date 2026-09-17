@@ -4,30 +4,38 @@
 #include <ArduinoJson.h>
 #include "core/EventLog.h"
 #include "core/MenuStore.h"
+#include <functional>
 
 struct MscFileMap {
-    uint32_t lbaStart;
-    uint32_t lbaEnd;  // inclusive
-    const char* uid;
-    const char* name;
-    const char* path;
+    uint32_t lbaStart = 0;
+    uint32_t lbaEnd = 0;
+    char uid[24] = {0};
+    char name[40] = {0};
+    char path[48] = {0};
+    bool active = false;
 };
 
 struct MscReadSample {
     uint32_t ms = 0;
     uint32_t lba = 0;
     uint16_t bytes = 0;
-    uint8_t kind = 0;  // 0=meta 1=dir 2=file 3=write
+    uint8_t kind = 0;
     char tag[12] = {0};
 };
 
 class UsbMscGadget {
 public:
     static constexpr size_t kTraceSize = 24;
-    static constexpr uint32_t kDataStartLba = 35;  // FAT12 demo geometry
+    static constexpr size_t kSlots = 4;
+    static constexpr uint32_t kDataStartLba = 35;
+
+    using PlayHandler = std::function<void(const char* uid)>;
 
     bool begin(EventLog* events, MenuStore* menu);
     void loop();
+    void applyMenuSlots(const MenuStore& menu);
+    void setPlayHandler(PlayHandler h) { playHandler_ = h; }
+
     bool ready() const { return ready_; }
     bool plugged() const { return plugged_; }
     bool suspended() const { return suspended_; }
@@ -56,9 +64,13 @@ private:
     Region classify(uint32_t lba, const MscFileMap** fileOut) const;
     const MscFileMap* fileForLba(uint32_t lba) const;
     bool looksLikePlay(const MscFileMap* f, uint32_t startLba, uint32_t seqBytes) const;
+    void loadDefaultSlots();
 
     EventLog* events_ = nullptr;
     MenuStore* menu_ = nullptr;
+    PlayHandler playHandler_;
+    MscFileMap slots_[kSlots];
+
     bool ready_ = false;
     bool plugged_ = false;
     bool suspended_ = false;

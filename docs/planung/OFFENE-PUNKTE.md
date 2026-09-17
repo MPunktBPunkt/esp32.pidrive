@@ -10,8 +10,8 @@
 |----|--------|---------|--------|
 | **Q-USB-1** | USB neben BT? | **neben** | □ Owner-OK |
 | **Q-USB-2** | Encode Pi oder S3? | **Pi → MP3** | □ |
-| **Q-USB-3** | PUMP-Transport V1? | **UART/CDC** | □ (WLAN = V1.1) |
-| **Q-USB-4** | V1 nur flache Stationsliste? | ja empfohlen | □ |
+| **Q-USB-3** | PUMP-Transport V1? | **UART/CDC** | ☑ Lab 0.3.x (WLAN = V1.1) |
+| **Q-USB-4** | V1 nur flache Stationsliste? | ja · max. 4 Slots + Navigation | ☑ Lab |
 | **Q-USB-5** | Hub-OTA Tag 1? | **ja** (Familie) | □ bestätigt |
 | **Q-USB-6** | Max. Umschaltzeit? | messen | □ |
 | **Q-USB-7** | Dension als Messgerät? | optional | □ |
@@ -44,12 +44,11 @@
 ## Empfohlene Reihenfolge
 
 ```
-0. Lab L1–L3 (sobald MSC-Skeleton)
-1. HubClient + Merged-Flash @0x0
-2. Statische MP3 über MSC
-3. PUMP UART + Live-MP3
-4. G-USB-0 Fahrzeug (pidrive)
-5. PiDrive audio_output=usb_gadget
+0. Lab L1–L3 MSC-Skeleton          ✓
+1. HubClient + Merged-Flash @0x0   ✓
+2. Statische MP3 über MSC          ✓ (Demo)
+3. PUMP UART Menü + Activate       ✓ 0.3.1-dev Lab
+4. PUMP Live-MP3 + Pi-Client       ← next
+5. G-USB-0 Fahrzeug (pidrive)
+6. PiDrive audio_output=usb_gadget
 ```
-
-Keine volle Komponentenstruktur vor erstem MSC-Hello am Lab-Host — außer Hub-/Partition-Gerüst.

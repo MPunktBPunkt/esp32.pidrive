@@ -75,6 +75,7 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
     <span class="chip off" id="c-uart">PI</span>
     <span class="chip off" id="c-msc">MSC</span>
     <span class="chip" id="c-play">PLAY -</span>
+    <span class="chip off" id="c-pump">PUMP</span>
     <span class="chip" id="c-lat">LAT -</span>
     <span class="chip" id="c-ap">AP -</span>
   </div>
@@ -105,6 +106,10 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
       </div>
       <h3>SoftAP Zugang</h3>
       <div class="apbox" id="ap-box">lädt…</div>
+      <h3>Aktuelles Menü <span id="car-menu-meta"></span></h3>
+      <table><thead><tr><th>#</th><th>Name</th><th>Art</th><th></th></tr></thead>
+      <tbody id="car-menu-body"><tr><td colspan="4">lädt…</td></tr></tbody></table>
+      <p class="meta" id="car-menu-hint">PUMP vom Pi füllt die Slots. Tab <b>Menü</b> für Details · Play/Öffnen steuert PiDrive.</p>
       <h3>MSC Timing / Metriken</h3>
       <div id="metrics"></div>
       <h3>LBA Read-Trace (Host)</h3>
@@ -116,10 +121,10 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
 
   <section class="pane" id="p-menu">
     <div class="panel">
-      <h3>Virtuelles FAT <span id="menu-meta"></span></h3>
+      <h3>PiDrive-Menü <span id="menu-meta"></span></h3>
       <table><thead><tr><th>Pfad</th><th>Name</th><th>UID</th><th></th></tr></thead>
-      <tbody id="menu-body"></tbody></table>
-      <div class="meta">FAT12-Demo. Play-Guess: Start nahe Dateianfang + ≥8 KiB sequentiell (Prefetch wird gefiltert).</div>
+      <tbody id="menu-body"><tr><td colspan="4">lädt…</td></tr></tbody></table>
+      <div class="meta" id="menu-hint">Lebt über UART-PUMP. Folder = Öffnen · Station/Action = Play. Max. 4 FAT-Slots.</div>
       <button class="btn" id="btn-refresh">Refresh</button>
     </div>
   </section>
@@ -173,12 +178,15 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
 <script>
 const $=s=>document.querySelector(s);
 let since=0;
+let lastMenuRev=-1;
+let menuBusy=false;
 function tabs(){
   document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
     document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
     document.querySelectorAll('.pane').forEach(x=>x.classList.remove('active'));
     t.classList.add('active');
     $('#p-'+t.dataset.t).classList.add('active');
+    if(t.dataset.t==='menu') refreshMenu(true);
   });
 }
 async function j(url,opt){
@@ -189,8 +197,59 @@ async function j(url,opt){
 function chip(el,on,warn){
   if(!el) return;
   el.classList.toggle('on',!!on && !warn);
+  el.classList.toggle('off',!on);
   el.classList.toggle('warn',!!warn);
-  el.classList.toggle('off',!on && !warn);
+}
+function actLabel(kind){
+  if(kind==='folder') return 'Öffnen';
+  if(kind==='station'||kind==='action') return 'Play';
+  return 'Aktivieren';
+}
+function bindPlayButtons(root){
+  if(!root) return;
+  root.querySelectorAll('[data-uid]').forEach(b=>{
+    b.onclick=async()=>{
+      b.disabled=true;
+      try{
+        await j('/api/lab/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:b.dataset.uid})});
+        await refreshMenu(true); await refreshStatus(); await refreshEvents();
+      }catch(e){
+        alert('Play fehlgeschlagen: '+(e.message||e));
+      }finally{ b.disabled=false; }
+    };
+  });
+}
+function renderMenuRows(items, mode){
+  if(!items.length) return '<tr><td colspan="4">kein Menü — Bridge/PUMP prüfen</td></tr>';
+  return items.map((it,i)=>{
+    const btn=`<button class="btn" data-uid="${it.uid}">${actLabel(it.kind)}</button>`;
+    if(mode==='car'){
+      return `<tr class="${it.playing?'play':''}"><td>${i+1}</td><td>${it.name||'?'}</td><td>${it.kind||''}</td><td>${btn}</td></tr>`;
+    }
+    return `<tr class="${it.playing?'play':''}"><td>${it.path||''}</td><td>${it.name||'?'}</td><td style="font-size:11px;word-break:break-all">${it.uid||''}</td><td>${btn}</td></tr>`;
+  }).join('');
+}
+async function refreshMenu(force){
+  if(menuBusy) return;
+  menuBusy=true;
+  try{
+    const m=await j('/api/menu');
+    const menu=m.menu||{};
+    const items=menu.items||[];
+    const rev=menu.rev!=null?menu.rev:0;
+    if(!force && rev===lastMenuRev) return;
+    lastMenuRev=rev;
+    const metaTxt='('+items.length+(rev?' · rev '+rev:'')+')';
+    const meta=$('#menu-meta'); if(meta) meta.textContent=metaTxt;
+    const cmeta=$('#car-menu-meta'); if(cmeta) cmeta.textContent=metaTxt;
+    const body=$('#menu-body');
+    if(body){ body.innerHTML=renderMenuRows(items,'full'); bindPlayButtons(body); }
+    const cbody=$('#car-menu-body');
+    if(cbody){ cbody.innerHTML=renderMenuRows(items,'car'); bindPlayButtons(cbody); }
+  }catch(e){
+    const body=$('#menu-body');
+    if(body && !body.dataset.ok) body.innerHTML='<tr><td colspan="4">Menü-Fehler: '+(e.message||e)+'</td></tr>';
+  }finally{ menuBusy=false; }
 }
 function fmtMs(v){return (v===undefined||v===null||v===0)?'—':v+' ms'}
 function fmtAgo(ms){
@@ -237,6 +296,8 @@ async function refreshStatus(){
     }
     const m=$('#c-msc'); if(m){ m.textContent='MSC '+(s.mscReady?'●':'○'); chip(m,s.mscReady); }
     const cPlay=$('#c-play'); if(cPlay) cPlay.innerHTML='PLAY <b>'+(s.playingName||'-')+'</b>';
+    const cPump=$('#c-pump');
+    if(cPump){ cPump.textContent='PUMP '+(s.pumpUp?'●':'○'); chip(cPump, !!s.pumpUp); }
     const lat=(s.msc&&s.msc.msPlugToPlayGuess)||0;
     const cLat=$('#c-lat'); if(cLat) cLat.innerHTML='LAT <b>'+(lat?lat+'ms':'-')+'</b>';
     const cAp=$('#c-ap'); if(cAp) cAp.innerHTML='AP <b>'+(s.softApIp||'-')+'</b>';
@@ -266,6 +327,7 @@ async function refreshStatus(){
     if(metrics) metrics.innerHTML=[
       ['OTG (Auto)', otgUp?(otgSus?'suspend':'up'):'down'],
       ['UART (Pi)', uartState],
+      ['PUMP', s.pumpUp?'up':'down'],
       ['MSC ready', s.mscReady?'yes':'no'],
       ['Reads / Writes', (mm.readCount||0)+' / '+(mm.writeCount||0)],
       ['Bytes R (meta/file)', (mm.bytesRead||0)+' ('+(mm.bytesMeta||0)+'/'+(mm.bytesFile||0)+')'],
@@ -274,6 +336,7 @@ async function refreshStatus(){
       ['Plug → first read', fmtMs(mm.msPlugToFirstRead)],
       ['Plug → play guess', fmtMs(mm.msPlugToPlayGuess)],
       ['Playing', (s.playingName||'-')+' ('+(s.playingUid||'-')+')'],
+      ['PUMP / Menü', (s.pumpUp?'up':'down')+' · '+(s.menuCount||0)+' slots · rev '+(s.menuRev||0)],
       ['Heap', s.freeHeap],
       ['Uptime', s.uptime],
       ['LED', s.led||'-']
@@ -285,25 +348,12 @@ async function refreshStatus(){
         `<tr><td>${r.ms}</td><td>${r.lba}</td><td>${r.n}</td><td>${r.kind}</td><td>${r.tag||''}</td></tr>`
       ).join('')||'<tr><td colspan="5">noch keine Reads</td></tr>';
     }
+    const rev=s.menuRev!=null?s.menuRev:lastMenuRev;
+    if(rev!==lastMenuRev) await refreshMenu(true);
   }catch(err){
     const el=$('#ap-box');
     if(el) el.innerHTML='Status-Fehler: <code>'+String(err.message||err)+'</code> — Hard-Reload versuchen';
   }
-}
-async function refreshMenu(){
-  try{
-    const m=await j('/api/menu');
-    const items=(m.menu&&m.menu.items)||[];
-    const meta=$('#menu-meta'); if(meta) meta.textContent='('+items.length+')';
-    const body=$('#menu-body'); if(!body) return;
-    body.innerHTML=items.map(it=>`<tr class="${it.playing?'play':''}">
-      <td>${it.path}</td><td>${it.name}</td><td>${it.uid}</td>
-      <td>${it.kind==='station'||it.kind==='action'?`<button class="btn" data-uid="${it.uid}">Play</button>`:''}</td></tr>`).join('');
-    body.querySelectorAll('.btn').forEach(b=>b.onclick=async()=>{
-      await j('/api/lab/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:b.dataset.uid})});
-      await refreshMenu(); await refreshStatus(); await refreshEvents();
-    });
-  }catch(e){}
 }
 async function refreshEvents(){
   try{
@@ -362,7 +412,7 @@ async function upload(f){
   $('#ota-msg').textContent=r.ok?'OK — Neustart':'Fehler '+r.status;
 }
 tabs();
-$('#btn-refresh').onclick=async()=>{await refreshMenu(); await refreshStatus();};
+$('#btn-refresh').onclick=async()=>{await refreshMenu(true); await refreshStatus();};
 $('#btn-ev-clear').onclick=async()=>{await fetch('/api/events',{method:'DELETE'}); $('#ev-list').innerHTML=''; since=0; await refreshEvents();};
 $('#btn-save').onclick=()=>saveConfig();
 $('#btn-restart').onclick=()=>fetch('/api/restart',{method:'POST'});
@@ -370,10 +420,13 @@ setupOta();
 (async()=>{
   // sequentiell — ESP-WebServer mag keine parallelen Requests
   await refreshStatus();
-  await refreshMenu();
+  await refreshMenu(true);
   await refreshEvents();
   await loadConfig();
-  setInterval(async()=>{ await refreshStatus(); await refreshEvents(); },1000);
+  setInterval(async()=>{
+    await refreshStatus();
+    await refreshEvents();
+  },1000);
 })();
 </script>
 </body></html>

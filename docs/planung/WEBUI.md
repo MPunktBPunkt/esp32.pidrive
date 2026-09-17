@@ -1,7 +1,7 @@
 # WebUI — `esp32.pidrive`
 
-**Stand:** 2026-09-17 · Entwurf  
-**Bezug:** [KONZEPT.md](KONZEPT.md), [HUB-INTEGRATION.md](HUB-INTEGRATION.md), Familie `esp-hub-base` / `esp32.ergo`  
+**Stand:** 2026-09-17 · Ist ab **0.3.1-dev**  
+**Bezug:** [KONZEPT.md](KONZEPT.md), [PUMP.md](PUMP.md), [HUB-INTEGRATION.md](HUB-INTEGRATION.md)  
 **Ziel:** schlanke Diagnose- und Setup-UI am ESP; **kein** zweites Infotainment.
 
 ---
@@ -23,19 +23,23 @@ Zusätzlich braucht dieses Gerät **produkt-spezifische** Tabs — Vorschlag unt
 
 | Reihenfolge | Tab | Rolle |
 |-------------|-----|--------|
-| 1 (Default) | **Auto-Test** | SoftAP-Zugang, MSC-Timing (Plug→Read→Play), Metriken |
-| 2 | **Menü** | Spiegel des virtuellen FAT / Senderliste |
-| 3 | **Events** | Ringpuffer inkl. `usb.*` / `msc.*` / `play.guess` |
+| 1 (Default) | **Auto-Test** | SoftAP, Ports, **Aktuelles Menü** (4 Slots, Öffnen/Play), MSC-Metriken |
+| 2 | **Menü** | denselben Store mit Pfad/UID; Refresh / Live bei `menuRev` |
+| 3 | **Events** | Ringpuffer inkl. `usb.*` / `msc.*` / `pump.*` / `play.guess` |
 | 4 | **Config** | SoftAP/STA, Hub, Lab |
 | 5 | **OTA** | Upload auch über SoftAP |
 
+Statusleiste: `AUTO` · `PI` · `MSC` · `PLAY` · **`PUMP`** · `LAT` · `AP`.
+
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  esp32.pidrive · v0.2 · [USB ●] [MSC ●] [LAT 340ms]     │
+│  esp32.pidrive · v0.3.1 · [PUMP ●] [PLAY Deutschrock]   │
 ├──────────────────────────────────────────────────────────┤
 │  Auto-Test  │  Menü  │  Events  │  Config  │  OTA        │
 └──────────────────────────────────────────────────────────┘
 ```
+
+Lab-Play (`POST /api/lab/play`) sendet bei `pumpUp` ein PUMP-`play_uid` an den Pi.
 
 Car-ohne-Pi: siehe [CAR-STANDALONE.md](CAR-STANDALONE.md).
 

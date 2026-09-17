@@ -5,9 +5,8 @@
 #include "core/EventLog.h"
 
 /**
- * UART-USB (Bridge-Chip → Pi/PC): kein nativer Plug-Sensor am ESP.
- * States: idle (nie Traffic) | up (Traffic) | quiet (hatte Traffic, jetzt still).
- * „GETRENNT“ wäre irreführend — Kabel kann weiter stecken.
+ * UART-USB link state (activity). RX bytes are fed via noteRx() from PumpServer
+ * so only one consumer reads Serial.
  */
 class UartLinkMonitor {
 public:
@@ -15,6 +14,7 @@ public:
 
     void begin(EventLog* events);
     void loop();
+    void noteRx(size_t n);
     bool linkUp() const { return state_ == State::Up; }
     State state() const { return state_; }
     const char* stateName() const;

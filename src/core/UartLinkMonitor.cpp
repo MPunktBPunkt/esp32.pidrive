@@ -30,41 +30,14 @@ void UartLinkMonitor::setState(State s, const char* detail) {
     Serial.printf("[UART] %s (%s)\n", stateName(), detail);
 }
 
+void UartLinkMonitor::noteRx(size_t n) {
+    if (n == 0) return;
+    rxBytes_ += (uint32_t)n;
+    lastRxMs_ = millis();
+    setState(State::Up, "rx");
+}
+
 void UartLinkMonitor::loop() {
-    int n = Serial.available();
-    if (n > 0) {
-        uint8_t buf[64];
-        size_t total = 0;
-        char line[80];
-        size_t lp = 0;
-        while (n > 0) {
-            int chunk = n > (int)sizeof(buf) ? (int)sizeof(buf) : n;
-            int got = Serial.readBytes(buf, chunk);
-            if (got <= 0) break;
-            rxBytes_ += (uint32_t)got;
-            total += (size_t)got;
-            for (int i = 0; i < got; i++) {
-                char c = (char)buf[i];
-                if (c == '\n' || c == '\r') {
-                    if (lp > 0) {
-                        line[lp] = 0;
-                        // Lab handshake — Pi kann Bidirektionalität prüfen
-                        if (strncmp(line, "PING", 4) == 0 || strncmp(line, "DBG", 3) == 0) {
-                            Serial.println("PONG");
-                        }
-                        lp = 0;
-                    }
-                } else if (lp + 1 < sizeof(line)) {
-                    line[lp++] = c;
-                }
-            }
-            n -= got;
-        }
-        (void)total;
-        lastRxMs_ = millis();
-        setState(State::Up, "rx");
-        return;
-    }
     if (state_ == State::Up && lastRxMs_ && (millis() - lastRxMs_) > kIdleMs) {
         setState(State::Quiet, "no-rx");
     }

@@ -4,6 +4,7 @@
 void MenuStore::begin() {
     count_ = 0;
     playingUid_[0] = 0;
+    rev_ = 0;
     loadDemo();
 }
 
@@ -19,11 +20,47 @@ void MenuStore::loadDemo() {
         strncpy(it.kind, kind, sizeof(it.kind) - 1);
         it.playing = false;
     };
-    // Paths match USB FAT demo image (8.3 names)
     add("STATIONS/01ROCK.MP3", "ROCK FM", "demo:rock_fm", "station");
     add("STATIONS/02ANTENN.MP3", "Antenne 1", "demo:antenne", "station");
     add("STATIONS/03SWR3.MP3", "SWR3", "demo:swr3", "station");
     add("SETTINGS/ABOUT.MP3", "About", "action:about", "action");
+}
+
+bool MenuStore::setFromJson(JsonArrayConst items, uint32_t rev) {
+    count_ = 0;
+    rev_ = rev;
+    for (JsonVariantConst v : items) {
+        if (count_ >= MENU_MAX_ITEMS) break;
+        const char* name = v["name"] | v["label"] | "";
+        const char* kind = v["kind"] | v["type"] | "station";
+        char uidBuf[24] = {0};
+        if (v["uid"].is<const char*>()) {
+            strncpy(uidBuf, v["uid"].as<const char*>(), sizeof(uidBuf) - 1);
+        } else if (v["uid"].is<uint64_t>() || v["uid"].is<long>() || v["uid"].is<int>()) {
+            snprintf(uidBuf, sizeof(uidBuf), "%llu", (unsigned long long)v["uid"].as<uint64_t>());
+        }
+        if (!name[0] || !uidBuf[0]) continue;
+        MenuItem& it = items_[count_++];
+        memset(&it, 0, sizeof(it));
+        strncpy(it.name, name, sizeof(it.name) - 1);
+        strncpy(it.uid, uidBuf, sizeof(it.uid) - 1);
+        strncpy(it.kind, kind, sizeof(it.kind) - 1);
+        char path[48];
+        snprintf(path, sizeof(path), "STATIONS/%02u.MP3", (unsigned)count_);
+        strncpy(it.path, path, sizeof(it.path) - 1);
+        it.playing = (playingUid_[0] && strcmp(playingUid_, it.uid) == 0);
+    }
+    if (playingUid_[0]) {
+        bool found = false;
+        for (size_t i = 0; i < count_; i++) {
+            if (strcmp(items_[i].uid, playingUid_) == 0) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) clearPlaying();
+    }
+    return count_ > 0;
 }
 
 void MenuStore::setPlaying(const char* uid) {
@@ -61,6 +98,7 @@ bool MenuStore::playByUid(const char* uid) {
 
 void MenuStore::toJson(JsonObject obj) const {
     obj["count"] = count_;
+    obj["rev"] = rev_;
     obj["playingUid"] = playingUid_;
     obj["playingName"] = playingName();
     JsonArray arr = obj["items"].to<JsonArray>();

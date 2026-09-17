@@ -9,15 +9,6 @@
 static UsbMscGadget* g_msc = nullptr;
 static USBMSC MSC;
 
-// LBA map from demo FAT12 (cluster→LBA verified against demo_fat.bin)
-static const MscFileMap kFiles[] = {
-    {43, 58, "demo:rock_fm", "ROCK FM", "STATIONS/01ROCK.MP3"},
-    {59, 74, "demo:antenne", "Antenne 1", "STATIONS/02ANTENN.MP3"},
-    {75, 90, "demo:swr3", "SWR3", "STATIONS/03SWR3.MP3"},
-    {91, 102, "action:about", "About", "SETTINGS/ABOUT.MP3"},
-};
-
-// Directory cluster LBAs (spc=4): STATIONS=35-38, SETTINGS=39-42
 static bool isDirLba(uint32_t lba) {
     return lba >= 35 && lba <= 42;
 }
@@ -43,21 +34,54 @@ static void usb_event_cb(void* arg, esp_event_base_t event_base, int32_t event_i
     (void)event_data;
     if (event_base != ARDUINO_USB_EVENTS || !g_msc) return;
     switch (event_id) {
-        case ARDUINO_USB_STARTED_EVENT:
-            g_msc->onUsbPlugged(true);
-            break;
-        case ARDUINO_USB_STOPPED_EVENT:
-            g_msc->onUsbPlugged(false);
-            break;
-        case ARDUINO_USB_SUSPEND_EVENT:
-            g_msc->onUsbSuspend(true);
-            break;
-        case ARDUINO_USB_RESUME_EVENT:
-            g_msc->onUsbSuspend(false);
-            break;
-        default:
-            break;
+        case ARDUINO_USB_STARTED_EVENT: g_msc->onUsbPlugged(true); break;
+        case ARDUINO_USB_STOPPED_EVENT: g_msc->onUsbPlugged(false); break;
+        case ARDUINO_USB_SUSPEND_EVENT: g_msc->onUsbSuspend(true); break;
+        case ARDUINO_USB_RESUME_EVENT: g_msc->onUsbSuspend(false); break;
+        default: break;
     }
+}
+
+void UsbMscGadget::loadDefaultSlots() {
+    // Geometry from demo_fat.bin
+    const char* names[] = {"ROCK FM", "Antenne 1", "SWR3", "About"};
+    const char* uids[] = {"demo:rock_fm", "demo:antenne", "demo:swr3", "action:about"};
+    const char* paths[] = {
+        "STATIONS/01ROCK.MP3", "STATIONS/02ANTENN.MP3", "STATIONS/03SWR3.MP3", "SETTINGS/ABOUT.MP3"};
+    const uint32_t ranges[][2] = {{43, 58}, {59, 74}, {75, 90}, {91, 102}};
+    for (size_t i = 0; i < kSlots; i++) {
+        slots_[i].lbaStart = ranges[i][0];
+        slots_[i].lbaEnd = ranges[i][1];
+        strncpy(slots_[i].name, names[i], sizeof(slots_[i].name) - 1);
+        strncpy(slots_[i].uid, uids[i], sizeof(slots_[i].uid) - 1);
+        strncpy(slots_[i].path, paths[i], sizeof(slots_[i].path) - 1);
+        slots_[i].active = true;
+    }
+}
+
+void UsbMscGadget::applyMenuSlots(const MenuStore& menu) {
+    loadDefaultSlots();
+    size_t n = menu.count();
+    if (n > kSlots) n = kSlots;
+    for (size_t i = 0; i < kSlots; i++) {
+        if (i < n) {
+            const MenuItem* it = menu.itemAt(i);
+            if (!it) continue;
+            strncpy(slots_[i].uid, it->uid, sizeof(slots_[i].uid) - 1);
+            strncpy(slots_[i].name, it->name, sizeof(slots_[i].name) - 1);
+            slots_[i].active = true;
+        } else {
+            // keep geometry but mark inactive for play-guess
+            slots_[i].active = false;
+            slots_[i].uid[0] = 0;
+        }
+    }
+    if (events_) {
+        char d[32];
+        snprintf(d, sizeof(d), "slots=%u", (unsigned)n);
+        events_->push("msc.slots", d);
+    }
+    Serial.printf("[MSC] applyMenuSlots n=%u\n", (unsigned)n);
 }
 
 bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
@@ -65,6 +89,7 @@ bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
     menu_ = menu;
     g_msc = this;
     changeMs_ = millis();
+    loadDefaultSlots();
 
     if (DEMO_FAT_SECTOR_COUNT == 0 || DEMO_FAT_SIZE < 512) {
         if (events_) events_->push("msc.fail", "empty image");
@@ -74,7 +99,7 @@ bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
     USB.onEvent(usb_event_cb);
     MSC.vendorID("PIDRIVE");
     MSC.productID("USB_MEDIA");
-    MSC.productRevision("0.2");
+    MSC.productRevision("0.3");
     MSC.onStartStop(pidrive_msc_start_stop);
     MSC.onRead(pidrive_msc_read);
     MSC.onWrite(pidrive_msc_write);
@@ -86,7 +111,7 @@ bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
     USB.begin();
     ready_ = true;
     if (events_) events_->push("msc.ready", "FAT12 demo");
-    Serial.printf("[MSC] ready sectors=%u size=%u\n", DEMO_FAT_SECTOR_COUNT, DEMO_FAT_SIZE);
+    Serial.printf("[MSC] ready sectors=%u\n", DEMO_FAT_SECTOR_COUNT);
     return true;
 }
 
@@ -113,27 +138,22 @@ void UsbMscGadget::onUsbPlugged(bool on) {
         traceCount_ = 0;
         plugCount_++;
         if (events_) events_->push("usb.otg.up", "car-host");
-        Serial.println("[OTG] UP car-host mounted");
     } else {
         unplugCount_++;
         if (events_) events_->push("usb.otg.down", "car-host");
-        Serial.println("[OTG] DOWN car-host gone");
         if (menu_) menu_->clearPlaying();
     }
 }
 
 void UsbMscGadget::onUsbSuspend(bool on) {
-    if (!plugged_) return;
-    if (suspended_ == on) return;
+    if (!plugged_ || suspended_ == on) return;
     suspended_ = on;
     if (events_) events_->push(on ? "usb.otg.suspend" : "usb.otg.resume", "car-host");
-    Serial.printf("[OTG] %s\n", on ? "SUSPEND" : "RESUME");
 }
 
 void UsbMscGadget::onHostStartStop(bool start, bool loadEject) {
     char det[40];
     snprintf(det, sizeof(det), "start=%u eject=%u", start ? 1 : 0, loadEject ? 1 : 0);
-    Serial.printf("[MSC] START/STOP %s\n", det);
     if (events_ && millis() - lastEventMs_ > 200) {
         lastEventMs_ = millis();
         events_->push(start ? "msc.host.start" : "msc.host.stop", det);
@@ -157,7 +177,7 @@ UsbMscGadget::Region UsbMscGadget::classify(uint32_t lba, const MscFileMap** fil
     if (lba < kDataStartLba) return Region::Meta;
     if (isDirLba(lba)) return Region::Dir;
     const MscFileMap* f = fileForLba(lba);
-    if (f) {
+    if (f && f->active) {
         if (fileOut) *fileOut = f;
         return Region::File;
     }
@@ -165,13 +185,10 @@ UsbMscGadget::Region UsbMscGadget::classify(uint32_t lba, const MscFileMap** fil
 }
 
 bool UsbMscGadget::looksLikePlay(const MscFileMap* f, uint32_t startLba, uint32_t seqBytes) const {
-    if (!f) return false;
-    // PC/Linux probe often touches mid-file with 4 KiB — require start near file head
-    // and a longer sequential run (PC-Test 2026-09-17: false play.guess @ lba=64).
+    if (!f || !f->active || !f->uid[0]) return false;
     const bool fromHead = startLba <= f->lbaStart + 2;
     if (!fromHead) return false;
     if (seqBytes < 8192) return false;
-    // Ignore mount storm in first 1.5 s unless stream is already long
     if (plugMs_ && (millis() - plugMs_) < 1500 && seqBytes < 16384) return false;
     return true;
 }
@@ -198,13 +215,12 @@ int32_t UsbMscGadget::onWrite(uint32_t lba, uint32_t offset, uint8_t* buffer, ui
         snprintf(d, sizeof(d), "lba=%u n=%u", (unsigned)lba, (unsigned)bufsize);
         events_->push("msc.write", d);
     }
-    Serial.printf("[MSC] WRITE lba=%u n=%u (discard)\n", (unsigned)lba, (unsigned)bufsize);
     return (int32_t)bufsize;
 }
 
 const MscFileMap* UsbMscGadget::fileForLba(uint32_t lba) const {
-    for (const auto& f : kFiles) {
-        if (lba >= f.lbaStart && lba <= f.lbaEnd) return &f;
+    for (size_t i = 0; i < kSlots; i++) {
+        if (lba >= slots_[i].lbaStart && lba <= slots_[i].lbaEnd) return &slots_[i];
     }
     return nullptr;
 }
@@ -223,8 +239,7 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
         kind = 1;
         bytesMeta_ += bufsize;
     } else if (reg == Region::File && f) {
-        const char* slash = strrchr(f->path, '/');
-        tag = slash ? slash + 1 : f->path;
+        tag = f->name;
         kind = 2;
         bytesFile_ += bufsize;
     } else {
@@ -232,7 +247,6 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
     }
     pushTrace(lba, bufsize, kind, tag);
 
-    // Rate-limited serial + event for visibility during lab
     if (millis() - lastTraceLogMs_ > 250) {
         lastTraceLogMs_ = millis();
         Serial.printf("[MSC] RD lba=%u n=%u %s\n", (unsigned)lba, (unsigned)bufsize, tag);
@@ -255,7 +269,6 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
     }
 
     if (f != seqFile_ || lba < seqLba_ || (seqLba_ && lba > seqLba_ + 16)) {
-        // new sequence (or big jump = not sequential stream)
         seqFile_ = f;
         seqBytes_ = 0;
         seqStartLba_ = lba;
@@ -263,15 +276,12 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
     seqLba_ = lba;
     seqBytes_ += bufsize;
 
-    // Mid-file probe → prefetch, not play
     if (seqBytes_ >= 2048 && !looksLikePlay(f, seqStartLba_, seqBytes_)) {
         if (seqStartLba_ > f->lbaStart + 2) {
             prefetchHits_++;
             if (events_ && millis() - lastEventMs_ > 800) {
                 lastEventMs_ = millis();
-                char d[48];
-                snprintf(d, sizeof(d), "%s lba=%u", f->uid, (unsigned)seqStartLba_);
-                events_->push("msc.prefetch", d);
+                events_->push("msc.prefetch", f->uid);
             }
         }
         return;
@@ -292,6 +302,7 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
                 snprintf(d, sizeof(d), "from=%u +%luB", (unsigned)seqStartLba_, (unsigned long)seqBytes_);
                 events_->push("msc.stream", d);
             }
+            if (playHandler_) playHandler_(f->uid);
         }
     }
 }
@@ -342,8 +353,19 @@ void UsbMscGadget::toJson(JsonObject obj) const {
     obj["sectorCount"] = DEMO_FAT_SECTOR_COUNT;
     obj["imageBytes"] = DEMO_FAT_SIZE;
     obj["dataStartLba"] = kDataStartLba;
+    obj["slots"] = (int)kSlots;
     obj["port"] = "otg";
     obj["role"] = "car-host";
+    JsonArray arr = obj["slotMap"].to<JsonArray>();
+    for (size_t i = 0; i < kSlots; i++) {
+        JsonObject o = arr.add<JsonObject>();
+        o["i"] = (int)i;
+        o["uid"] = slots_[i].uid;
+        o["name"] = slots_[i].name;
+        o["lba0"] = slots_[i].lbaStart;
+        o["lba1"] = slots_[i].lbaEnd;
+        o["active"] = slots_[i].active;
+    }
 }
 
 #else
@@ -352,10 +374,10 @@ bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
     events_ = events;
     menu_ = menu;
     if (events_) events_->push("msc.fail", "ARDUINO_USB_MODE=1");
-    Serial.println("[MSC] disabled: need ARDUINO_USB_MODE=0 (TinyUSB OTG)");
     return false;
 }
 void UsbMscGadget::loop() {}
+void UsbMscGadget::applyMenuSlots(const MenuStore&) {}
 void UsbMscGadget::onUsbPlugged(bool) {}
 void UsbMscGadget::onUsbSuspend(bool) {}
 void UsbMscGadget::onHostStartStop(bool, bool) {}
@@ -365,7 +387,6 @@ uint32_t UsbMscGadget::msSincePlug() const { return 0; }
 uint32_t UsbMscGadget::msSinceChange() const { return 0; }
 void UsbMscGadget::toJson(JsonObject obj) const {
     obj["ready"] = false;
-    obj["plugged"] = false;
     obj["error"] = "USB_MODE";
 }
 void UsbMscGadget::traceToJson(JsonArray) const {}
@@ -374,5 +395,6 @@ void UsbMscGadget::pushTrace(uint32_t, uint32_t, uint8_t, const char*) {}
 UsbMscGadget::Region UsbMscGadget::classify(uint32_t, const MscFileMap**) const { return Region::Meta; }
 const MscFileMap* UsbMscGadget::fileForLba(uint32_t) const { return nullptr; }
 bool UsbMscGadget::looksLikePlay(const MscFileMap*, uint32_t, uint32_t) const { return false; }
+void UsbMscGadget::loadDefaultSlots() {}
 
 #endif

@@ -35,6 +35,8 @@ void App::begin() {
     // MSC before WiFi so car USB enumerates quickly when bus-powered
     msc.begin(&events, &menu);
     uart.begin(&events);
+    pump.begin(&events, &menu, &msc, &uart);
+    msc.setPlayHandler([](const char* uid) { App::instance().pump.sendPlayUid(uid); });
 
     setupWifi();
 
@@ -153,13 +155,15 @@ void App::loop() {
     hub.loop();
     msc.loop();
     uart.loop();
+    pump.loop();
+    pumpUp = pump.up();
 
     // RGB priority: error > OTG mount > UART activity > idle green
     if (!msc.ready()) {
         led.setMode(StatusLed::Mode::Error);
     } else if (msc.plugged()) {
         led.setMode(StatusLed::Mode::OtgMount);
-    } else if (uart.linkUp()) {
+    } else if (uart.linkUp() || pump.up()) {
         led.setMode(StatusLed::Mode::UartLink);
     } else {
         led.setMode(StatusLed::Mode::Idle);
@@ -224,6 +228,8 @@ void App::buildStatus(JsonDocument& doc) {
     doc["bufferTargetMs"] = config.bufferTargetMs;
     doc["playingUid"] = menu.playingUid();
     doc["playingName"] = menu.playingName();
+    doc["menuRev"] = menu.rev();
+    doc["menuCount"] = (int)menu.count();
     doc["labMode"] = config.labMode;
     doc["chipModel"] = NetUtil::chipModel();
     doc["led"] = led.modeName();
@@ -328,11 +334,13 @@ void App::handleApiLabPlay() {
         return;
     }
     events.push("play.guess", uid);
-    events.push("event.sent", "lab-simulate");
+    pump.sendPlayUid(uid);
+    events.push("event.sent", pump.up() ? "pump" : "lab-simulate");
     JsonDocument doc;
     doc["ok"] = true;
     doc["playingUid"] = menu.playingUid();
     doc["playingName"] = menu.playingName();
+    doc["pumpUp"] = pump.up();
     NetUtil::sendJson(server_, 200, doc);
 }
 

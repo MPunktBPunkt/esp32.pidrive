@@ -7,7 +7,7 @@ PiDrive bleibt Gehirn (Quellen, Menü-UIDs, Encode). Der bestehende **Bluetooth-
 ```
 PiDrive (Pi 4)
   │  PUMP (UART/CDC V1, später optional WLAN)
-  │  MP3-Frames + Menu + Control
+  │  Menu + Control  (+ später MP3-Frames)
   ▼
 esp32.pidrive (ESP32-S3)
   │  USB Device MSC + Vorpuffer
@@ -19,39 +19,39 @@ BMW / Werksradio USB-Host (Medienliste + MP3-Decode)
 
 | | |
 |--|--|
-| **Phase** | **Firmware 0.2.1-dev** (SoftAP + MSC + Port-UI AUTO/PI) |
+| **Phase** | **Firmware 0.3.1-dev** — PUMP Menü-Sync + Activate (Lab) |
 | **Stand** | [`STATE.md`](STATE.md) |
 | **Build** | PlatformIO: `pio run -e pidrive-s3` |
+| **PUMP** | [`docs/planung/PUMP.md`](docs/planung/PUMP.md) · Bridge [`tools/pump_bridge.py`](tools/pump_bridge.py) |
 | **Car-Test** | [`docs/planung/CAR-STANDALONE.md`](docs/planung/CAR-STANDALONE.md) — ESP allein im Auto |
 | **Planung** | [`docs/planung/`](docs/planung/) |
 | **Chip** | ESP32-S3 (USB-OTG, `ARDUINO_USB_MODE=0`) |
 | **Hub** | Heartbeat + OTA-Pull + `/ota-upload` — [HUB-INTEGRATION.md](docs/planung/HUB-INTEGRATION.md) |
+| **Dist** | `dist/pidrive.0.3.1-dev.usb.esp32s3.bin` (Flash @0x0) · `.ota.esp32s3.bin` (OTA) |
 
 Gegenstück / Herkunft der Idee: [`pidrive` Planung](https://github.com/MPunktBPunkt/pidrive/tree/main/docs/planung) (`KONZEPT-USB-MSC.md`, …).  
 Schwesterprojekt (BT): [`esp32.bt-gateway`](https://github.com/MPunktBPunkt/esp32.bt-gateway).
 
 ## Was dieses Projekt ist
 
-- TinyUSB **MSC Device** + virtuelles FAT
-- On-the-fly-MP3 an den Auto-USB-Host
-- **PUMP**-Protokoll zum Pi (Control / Stream / Events)
-- Dünner IDF-**HubClient** → [`iobroker.esp-hub`](https://github.com/MPunktBPunkt/iobroker.esp-hub) (Flash @ `0x0`, OTA-Pull)
-- Lab zuerst an Debian/Proxmox, Auto später
+- TinyUSB **MSC Device** + virtuelles FAT (Demo + Slot-Namen vom Pi)
+- **PUMP** line-JSON über UART: Menü sync, Play-UID → PiDrive `activate:`
+- SoftAP-WebUI (Auto-Test / Menü / Events / Config / OTA)
+- Dünner HubClient → [`iobroker.esp-hub`](https://github.com/MPunktBPunkt/iobroker.esp-hub)
+- Lab an Pi + Debian; Auto später
 
 ## Was es bewusst nicht ist
 
 - Kein zweites Infotainment, kein Mixer, kein Quellen-Umschalter
 - Kein Classic-Bluetooth / kein Ersatz für `esp32.bt-gateway`
 - Kein BLE-Audio-Transport Pi↔ESP
-- Kein Arduino-`esp-hub-base`-Klon (nur gleicher Hub-HTTP-Contract)
-- Kein Pi-4-only-Gadget (USB-C = Power; USB-A = Host-only)
+- (noch) kein Live-MP3-Stream über PUMP — Ton kommt weiter vom Pi (BT/Klinke)
 
 ## Hardware (V1)
 
 - ESP32-S3-Board mit **zwei USB-Buchsen** (native OTG + USB-UART-Bridge)
 - OTG → BMW / Lab-Host (MSC)
 - UART-USB → Pi oder Lab-PC (PUMP + Console)
-- Flash: Dual-OTA (Partitionen noch zu messen)
 
 ## Build (PlatformIO)
 
@@ -59,28 +59,36 @@ Schwesterprojekt (BT): [`esp32.bt-gateway`](https://github.com/MPunktBPunkt/esp3
 cd esp32.pidrive
 pio run -e pidrive-s3          # kompilieren
 pio run -e pidrive-s3 -t upload
-pio device monitor
+# oder OTA:
+curl -F firmware=@dist/pidrive.0.3.1-dev.ota.esp32s3.bin http://<ESP-IP>/ota-upload
 ```
 
-WebUI nach WLAN-Setup: `http://<ESP-IP>/` — Tabs Menü / Events / Config / OTA.
+WebUI: `http://<ESP-IP>/` oder SoftAP `http://192.168.4.1/` — Tabs Auto-Test / Menü / Events / Config / OTA.
+
+### PUMP-Bridge (Pi)
+
+```bash
+python3 -u tools/pump_bridge.py --port /dev/ttyACM0
+# braucht laufendes PiDrive (/tmp/pidrive_menu.json) und python3-serial
+```
 
 ## Repo-Struktur
 
 ```
 esp32.pidrive/
-├── platformio.ini          # env:pidrive-s3
-├── src/                    # Arduino/PlatformIO Firmware
-├── include/BuildFlags.h
-├── docs/planung/           # Konzept, Hub, WebUI, …
-├── min_spiffs.csv
+├── platformio.ini
+├── src/                    # Firmware (PumpServer, MSC, WebUI, …)
+├── tools/pump_bridge.py    # Lab-Bridge Pi ↔ ESP
+├── dist/                   # usb + ota Artefakte
+├── docs/planung/           # Konzept, PUMP, Hub, WebUI, …
 └── …
 ```
 
 ## Nächste Schritte
 
-1. Flash S3, Hub-Register + WebUI prüfen  
-2. USB-MSC Device (TinyUSB / USBMSC)  
-3. PUMP UART/CDC  
+1. Bridge in PiDrive verdrahten (`usb_pump_client` / systemd)
+2. Live-MP3 über PUMP + größerer MSC-Baum
+3. Fahrzeug-Gate Stick-Spike / NBT
 
 ## Lizenz
 

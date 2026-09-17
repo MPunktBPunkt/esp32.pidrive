@@ -2,7 +2,21 @@
 
 **Stand:** 2026-09-17  
 **Produktiver Client:** Repo [`pidrive`](https://github.com/MPunktBPunkt/pidrive)  
-**Dieses Repo:** Firmware + PUMP-Contract + optional Referenzclient unter `clients/`
+**Dieses Repo:** Firmware + PUMP-Contract + Lab-Bridge [`tools/pump_bridge.py`](../../tools/pump_bridge.py)  
+**Protokoll:** [PUMP.md](PUMP.md) (0.3.1-dev Lab verifiziert)
+
+---
+
+## 0. Lab-Stand (2026-09-17)
+
+Ohne fest verdrahteten `usb_pump_client` in PiDrive:
+
+1. PiDrive normal laufen lassen (`/tmp/pidrive_menu.json` + `/tmp/pidrive_cmd`)
+2. UART-Kabel ESP→Pi (`/dev/ttyACM0`)
+3. `python3 tools/pump_bridge.py --port /dev/ttyACM0`
+4. WebUI / MSC: Menü öffnen → Bridge schreibt `activate:<uid>`
+
+Damit ist Menü+Navigation E2E nutzbar; Audio weiter über bestehenden Pi-Pfad (BT/Klinke). Nächster Umbau: Bridge als Dienst + `audio_output=usb_gadget`.
 
 ---
 
@@ -26,11 +40,11 @@ Skizze U0–U8: [PFAD-PFLICHTENHEFT.md](PFAD-PFLICHTENHEFT.md) §6.
 |-------|---------|---------------|
 | Quellen, UID-Menü, Trigger | ja | nein |
 | MP3-Encode (Tendenz) | ja | Puffer / MSC |
-| PUMP-Client | `integration/usb_pump_client.py` | PUMP-Server |
-| FAT-Semantik | Export flache Liste | virtuelles FAT |
+| PUMP-Client | Lab: `tools/pump_bridge.py` · Soll: `integration/usb_pump_client.py` | `PumpServer` |
+| FAT-Semantik | aktuelle Menü-Seite (UIDs) | virtuelles FAT, max. 4 Slots |
 | Hub-OTA Stufe 2 Depot | optional später | `/ota-upload` |
 
-**Kein** Code in `pidrive` von diesem Repo aus committen — nur Contract + Docs hier; Umsetzung nach Gates in `pidrive`.
+Lab-Bridge liegt bewusst in **diesem** Repo (`tools/`). Produktivcode (`usb_pump_client`, systemd) später in `pidrive`.
 
 ---
 
@@ -44,7 +58,8 @@ Bekanntes PiDrive-Thema: DAB umgeht oft PipeWire. Für `usb_gadget` muss derselb
 
 | Client | Zweck |
 |--------|-------|
-| `clients/pump_tester/` (später) | Laptop/Debian → ESP ohne volles PiDrive |
-| PiDrive `usb_pump_client` | Produktiv |
+| `tools/pump_bridge.py` | **jetzt** — PiDrive IPC ↔ UART-PUMP |
+| `clients/pump_tester/` (später) | Laptop/Debian ohne volles PiDrive |
+| PiDrive `usb_pump_client` | Produktiv / systemd |
 
-Reihenfolge: Tester → Pi-Integration.
+Reihenfolge: Bridge (erledigt Lab) → Pi-Integration → Fahrzeug.
