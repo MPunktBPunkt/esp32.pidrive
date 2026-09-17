@@ -71,10 +71,13 @@ void UsbMscGadget::applyMenuSlots(const MenuStore& menu) {
             strncpy(slots_[i].name, it->name, sizeof(slots_[i].name) - 1);
             slots_[i].active = true;
         } else {
-            // keep geometry but mark inactive for play-guess
             slots_[i].active = false;
             slots_[i].uid[0] = 0;
         }
+    }
+    // re-bind stream slot if still active
+    if (stream_ && stream_->active() && stream_->uid()[0]) {
+        startStream(stream_->uid());
     }
     if (events_) {
         char d[32];
@@ -83,6 +86,164 @@ void UsbMscGadget::applyMenuSlots(const MenuStore& menu) {
     }
     Serial.printf("[MSC] applyMenuSlots n=%u\n", (unsigned)n);
 }
+
+void UsbMscGadget::startStream(const char* uid) {
+    streamSlot_ = -1;
+    streamLba0_ = streamLba1_ = 0;
+    streamStartCl_ = streamEndCl_ = 0;
+    if (!uid || !uid[0]) return;
+    for (size_t i = 0; i < kSlots; i++) {
+        if (slots_[i].active && strcmp(slots_[i].uid, uid) == 0) {
+            streamSlot_ = (int)i;
+            streamLba0_ = slots_[i].lbaStart;
+            streamLba1_ = kStreamLbaEnd;
+            if (streamLba1_ >= DEMO_FAT_SECTOR_COUNT) streamLba1_ = DEMO_FAT_SECTOR_COUNT - 1;
+            streamStartCl_ = lbaToCluster(streamLba0_);
+            streamEndCl_ = lbaToCluster(streamLba1_);
+            slots_[i].lbaEnd = streamLba1_;
+            Serial.printf("[MSC] stream slot=%d lba=%u..%u cl=%u..%u\n", streamSlot_,
+                          (unsigned)streamLba0_, (unsigned)streamLba1_, (unsigned)streamStartCl_,
+                          (unsigned)streamEndCl_);
+            if (events_) events_->push("msc.stream_on", uid);
+            return;
+        }
+    }
+    Serial.printf("[MSC] stream uid not in slots: %s\n", uid);
+}
+
+void UsbMscGadget::stopStream() {
+    if (streamSlot_ >= 0) {
+        loadDefaultSlots();  // restore geometry; names re-applied via next menu_set
+        if (menu_) applyMenuSlots(*menu_);
+    }
+    streamSlot_ = -1;
+    streamLba0_ = streamLba1_ = 0;
+    streamStartCl_ = streamEndCl_ = 0;
+    if (events_) events_->push("msc.stream_off", "");
+}
+
+static void fat12Set(uint8_t* fat, uint16_t cl, uint16_t val) {
+    // fat points at start of FAT region in a linear buffer — we patch within one sector view
+    // Caller passes pointer to full FAT image slice; for sector-local we need absolute index.
+    size_t i = cl + (cl / 2);
+    if (cl & 1) {
+        fat[i] = (uint8_t)((fat[i] & 0x0F) | ((val & 0x0F) << 4));
+        fat[i + 1] = (uint8_t)(val >> 4);
+    } else {
+        fat[i] = (uint8_t)(val & 0xFF);
+        fat[i + 1] = (uint8_t)((fat[i + 1] & 0xF0) | ((val >> 8) & 0x0F));
+    }
+}
+
+void UsbMscGadget::patchFatForStream(uint8_t* sector, uint32_t lba) const {
+    if (streamSlot_ < 0 || streamStartCl_ < 2) return;
+    // Demo FAT: reserved=1, fats=2, fatz=2 → FAT0 at LBA 1-2, FAT1 at LBA 3-4
+    if (lba != 1 && lba != 2 && lba != 3 && lba != 4) return;
+
+    // Build a tiny absolute FAT view for clusters we touch by reading both FAT sectors from image
+    // into stack is heavy; instead patch only entries whose bytes fall in this sector.
+    uint32_t fatIndex = (lba == 1 || lba == 3) ? 0 : 1;  // which sector of a FAT copy
+    uint32_t fatBase = fatIndex * 512;
+
+    for (uint16_t cl = streamStartCl_; cl <= streamEndCl_; cl++) {
+        uint16_t next = (cl < streamEndCl_) ? (uint16_t)(cl + 1) : 0xFFF;
+        size_t byteIndex = cl + (cl / 2);  // first byte of entry in FAT
+        // entry spans byteIndex and byteIndex+1
+        if (byteIndex >= fatBase + 512 && byteIndex + 1 < fatBase) continue;
+        // Work on a 2-sector window around this FAT half — patch into `sector` when bytes map here
+        uint8_t tmp[4];
+        // load neighboring bytes from DEMO image for correct nibble merge
+        uint32_t abs0 = 512u + byteIndex;  // FAT0 starts at LBA1 = offset 512
+        if (lba == 3 || lba == 4) abs0 = 512u * 3 + byteIndex;  // FAT1
+        // Actually: LBA1 offset=512, LBA2 offset=1024 for FAT0
+        uint32_t fatStartOff = (lba <= 2) ? 512u : 1536u;
+        (void)fatStartOff;
+        // Simpler: copy from DEMO into local 1024 buffer once per call — too heavy in loop.
+        // Patch only if both bytes of entry lie in this sector:
+        size_t local = byteIndex - fatBase;
+        if (local < 511) {
+            uint8_t a = sector[local];
+            uint8_t b = sector[local + 1];
+            uint8_t pair[2] = {a, b};
+            if (cl & 1) {
+                pair[0] = (uint8_t)((pair[0] & 0x0F) | ((next & 0x0F) << 4));
+                pair[1] = (uint8_t)(next >> 4);
+            } else {
+                pair[0] = (uint8_t)(next & 0xFF);
+                pair[1] = (uint8_t)((pair[1] & 0xF0) | ((next >> 8) & 0x0F));
+            }
+            sector[local] = pair[0];
+            sector[local + 1] = pair[1];
+        } else if (local == 511) {
+            // spans sector boundary — patch low byte here; high on next sector read
+            if (cl & 1) {
+                sector[511] = (uint8_t)((sector[511] & 0x0F) | ((next & 0x0F) << 4));
+            } else {
+                sector[511] = (uint8_t)(next & 0xFF);
+            }
+        }
+    }
+    (void)fat12Set;
+}
+
+void UsbMscGadget::patchDirForStream(uint8_t* sector, uint32_t lba) const {
+    if (streamSlot_ < 0 || streamSlot_ >= (int)kSlots) return;
+    // STATIONS directory lives at cluster 2 → LBA 35 (+ maybe 36-38)
+    if (lba < 35 || lba > 38) return;
+    // 8.3 names in demo: 01ROCK  02ANTENN 03SWR3 — slot index → order
+    const char* shortNames[3] = {"01ROCK  ", "02ANTENN", "03SWR3  "};
+    if (streamSlot_ > 2) return;  // ABOUT in SETTINGS — skip expand for now
+    const char* want = shortNames[streamSlot_];
+    uint32_t fileBytes = (streamLba1_ - streamLba0_ + 1) * 512u;
+    for (int i = 0; i < 512; i += 32) {
+        if (sector[i] == 0x00) break;
+        if (sector[i] == 0xE5 || sector[i + 11] == 0x0F) continue;
+        if (sector[i + 11] & 0x08) continue;
+        if (sector[i + 11] & 0x10) continue;
+        if (memcmp(sector + i, want, 8) != 0) continue;
+        // start cluster
+        sector[i + 26] = (uint8_t)(streamStartCl_ & 0xFF);
+        sector[i + 27] = (uint8_t)(streamStartCl_ >> 8);
+        sector[i + 28] = (uint8_t)(fileBytes & 0xFF);
+        sector[i + 29] = (uint8_t)((fileBytes >> 8) & 0xFF);
+        sector[i + 30] = (uint8_t)((fileBytes >> 16) & 0xFF);
+        sector[i + 31] = (uint8_t)((fileBytes >> 24) & 0xFF);
+        break;
+    }
+}
+
+int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32_t bufsize) {
+    if (lba >= DEMO_FAT_SECTOR_COUNT) return -1;
+    uint32_t pos = lba * DEMO_FAT_SECTOR_SIZE + offset;
+    if (pos >= DEMO_FAT_SIZE) return -1;
+    uint32_t avail = DEMO_FAT_SIZE - pos;
+    if (bufsize > avail) bufsize = avail;
+    memcpy(buffer, DEMO_FAT_IMAGE + pos, bufsize);
+
+    uint8_t* out = (uint8_t*)buffer;
+    // Apply FAT/DIR patches when streaming (sector-aligned reads expected)
+    if (streamSlot_ >= 0 && offset == 0 && bufsize >= 512) {
+        for (uint32_t off = 0; off + 512 <= bufsize; off += 512) {
+            uint32_t sec = lba + off / 512;
+            patchFatForStream(out + off, sec);
+            patchDirForStream(out + off, sec);
+        }
+    } else if (streamSlot_ >= 0 && offset == 0 && bufsize == 512) {
+        patchFatForStream(out, lba);
+        patchDirForStream(out, lba);
+    }
+
+    // Live MP3 payload for expanded stream LBAs
+    if (stream_ && stream_->active() && streamSlot_ >= 0 && lba >= streamLba0_ && lba <= streamLba1_) {
+        uint32_t fileOff = (lba - streamLba0_) * DEMO_FAT_SECTOR_SIZE + offset;
+        stream_->readAt(fileOff, out, bufsize);
+        streamBytesServed_ += bufsize;
+    }
+
+    noteDataRead(lba, bufsize);
+    return (int32_t)bufsize;
+}
+
 
 bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
     events_ = events;
@@ -193,17 +354,6 @@ bool UsbMscGadget::looksLikePlay(const MscFileMap* f, uint32_t startLba, uint32_
     return true;
 }
 
-int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32_t bufsize) {
-    if (lba >= DEMO_FAT_SECTOR_COUNT) return -1;
-    uint32_t pos = lba * DEMO_FAT_SECTOR_SIZE + offset;
-    if (pos >= DEMO_FAT_SIZE) return -1;
-    uint32_t avail = DEMO_FAT_SIZE - pos;
-    if (bufsize > avail) bufsize = avail;
-    memcpy(buffer, DEMO_FAT_IMAGE + pos, bufsize);
-    noteDataRead(lba, bufsize);
-    return (int32_t)bufsize;
-}
-
 int32_t UsbMscGadget::onWrite(uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_t bufsize) {
     (void)offset;
     (void)buffer;
@@ -219,6 +369,9 @@ int32_t UsbMscGadget::onWrite(uint32_t lba, uint32_t offset, uint8_t* buffer, ui
 }
 
 const MscFileMap* UsbMscGadget::fileForLba(uint32_t lba) const {
+    if (streamSlot_ >= 0 && lba >= streamLba0_ && lba <= streamLba1_) {
+        return &slots_[streamSlot_];
+    }
     for (size_t i = 0; i < kSlots; i++) {
         if (lba >= slots_[i].lbaStart && lba <= slots_[i].lbaEnd) return &slots_[i];
     }
@@ -344,6 +497,12 @@ void UsbMscGadget::toJson(JsonObject obj) const {
     obj["bytesMeta"] = bytesMeta_;
     obj["bytesFile"] = bytesFile_;
     obj["prefetchHits"] = prefetchHits_;
+    obj["streamSlot"] = streamSlot_;
+    obj["streamBytes"] = streamBytesServed_;
+    if (stream_) {
+        JsonObject s = obj["stream"].to<JsonObject>();
+        stream_->toJson(s);
+    }
     obj["msSincePlug"] = msSincePlug();
     obj["msSinceChange"] = msSinceChange();
     obj["msPlugToFirstRead"] = msPlugToFirstRead_;
@@ -378,6 +537,8 @@ bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
 }
 void UsbMscGadget::loop() {}
 void UsbMscGadget::applyMenuSlots(const MenuStore&) {}
+void UsbMscGadget::startStream(const char*) {}
+void UsbMscGadget::stopStream() {}
 void UsbMscGadget::onUsbPlugged(bool) {}
 void UsbMscGadget::onUsbSuspend(bool) {}
 void UsbMscGadget::onHostStartStop(bool, bool) {}
@@ -396,5 +557,7 @@ UsbMscGadget::Region UsbMscGadget::classify(uint32_t, const MscFileMap**) const 
 const MscFileMap* UsbMscGadget::fileForLba(uint32_t) const { return nullptr; }
 bool UsbMscGadget::looksLikePlay(const MscFileMap*, uint32_t, uint32_t) const { return false; }
 void UsbMscGadget::loadDefaultSlots() {}
+void UsbMscGadget::patchDirForStream(uint8_t*, uint32_t) const {}
+void UsbMscGadget::patchFatForStream(uint8_t*, uint32_t) const {}
 
 #endif

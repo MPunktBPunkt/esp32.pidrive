@@ -9,6 +9,7 @@
 #include "core/UartLinkMonitor.h"
 #include "core/StatusLed.h"
 #include "core/PumpServer.h"
+#include "core/StreamBuffer.h"
 #include "msc/UsbMscGadget.h"
 
 class App {
@@ -24,6 +25,7 @@ public:
     UsbMscGadget msc;
     UartLinkMonitor uart;
     StatusLed led;
+    StreamBuffer stream;
     PumpServer pump;
 
     bool pumpUp = false;
@@ -46,6 +48,7 @@ private:
     void handleApiConfigGet();
     void handleApiConfigPost();
     void handleApiLabPlay();
+    void handleApiLabStream();
     void handleApiMetrics();
     void handleOtaUpload();
     void handleRestart();

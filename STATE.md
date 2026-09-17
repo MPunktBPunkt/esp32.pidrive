@@ -5,29 +5,29 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 | Feld | Wert |
 |------|------|
 | Stand | 2026-09-17 |
-| Phase | **Firmware 0.3.1-dev** — PUMP UART Menü-Sync + Activate |
+| Phase | **Firmware 0.4.0-dev** — PUMP Live-MP3 → MSC-Puffer |
 | Repo | `MPunktBPunkt/esp32.pidrive` |
 | Build | PlatformIO `env:pidrive-s3` (`pio run`) |
-| Dist | `dist/pidrive.0.3.1-dev.usb.esp32s3.bin` / `.ota.esp32s3.bin` |
+| Dist | `dist/pidrive.0.4.0-dev.usb.esp32s3.bin` / `.ota.esp32s3.bin` |
 | Hardware | ESP32-S3-DevKitC-1 (OTG + UART) |
-| Pi-Link V1 | **PUMP line-JSON** — [PUMP.md](docs/planung/PUMP.md) · Bridge `tools/pump_bridge.py` |
-| Auto-Link | USB-MSC FAT12 · Slot-Namen aus Pi-Menü (max. 4) |
+| Pi-Link V1 | **PUMP** line-JSON + Binärframes — [PUMP.md](docs/planung/PUMP.md) |
+| Auto-Link | USB-MSC · Slot-Namen + Live-Stream im aktiven Slot |
 | Car-Test | SoftAP WebUI — [CAR-STANDALONE.md](docs/planung/CAR-STANDALONE.md) |
 | ESP-Hub | Heartbeat `fwType=pidrive`, `chipModel=esp32s3` |
-| WebUI | Auto-Test (Menü-Slots) · Menü · Events · Config · OTA |
+| WebUI | Auto-Test · Menü · Events · Config · OTA · `GET /api/lab/stream` |
 | Parallel | PiDrive `audio_output=bt` bleibt |
 
 ## Aktueller Fokus
 
-1. ~~PUMP Hello + menu_set + play_uid→activate~~ (Lab OK)
-2. ~~WebUI Menü sichtbar / live~~ (0.3.1)
-3. **Live-MP3 über PUMP → MSC** (Lab 2026-09-17: USB liefert nur Demo-Ton)
+1. ~~PUMP Menü + Activate~~ · ~~WebUI Menü~~
+2. ~~Live-MP3 Pi→ESP (48 kbit/s, Ringpuffer)~~ Lab OK via `/api/lab/stream`
+3. Host-Player am USB-Stick (FAT-Größe/Chain) im Auto/PC verifizieren
 4. Bridge als Pi-Dienst / `usb_pump_client`
 5. Fahrzeug-Gate G-USB-0
 
 ## Letzte Änderung
 
-- 2026-09-17: **Messung** Webradio kommt **nicht** am PC-USB an — nur Demo-FAT; Doku in [PUMP.md](docs/planung/PUMP.md)
-- 2026-09-17: **0.3.1-dev** WebUI Pi-Menü auf Auto-Test; PUMP-Chip; `menuRev`
-- 2026-09-17: **0.3.0-dev** PumpServer, MenuStore.setFromJson, MSC Slot-Overlay, `pump_bridge.py`
-- 2026-09-17: 0.2.5 … 0.1.0 — siehe Git-Log
+- 2026-09-17: **0.4.0-dev** StreamBuffer 48 KiB, `audio_start`/`0x01 0x55`-Frames, Bridge+ffmpeg 48k, Lab-Sample `/api/lab/stream`
+- 2026-09-17: Messung 0.3.1 — ohne Stream nur Demo-FAT
+- 2026-09-17: **0.3.1-dev** WebUI Pi-Menü · PUMP-Chip
+- 2026-09-17: **0.3.0-dev** PumpServer, MenuStore, MSC-Slots, Bridge

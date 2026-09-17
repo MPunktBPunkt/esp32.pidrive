@@ -49,7 +49,8 @@
 2. Statische MP3 über MSC          ✓ (Demo)
 3. PUMP UART Menü + Activate       ✓ 0.3.1-dev Lab
 3b. Audio USB-Messung                ✓ Negativ (Demo-FAT only) — 2026-09-17
-4. PUMP Live-MP3 + Pi-Client       ← next
-5. G-USB-0 Fahrzeug (pidrive)
-6. PiDrive audio_output=usb_gadget
+4. PUMP Live-MP3 + Pi-Client       ✓ 0.4.0-dev Lab (`/api/lab/stream` = 48k MP3)
+5. USB-Host spielt Stick-Datei      ← next (FAT-Patch Feldtest)
+6. G-USB-0 Fahrzeug (pidrive)
+7. PiDrive audio_output=usb_gadget
 ```

@@ -34,8 +34,9 @@ void App::begin() {
 
     // MSC before WiFi so car USB enumerates quickly when bus-powered
     msc.begin(&events, &menu);
+    msc.setStreamBuffer(&stream);
     uart.begin(&events);
-    pump.begin(&events, &menu, &msc, &uart);
+    pump.begin(&events, &menu, &msc, &uart, &stream);
     msc.setPlayHandler([](const char* uid) { App::instance().pump.sendPlayUid(uid); });
 
     setupWifi();
@@ -129,6 +130,7 @@ void App::setupWeb() {
     server_.on("/api/config", HTTP_GET, [this]() { handleApiConfigGet(); });
     server_.on("/api/config", HTTP_POST, [this]() { handleApiConfigPost(); });
     server_.on("/api/lab/play", HTTP_POST, [this]() { handleApiLabPlay(); });
+    server_.on("/api/lab/stream", HTTP_GET, [this]() { handleApiLabStream(); });
     server_.on("/api/metrics", HTTP_GET, [this]() { handleApiMetrics(); });
     server_.on("/api/restart", HTTP_POST, [this]() { handleRestart(); });
     server_.on(
@@ -230,6 +232,10 @@ void App::buildStatus(JsonDocument& doc) {
     doc["playingName"] = menu.playingName();
     doc["menuRev"] = menu.rev();
     doc["menuCount"] = (int)menu.count();
+    if (stream.active()) {
+        JsonObject s = doc["stream"].to<JsonObject>();
+        stream.toJson(s);
+    }
     doc["labMode"] = config.labMode;
     doc["chipModel"] = NetUtil::chipModel();
     doc["led"] = led.modeName();
@@ -342,6 +348,22 @@ void App::handleApiLabPlay() {
     doc["playingName"] = menu.playingName();
     doc["pumpUp"] = pump.up();
     NetUtil::sendJson(server_, 200, doc);
+}
+
+void App::handleApiLabStream() {
+    if (!stream.active() || stream.size() == 0) {
+        server_.send(204, F("text/plain"), F(""));
+        return;
+    }
+    static uint8_t buf[8192];
+    size_t n = stream.copyBuffered(buf, sizeof(buf));
+    server_.sendHeader(F("Cache-Control"), F("no-store"));
+    server_.sendHeader(F("X-Stream-Uid"), stream.uid());
+    server_.sendHeader(F("X-Stream-Size"), String((unsigned)stream.size()));
+    server_.sendHeader(F("X-Stream-AbsEnd"), String(stream.absEnd()));
+    server_.setContentLength(n);
+    server_.send(200, F("audio/mpeg"), "");
+    server_.client().write(buf, n);
 }
 
 void App::handleApiMetrics() {

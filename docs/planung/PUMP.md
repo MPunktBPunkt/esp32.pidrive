@@ -1,94 +1,73 @@
-# PUMP V0.3 — Line-JSON über UART
+# PUMP V0.4 — Line-JSON + Binär-Audio über UART
 
-**Stand:** 2026-09-17 · Firmware **0.3.1-dev**  
-**Transport:** zweiter USB (UART-Bridge / `ttyACM*`), 115200 8N1, eine JSON-Zeile pro Frame  
-**Bridge (Lab):** [`tools/pump_bridge.py`](../../tools/pump_bridge.py) auf dem Pi
-
-Ziel: PiDrive-Menü auf dem ESP darstellen (max. 4 MSC-Slots) und Play/Öffnen zurück an PiDrive steuern. Live-MP3-Stream über PUMP ist **noch nicht** Teil dieser Stufe.
+**Stand:** 2026-09-17 · Firmware **0.4.0-dev**  
+**Transport:** UART-Bridge / `ttyACM*`, **115200** 8N1  
+**Bridge:** [`tools/pump_bridge.py`](../../tools/pump_bridge.py) (Menü + ffmpeg→Frames)
 
 ---
 
 ## Architektur (Lab)
 
 ```
-PiDrive  ──/tmp/pidrive_menu.json──►  pump_bridge.py  ──UART──►  PumpServer (ESP)
-         ◄──/tmp/pidrive_cmd────────  (activate:<uid>) ◄─ play_uid / WebUI Lab
-                                              │
-                                              ▼
-                                     MenuStore → UsbMscGadget (FAT-Namen)
-                                              │
-                                              ▼
-                                     SoftAP WebUI / Auto-USB-Host
+PiDrive menu.json ──► pump_bridge ──UART JSON──► PumpServer
+meta.url / ffmpeg ──► pump_bridge ──UART BIN──► StreamBuffer (48 KiB)
+activate:<uid>   ◄── play_uid / WebUI
+                         │
+                         ▼
+              UsbMscGadget (Namen + Live-LBAs)
+                         │
+                         ▼
+              SoftAP /api/lab/stream  ·  USB-Host MSC
 ```
-
-| Rolle | Komponente |
-|-------|------------|
-| ESP Server | `src/core/PumpServer.*` |
-| Menü | `MenuStore::setFromJson` + `UsbMscGadget::applyMenuSlots` |
-| Pi Lab-Bridge | `tools/pump_bridge.py` liest `/tmp/pidrive_menu.json`, schreibt `/tmp/pidrive_cmd` |
-| WebUI | Tab Auto-Test + Menü · `POST /api/lab/play` → `pump.sendPlayUid` |
 
 ---
 
-## Nachrichten (ESP ↔ Pi)
+## Nachrichten
 
-| `t` | Richtung | Inhalt |
-|-----|----------|--------|
-| `hello` | Pi → ESP | `{ "t":"hello","ver":1 }` |
-| `hello_ack` | ESP → Pi | `{ "t":"hello_ack","ver":"<FW>","fw":"pidrive","slots":4 }` → `pumpUp=true` |
-| `menu_set` | Pi → ESP | `{ "t":"menu_set","rev":N,"items":[{uid,name,kind},…] }` max. 4 |
-| `menu_ack` | ESP → Pi | `{ "t":"menu_ack","ok":true,"n":…,"rev":… }` |
-| `event` | ESP → Pi | `{ "t":"event","op":"play_uid","uid":"…" }` (MSC Play-Guess oder Lab-Play) |
+| `t` / Frame | Richtung | Inhalt |
+|-------------|----------|--------|
+| `hello` / `hello_ack` | ↔ | Handshake; ack enthält `"audio":true,"bin":true` |
+| `menu_set` / `menu_ack` | ↔ | bis 4 Slots |
+| `event` `play_uid` | ESP→Pi | MSC Play-Guess oder Lab-Play |
+| `audio_start` / `audio_stop` / `audio_ack` | ↔ | Stream an/aus für `uid` |
+| Binär | Pi→ESP | `0x01 0x55 \| len_lo \| len_hi \| payload` (≤512 B MP3) |
 
-`kind`: `folder` \| `station` \| `action` (Bridge mappt PiDrive-`type`, überspringt `info`).
+Bridge: Station mit `meta.url` → `ffmpeg -b:a 48k -ac 1 -ar 22050 -f mp3 pipe:1`.
+
+---
+
+## Lab-Verifikation
+
+| Datum | Check | Ergebnis |
+|-------|-------|----------|
+| 2026-09-17 | Menü + Activate | OK (0.3.x) |
+| 2026-09-17 | USB-Audio ohne Stream | **Negativ** — nur Demo-MP3 ~1,6 s |
+| 2026-09-17 | 0.4.0 Puffer füllt | `stream.size=49152`, Bridge ~11 KiB/2 s |
+| 2026-09-17 | `GET /api/lab/stream` | **OK** — ffprobe: MP3 48 kbit/s mono 22050 Hz (Rock Antenne) |
+| 2026-09-17 | PC mount `/dev/sda` Play | in LXC kein Blockgerät — am Host/Auto noch zu bestätigen |
+
+```bash
+# Sample aus ESP-Puffer (ohne USB-Mount):
+curl -o /tmp/s.mp3 http://<ESP>/api/lab/stream && ffprobe /tmp/s.mp3
+```
 
 ---
 
 ## Bridge starten (Pi)
 
 ```bash
-# Abhängigkeiten: python3-serial
-scp tools/pump_bridge.py pidrive@<pi>:~/pump_bridge.py
-python3 -u ~/pump_bridge.py --port /dev/ttyACM0 --interval 0.8
+python3 -u tools/pump_bridge.py --port /dev/ttyACM0 --bitrate 48k
+# --no-audio  → nur Menü/Activate
 ```
 
-Nach ESP-Reboot/OTA Port kurz weg — Bridge neu starten. Log: `/tmp/pump_bridge.log` (wenn umgeleitet).
-
-Erfolgskette: `hello_ack` → `menu_set` → `menu_ack` → WebUI zeigt Pi-Labels · Chip **PUMP ●**.
-
----
-
-## Lab-Verifikation (2026-09-17)
-
-| Schritt | Ergebnis |
-|---------|----------|
-| SoftAP/STA WebUI Menü | Pi-Einträge (Favoriten/Quellen/…) statt Demo |
-| Lab Play Folder | `activate:<uid>` → PiDrive navigiert, neues `menu_set` |
-| Lab Play Station | Webradio **Deutschrock / Rock Antenne** → mpv auf dem Pi |
-| MSC Slot-Namen | Overlay der ersten 4 sichtbaren Nodes |
-| **Audio am PC-USB** | **Nein** — siehe unten |
-
-### Audio-Durchleitung (Negativ, 2026-09-17)
-
-Messung Lab: OTG = PC (`PIDRIVE USB_MEDIA` 256 KiB), UART = Pi Bridge.
-
-| Beobachtung | Bedeutung |
-|-------------|-----------|
-| `onRead` = `memcpy(DEMO_FAT_IMAGE…)` | Stick liefert nur festes Demo-FAT |
-| Slot-Dateien ≈ **6495 B / 1,57 s** Mono 32 kbit/s | kurzer Demo-Ton, kein Live-Stream |
-| Pi `mpv` → Pulse (Rock Antenne URL) | Webradio spielt **nur lokal auf dem Pi** |
-| UART-Log wächst nicht mit Stream-Bitrate | keine MP3-Frames auf PUMP |
-| `PumpServer` kennt nur hello/menu_set/play_uid | kein `audio_*`-Opcode |
-
-**Fazit:** Menü + Activate funktionieren; **Ton über USB-MSC ist noch nicht implementiert.** Nächste Stufe: Live-MP3 (oder niedriger Bitrate) Pi→ESP→MSC-Ringpuffer — baud 115200 begrenzt (~11 KiB/s ⇒ eher ≤64 kbit/s).
+Nach ESP-OTA Bridge neu starten.
 
 ---
 
 ## Grenzen / nächste Stufen
 
-- Nur **4** FAT-Slots; Navigation über Zurück/Öffnen
-- **Kein** MP3-Frame-Stream über UART (Ton weiter Pi BT/Klinke)
-- Bridge noch kein systemd / nicht in `pidrive` (`usb_pump_client` offen)
-- Nach OTA Bridge neu anbinden
+- 115200 ⇒ Zielbitrate **≤48–64 kbit/s**; höherer Baud optional
+- FAT-DIR/Chain-Patch für große virtuelle Datei — Host-Player am Stick noch Feldtest
+- Bridge kein systemd; Parallel-Ton auf Pi (mpv) bleibt
 
-Siehe auch: [PIDRIVE-INTEGRATION.md](PIDRIVE-INTEGRATION.md), [WEBUI.md](WEBUI.md).
+Siehe: [PIDRIVE-INTEGRATION.md](PIDRIVE-INTEGRATION.md), [WEBUI.md](WEBUI.md).

@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 #include "core/EventLog.h"
 #include "core/MenuStore.h"
+#include "core/StreamBuffer.h"
 #include <functional>
 
 struct MscFileMap {
@@ -28,6 +29,8 @@ public:
     static constexpr size_t kTraceSize = 24;
     static constexpr size_t kSlots = 4;
     static constexpr uint32_t kDataStartLba = 35;
+    static constexpr uint32_t kStreamLbaEnd = 500;
+    static constexpr uint8_t kSpc = 4;  // sectors per cluster (demo FAT)
 
     using PlayHandler = std::function<void(const char* uid)>;
 
@@ -35,6 +38,9 @@ public:
     void loop();
     void applyMenuSlots(const MenuStore& menu);
     void setPlayHandler(PlayHandler h) { playHandler_ = h; }
+    void setStreamBuffer(StreamBuffer* s) { stream_ = s; }
+    void startStream(const char* uid);
+    void stopStream();
 
     bool ready() const { return ready_; }
     bool plugged() const { return plugged_; }
@@ -65,11 +71,24 @@ private:
     const MscFileMap* fileForLba(uint32_t lba) const;
     bool looksLikePlay(const MscFileMap* f, uint32_t startLba, uint32_t seqBytes) const;
     void loadDefaultSlots();
+    void patchDirForStream(uint8_t* sector, uint32_t lba) const;
+    void patchFatForStream(uint8_t* sector, uint32_t lba) const;
+    static uint16_t lbaToCluster(uint32_t lba) {
+        if (lba < kDataStartLba) return 0;
+        return (uint16_t)(2 + (lba - kDataStartLba) / kSpc);
+    }
 
     EventLog* events_ = nullptr;
     MenuStore* menu_ = nullptr;
+    StreamBuffer* stream_ = nullptr;
     PlayHandler playHandler_;
     MscFileMap slots_[kSlots];
+
+    int streamSlot_ = -1;
+    uint32_t streamLba0_ = 0;
+    uint32_t streamLba1_ = 0;
+    uint16_t streamStartCl_ = 0;
+    uint16_t streamEndCl_ = 0;
 
     bool ready_ = false;
     bool plugged_ = false;
@@ -95,6 +114,7 @@ private:
     uint32_t plugCount_ = 0;
     uint32_t unplugCount_ = 0;
     uint32_t prefetchHits_ = 0;
+    uint32_t streamBytesServed_ = 0;
 
     MscReadSample trace_[kTraceSize];
     size_t traceHead_ = 0;

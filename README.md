@@ -19,7 +19,7 @@ BMW / Werksradio USB-Host (Medienliste + MP3-Decode)
 
 | | |
 |--|--|
-| **Phase** | **Firmware 0.3.1-dev** — PUMP Menü-Sync + Activate (Lab) |
+| **Phase** | **Firmware 0.4.0-dev** — PUMP Live-MP3 Lab |
 | **Stand** | [`STATE.md`](STATE.md) |
 | **Build** | PlatformIO: `pio run -e pidrive-s3` |
 | **PUMP** | [`docs/planung/PUMP.md`](docs/planung/PUMP.md) · Bridge [`tools/pump_bridge.py`](tools/pump_bridge.py) |
@@ -27,7 +27,7 @@ BMW / Werksradio USB-Host (Medienliste + MP3-Decode)
 | **Planung** | [`docs/planung/`](docs/planung/) |
 | **Chip** | ESP32-S3 (USB-OTG, `ARDUINO_USB_MODE=0`) |
 | **Hub** | Heartbeat + OTA-Pull + `/ota-upload` — [HUB-INTEGRATION.md](docs/planung/HUB-INTEGRATION.md) |
-| **Dist** | `dist/pidrive.0.3.1-dev.usb.esp32s3.bin` (Flash @0x0) · `.ota.esp32s3.bin` (OTA) |
+| **Dist** | `dist/pidrive.0.4.0-dev.usb.esp32s3.bin` (Flash @0x0) · `.ota.esp32s3.bin` (OTA) |
 
 Gegenstück / Herkunft der Idee: [`pidrive` Planung](https://github.com/MPunktBPunkt/pidrive/tree/main/docs/planung) (`KONZEPT-USB-MSC.md`, …).  
 Schwesterprojekt (BT): [`esp32.bt-gateway`](https://github.com/MPunktBPunkt/esp32.bt-gateway).

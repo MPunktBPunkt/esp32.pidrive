@@ -3,14 +3,17 @@
 #include <ArduinoJson.h>
 #include <cstring>
 
-void PumpServer::begin(EventLog* events, MenuStore* menu, UsbMscGadget* msc, UartLinkMonitor* uart) {
+void PumpServer::begin(EventLog* events, MenuStore* menu, UsbMscGadget* msc, UartLinkMonitor* uart,
+                       StreamBuffer* stream) {
     events_ = events;
     menu_ = menu;
     msc_ = msc;
     uart_ = uart;
+    stream_ = stream;
     lineLen_ = 0;
     up_ = false;
-    if (events_) events_->push("pump.init", "line-json");
+    binState_ = BinState::Idle;
+    if (events_) events_->push("pump.init", "line-json+bin");
 }
 
 void PumpServer::sendRaw(const char* s) {
@@ -34,11 +37,45 @@ void PumpServer::sendPlayUid(const char* uid) {
     if (events_) events_->push("pump.event", uid);
 }
 
+void PumpServer::handleBinaryByte(uint8_t c) {
+    switch (binState_) {
+        case BinState::Idle:
+            if (c == 0x01) binState_ = BinState::GotMagic1;
+            break;
+        case BinState::GotMagic1:
+            if (c == 0x55) binState_ = BinState::GotMagic2;
+            else if (c == 0x01) binState_ = BinState::GotMagic1;
+            else binState_ = BinState::Idle;
+            break;
+        case BinState::GotMagic2:
+            binLen_ = c;
+            binState_ = BinState::GotLenLo;
+            break;
+        case BinState::GotLenLo:
+            binLen_ |= (uint16_t)c << 8;
+            binGot_ = 0;
+            if (binLen_ == 0 || binLen_ > sizeof(binBuf_)) {
+                binState_ = BinState::Idle;
+            } else {
+                binState_ = BinState::Payload;
+            }
+            break;
+        case BinState::Payload:
+            binBuf_[binGot_++] = c;
+            if (binGot_ >= binLen_) {
+                if (stream_ && stream_->active()) {
+                    stream_->push(binBuf_, binLen_);
+                }
+                binState_ = BinState::Idle;
+            }
+            break;
+    }
+}
+
 void PumpServer::handleLine(char* line) {
     while (*line == ' ' || *line == '\t') line++;
     if (!line[0]) return;
 
-    // Lab plaintext
     if (!strncmp(line, "PING", 4) || !strncmp(line, "DBG", 3)) {
         Serial.println("PONG");
         return;
@@ -61,6 +98,8 @@ void PumpServer::handleLine(char* line) {
         ack["ver"] = FW_VERSION;
         ack["fw"] = FW_TYPE;
         ack["slots"] = 4;
+        ack["audio"] = true;
+        ack["bin"] = true;
         sendJson(ack);
         if (events_) events_->push("pump.hello", "ok");
         return;
@@ -91,6 +130,33 @@ void PumpServer::handleLine(char* line) {
         return;
     }
 
+    if (!strcmp(t, "audio_start")) {
+        const char* uid = doc["uid"] | "";
+        if (stream_) stream_->start(uid);
+        if (msc_) msc_->startStream(uid);
+        up_ = true;
+        JsonDocument ack;
+        ack["t"] = "audio_ack";
+        ack["ok"] = true;
+        ack["op"] = "start";
+        ack["uid"] = uid;
+        sendJson(ack);
+        if (events_) events_->push("audio.start", uid);
+        return;
+    }
+
+    if (!strcmp(t, "audio_stop")) {
+        if (stream_) stream_->stop();
+        if (msc_) msc_->stopStream();
+        JsonDocument ack;
+        ack["t"] = "audio_ack";
+        ack["ok"] = true;
+        ack["op"] = "stop";
+        sendJson(ack);
+        if (events_) events_->push("audio.stop", "");
+        return;
+    }
+
     if (!strcmp(t, "ping")) {
         JsonDocument pong;
         pong["t"] = "pong";
@@ -103,6 +169,17 @@ void PumpServer::loop() {
         int c = Serial.read();
         if (c < 0) break;
         if (uart_) uart_->noteRx(1);
+
+        // Binary frame takes priority once magic seen; else line mode.
+        if (binState_ != BinState::Idle) {
+            handleBinaryByte((uint8_t)c);
+            continue;
+        }
+        if (c == 0x01) {
+            handleBinaryByte((uint8_t)c);
+            continue;
+        }
+
         if (c == '\n' || c == '\r') {
             if (lineLen_ > 0) {
                 line_[lineLen_] = 0;
