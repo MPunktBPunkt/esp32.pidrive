@@ -13,8 +13,19 @@ struct MscFileMap {
     const char* path;
 };
 
+struct MscReadSample {
+    uint32_t ms = 0;
+    uint32_t lba = 0;
+    uint16_t bytes = 0;
+    uint8_t kind = 0;  // 0=meta 1=dir 2=file 3=write
+    char tag[12] = {0};
+};
+
 class UsbMscGadget {
 public:
+    static constexpr size_t kTraceSize = 24;
+    static constexpr uint32_t kDataStartLba = 35;  // FAT12 demo geometry
+
     bool begin(EventLog* events, MenuStore* menu);
     void loop();
     bool ready() const { return ready_; }
@@ -29,8 +40,8 @@ public:
     uint32_t plugCount() const { return plugCount_; }
     uint32_t unplugCount() const { return unplugCount_; }
     void toJson(JsonObject obj) const;
+    void traceToJson(JsonArray arr) const;
 
-    // called from USB callbacks (static trampolines)
     void onUsbPlugged(bool on);
     void onUsbSuspend(bool on);
     void onHostStartStop(bool start, bool loadEject);
@@ -38,8 +49,13 @@ public:
     int32_t onWrite(uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_t bufsize);
 
 private:
+    enum class Region : uint8_t { Meta, Dir, File };
+
     void noteDataRead(uint32_t lba, uint32_t bufsize);
+    void pushTrace(uint32_t lba, uint32_t bufsize, uint8_t kind, const char* tag);
+    Region classify(uint32_t lba, const MscFileMap** fileOut) const;
     const MscFileMap* fileForLba(uint32_t lba) const;
+    bool looksLikePlay(const MscFileMap* f, uint32_t startLba, uint32_t seqBytes) const;
 
     EventLog* events_ = nullptr;
     MenuStore* menu_ = nullptr;
@@ -53,11 +69,22 @@ private:
     uint32_t msPlugToFirstRead_ = 0;
     uint32_t msPlugToPlayGuess_ = 0;
     uint32_t readCount_ = 0;
+    uint32_t writeCount_ = 0;
     uint32_t lastReadLba_ = 0;
+    uint32_t bytesRead_ = 0;
+    uint32_t bytesMeta_ = 0;
+    uint32_t bytesFile_ = 0;
     uint32_t seqBytes_ = 0;
     uint32_t seqLba_ = 0;
+    uint32_t seqStartLba_ = 0;
     const MscFileMap* seqFile_ = nullptr;
     uint32_t lastEventMs_ = 0;
+    uint32_t lastTraceLogMs_ = 0;
     uint32_t plugCount_ = 0;
     uint32_t unplugCount_ = 0;
+    uint32_t prefetchHits_ = 0;
+
+    MscReadSample trace_[kTraceSize];
+    size_t traceHead_ = 0;
+    size_t traceCount_ = 0;
 };

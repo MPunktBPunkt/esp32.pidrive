@@ -9,13 +9,18 @@
 static UsbMscGadget* g_msc = nullptr;
 static USBMSC MSC;
 
-// LBA map from demo FAT12 (see scripts/gen_demo_fat.py)
+// LBA map from demo FAT12 (cluster→LBA verified against demo_fat.bin)
 static const MscFileMap kFiles[] = {
     {43, 58, "demo:rock_fm", "ROCK FM", "STATIONS/01ROCK.MP3"},
     {59, 74, "demo:antenne", "Antenne 1", "STATIONS/02ANTENN.MP3"},
     {75, 90, "demo:swr3", "SWR3", "STATIONS/03SWR3.MP3"},
     {91, 102, "action:about", "About", "SETTINGS/ABOUT.MP3"},
 };
+
+// Directory cluster LBAs (spc=4): STATIONS=35-38, SETTINGS=39-42
+static bool isDirLba(uint32_t lba) {
+    return lba >= 35 && lba <= 42;
+}
 
 static int32_t pidrive_msc_read(uint32_t lba, uint32_t offset, void* buffer, uint32_t bufsize) {
     if (!g_msc) return 0;
@@ -97,8 +102,15 @@ void UsbMscGadget::onUsbPlugged(bool on) {
         msPlugToFirstRead_ = 0;
         msPlugToPlayGuess_ = 0;
         readCount_ = 0;
+        writeCount_ = 0;
+        bytesRead_ = 0;
+        bytesMeta_ = 0;
+        bytesFile_ = 0;
         seqBytes_ = 0;
         seqFile_ = nullptr;
+        prefetchHits_ = 0;
+        traceHead_ = 0;
+        traceCount_ = 0;
         plugCount_++;
         if (events_) events_->push("usb.otg.up", "car-host");
         Serial.println("[OTG] UP car-host mounted");
@@ -128,6 +140,42 @@ void UsbMscGadget::onHostStartStop(bool start, bool loadEject) {
     }
 }
 
+void UsbMscGadget::pushTrace(uint32_t lba, uint32_t bufsize, uint8_t kind, const char* tag) {
+    MscReadSample& s = trace_[traceHead_];
+    s.ms = millis();
+    s.lba = lba;
+    s.bytes = (uint16_t)(bufsize > 65535 ? 65535 : bufsize);
+    s.kind = kind;
+    strncpy(s.tag, tag ? tag : "", sizeof(s.tag) - 1);
+    s.tag[sizeof(s.tag) - 1] = 0;
+    traceHead_ = (traceHead_ + 1) % kTraceSize;
+    if (traceCount_ < kTraceSize) traceCount_++;
+}
+
+UsbMscGadget::Region UsbMscGadget::classify(uint32_t lba, const MscFileMap** fileOut) const {
+    if (fileOut) *fileOut = nullptr;
+    if (lba < kDataStartLba) return Region::Meta;
+    if (isDirLba(lba)) return Region::Dir;
+    const MscFileMap* f = fileForLba(lba);
+    if (f) {
+        if (fileOut) *fileOut = f;
+        return Region::File;
+    }
+    return Region::Meta;
+}
+
+bool UsbMscGadget::looksLikePlay(const MscFileMap* f, uint32_t startLba, uint32_t seqBytes) const {
+    if (!f) return false;
+    // PC/Linux probe often touches mid-file with 4 KiB — require start near file head
+    // and a longer sequential run (PC-Test 2026-09-17: false play.guess @ lba=64).
+    const bool fromHead = startLba <= f->lbaStart + 2;
+    if (!fromHead) return false;
+    if (seqBytes < 8192) return false;
+    // Ignore mount storm in first 1.5 s unless stream is already long
+    if (plugMs_ && (millis() - plugMs_) < 1500 && seqBytes < 16384) return false;
+    return true;
+}
+
 int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32_t bufsize) {
     if (lba >= DEMO_FAT_SECTOR_COUNT) return -1;
     uint32_t pos = lba * DEMO_FAT_SECTOR_SIZE + offset;
@@ -140,9 +188,17 @@ int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32
 }
 
 int32_t UsbMscGadget::onWrite(uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_t bufsize) {
-    (void)lba;
     (void)offset;
     (void)buffer;
+    writeCount_++;
+    pushTrace(lba, bufsize, 3, "WR");
+    if (events_ && millis() - lastEventMs_ > 300) {
+        lastEventMs_ = millis();
+        char d[40];
+        snprintf(d, sizeof(d), "lba=%u n=%u", (unsigned)lba, (unsigned)bufsize);
+        events_->push("msc.write", d);
+    }
+    Serial.printf("[MSC] WRITE lba=%u n=%u (discard)\n", (unsigned)lba, (unsigned)bufsize);
     return (int32_t)bufsize;
 }
 
@@ -156,6 +212,32 @@ const MscFileMap* UsbMscGadget::fileForLba(uint32_t lba) const {
 void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
     readCount_++;
     lastReadLba_ = lba;
+    bytesRead_ += bufsize;
+
+    const MscFileMap* f = nullptr;
+    Region reg = classify(lba, &f);
+    const char* tag = "META";
+    uint8_t kind = 0;
+    if (reg == Region::Dir) {
+        tag = "DIR";
+        kind = 1;
+        bytesMeta_ += bufsize;
+    } else if (reg == Region::File && f) {
+        const char* slash = strrchr(f->path, '/');
+        tag = slash ? slash + 1 : f->path;
+        kind = 2;
+        bytesFile_ += bufsize;
+    } else {
+        bytesMeta_ += bufsize;
+    }
+    pushTrace(lba, bufsize, kind, tag);
+
+    // Rate-limited serial + event for visibility during lab
+    if (millis() - lastTraceLogMs_ > 250) {
+        lastTraceLogMs_ = millis();
+        Serial.printf("[MSC] RD lba=%u n=%u %s\n", (unsigned)lba, (unsigned)bufsize, tag);
+    }
+
     if (plugged_ && firstReadMs_ == 0) {
         firstReadMs_ = millis();
         msPlugToFirstRead_ = firstReadMs_ - plugMs_;
@@ -166,21 +248,36 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
         }
     }
 
-    const MscFileMap* f = fileForLba(lba);
-    if (!f) {
+    if (reg != Region::File || !f) {
         seqFile_ = nullptr;
         seqBytes_ = 0;
         return;
     }
 
-    if (f != seqFile_ || lba < seqLba_) {
+    if (f != seqFile_ || lba < seqLba_ || (seqLba_ && lba > seqLba_ + 16)) {
+        // new sequence (or big jump = not sequential stream)
         seqFile_ = f;
         seqBytes_ = 0;
+        seqStartLba_ = lba;
     }
     seqLba_ = lba;
     seqBytes_ += bufsize;
 
-    if (seqBytes_ >= 2048) {
+    // Mid-file probe → prefetch, not play
+    if (seqBytes_ >= 2048 && !looksLikePlay(f, seqStartLba_, seqBytes_)) {
+        if (seqStartLba_ > f->lbaStart + 2) {
+            prefetchHits_++;
+            if (events_ && millis() - lastEventMs_ > 800) {
+                lastEventMs_ = millis();
+                char d[48];
+                snprintf(d, sizeof(d), "%s lba=%u", f->uid, (unsigned)seqStartLba_);
+                events_->push("msc.prefetch", d);
+            }
+        }
+        return;
+    }
+
+    if (looksLikePlay(f, seqStartLba_, seqBytes_)) {
         bool fresh = !menu_ || strcmp(menu_->playingUid(), f->uid) != 0;
         if (menu_) menu_->playByUid(f->uid);
         if (fresh) {
@@ -191,8 +288,8 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
             if (events_ && millis() - lastEventMs_ > 400) {
                 lastEventMs_ = millis();
                 events_->push("play.guess", f->uid);
-                char d[48];
-                snprintf(d, sizeof(d), "lba=%u +%luB", (unsigned)lba, (unsigned long)seqBytes_);
+                char d[56];
+                snprintf(d, sizeof(d), "from=%u +%luB", (unsigned)seqStartLba_, (unsigned long)seqBytes_);
                 events_->push("msc.stream", d);
             }
         }
@@ -211,12 +308,31 @@ uint32_t UsbMscGadget::msSinceChange() const {
     return millis() - changeMs_;
 }
 
+void UsbMscGadget::traceToJson(JsonArray arr) const {
+    if (traceCount_ == 0) return;
+    size_t start = (traceHead_ + kTraceSize - traceCount_) % kTraceSize;
+    for (size_t i = 0; i < traceCount_; i++) {
+        const MscReadSample& s = trace_[(start + i) % kTraceSize];
+        JsonObject o = arr.add<JsonObject>();
+        o["ms"] = s.ms;
+        o["lba"] = s.lba;
+        o["n"] = s.bytes;
+        o["kind"] = s.kind == 3 ? "wr" : (s.kind == 2 ? "file" : (s.kind == 1 ? "dir" : "meta"));
+        o["tag"] = s.tag;
+    }
+}
+
 void UsbMscGadget::toJson(JsonObject obj) const {
     obj["ready"] = ready_;
     obj["plugged"] = plugged_;
     obj["suspended"] = suspended_;
     obj["readCount"] = readCount_;
+    obj["writeCount"] = writeCount_;
     obj["lastReadLba"] = lastReadLba_;
+    obj["bytesRead"] = bytesRead_;
+    obj["bytesMeta"] = bytesMeta_;
+    obj["bytesFile"] = bytesFile_;
+    obj["prefetchHits"] = prefetchHits_;
     obj["msSincePlug"] = msSincePlug();
     obj["msSinceChange"] = msSinceChange();
     obj["msPlugToFirstRead"] = msPlugToFirstRead_;
@@ -225,11 +341,12 @@ void UsbMscGadget::toJson(JsonObject obj) const {
     obj["unplugCount"] = unplugCount_;
     obj["sectorCount"] = DEMO_FAT_SECTOR_COUNT;
     obj["imageBytes"] = DEMO_FAT_SIZE;
+    obj["dataStartLba"] = kDataStartLba;
     obj["port"] = "otg";
     obj["role"] = "car-host";
 }
 
-#else  // ARDUINO_USB_MODE == 1 (HW CDC) — MSC unavailable
+#else
 
 bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
     events_ = events;
@@ -251,7 +368,11 @@ void UsbMscGadget::toJson(JsonObject obj) const {
     obj["plugged"] = false;
     obj["error"] = "USB_MODE";
 }
+void UsbMscGadget::traceToJson(JsonArray) const {}
 void UsbMscGadget::noteDataRead(uint32_t, uint32_t) {}
+void UsbMscGadget::pushTrace(uint32_t, uint32_t, uint8_t, const char*) {}
+UsbMscGadget::Region UsbMscGadget::classify(uint32_t, const MscFileMap**) const { return Region::Meta; }
 const MscFileMap* UsbMscGadget::fileForLba(uint32_t) const { return nullptr; }
+bool UsbMscGadget::looksLikePlay(const MscFileMap*, uint32_t, uint32_t) const { return false; }
 
 #endif

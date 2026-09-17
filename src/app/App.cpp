@@ -23,6 +23,11 @@ void App::begin() {
     led.begin();
 
     config.begin();
+    // Leftover NVS name from previous FW on this board
+    if (config.deviceName.indexOf("HeartRate") >= 0 || config.deviceName.indexOf("heartrate") >= 0) {
+        config.deviceName = DEVICE_NAME_DEFAULT;
+        config.save();
+    }
     events.begin();
     menu.begin();
     events.push("boot", FW_VERSION);
@@ -222,6 +227,8 @@ void App::buildStatus(JsonDocument& doc) {
     doc["led"] = led.modeName();
     JsonObject m = doc["msc"].to<JsonObject>();
     msc.toJson(m);
+    JsonArray tr = doc["mscTrace"].to<JsonArray>();
+    msc.traceToJson(tr);
     JsonObject u = doc["uart"].to<JsonObject>();
     uart.toJson(u);
     JsonObject ports = doc["ports"].to<JsonObject>();
@@ -332,6 +339,8 @@ void App::handleApiMetrics() {
     doc["freeHeap"] = ESP.getFreeHeap();
     JsonObject m = doc["msc"].to<JsonObject>();
     msc.toJson(m);
+    JsonArray tr = doc["mscTrace"].to<JsonArray>();
+    msc.traceToJson(tr);
     JsonObject u = doc["uart"].to<JsonObject>();
     uart.toJson(u);
     doc["otgUp"] = msc.plugged();

@@ -104,7 +104,10 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
       <div class="apbox" id="ap-box">lädt…</div>
       <h3>MSC Timing / Metriken</h3>
       <div id="metrics"></div>
-      <p class="meta">Events: <code>usb.otg.up/down</code>, <code>usb.uart.up/down</code>, <code>msc.*</code>, <code>play.guess</code>.</p>
+      <h3>LBA Read-Trace (Host)</h3>
+      <table><thead><tr><th>ms</th><th>LBA</th><th>n</th><th>kind</th><th>tag</th></tr></thead>
+      <tbody id="trace-body"></tbody></table>
+      <p class="meta">PC-Test: Prefetch ≠ Play. Play braucht Start nah am Dateianfang + ≥8 KiB sequentiell. Events: <code>msc.prefetch</code>, <code>play.guess</code>, <code>msc.write</code>.</p>
     </div>
   </section>
 
@@ -113,7 +116,7 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
       <h3>Virtuelles FAT <span id="menu-meta"></span></h3>
       <table><thead><tr><th>Pfad</th><th>Name</th><th>UID</th><th></th></tr></thead>
       <tbody id="menu-body"></tbody></table>
-      <div class="meta">FAT12-Demo mit kurzen Ton-MP3s. Play-Guess bei ≥2 KiB sequentiellem LBA-Read.</div>
+      <div class="meta">FAT12-Demo. Play-Guess: Start nahe Dateianfang + ≥8 KiB sequentiell (Prefetch wird gefiltert).</div>
       <button class="btn" id="btn-refresh">Refresh</button>
     </div>
   </section>
@@ -234,8 +237,10 @@ async function refreshStatus(){
     ['OTG (Auto)', otgUp?(otgSus?'suspend':'up'):'down'],
     ['UART (Pi)', uartUp?'activity':'idle'],
     ['MSC ready', s.mscReady?'yes':'no'],
-    ['Reads', mm.readCount||0],
+    ['Reads / Writes', (mm.readCount||0)+' / '+(mm.writeCount||0)],
+    ['Bytes R (meta/file)', (mm.bytesRead||0)+' ('+(mm.bytesMeta||0)+'/'+(mm.bytesFile||0)+')'],
     ['Last LBA', mm.lastReadLba||0],
+    ['Prefetch hits', mm.prefetchHits||0],
     ['Plug → first read', fmtMs(mm.msPlugToFirstRead)],
     ['Plug → play guess', fmtMs(mm.msPlugToPlayGuess)],
     ['Playing', (s.playingName||'-')+' ('+(s.playingUid||'-')+')'],
@@ -243,6 +248,10 @@ async function refreshStatus(){
     ['Uptime', s.uptime],
     ['LED', s.led||'-']
   ].map(([k,v])=>`<div class="metric"><span>${k}</span><b>${v}</b></div>`).join('');
+  const tr=s.mscTrace||[];
+  $('#trace-body').innerHTML=tr.slice().reverse().slice(0,24).map(r=>
+    `<tr><td>${r.ms}</td><td>${r.lba}</td><td>${r.n}</td><td>${r.kind}</td><td>${r.tag||''}</td></tr>`
+  ).join('')||'<tr><td colspan="5">noch keine Reads</td></tr>';
 }
 async function refreshMenu(){
   const m=await j('/api/menu');
