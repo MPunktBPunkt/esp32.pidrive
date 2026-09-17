@@ -20,18 +20,14 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 ## Aktueller Fokus
 
 1. ~~PUMP Hello + menu_set + play_uid→activate~~ (Lab OK)
-2. Bridge als dauerhafter Pi-Dienst / Integration in `pidrive`
-3. >4 Slots / tieferes FAT; Live-MP3 über PUMP
-4. Fahrzeug-Gate G-USB-0 (Stick-Spike am NBT)
+2. ~~WebUI Menü sichtbar / live~~ (0.3.1)
+3. **Live-MP3 über PUMP → MSC** (Lab 2026-09-17: USB liefert nur Demo-Ton)
+4. Bridge als Pi-Dienst / `usb_pump_client`
+5. Fahrzeug-Gate G-USB-0
 
 ## Letzte Änderung
 
-- 2026-09-17: **0.3.1-dev** WebUI zeigt Pi-Menü auf Auto-Test; PUMP-Chip; Menü-Poll via `menuRev`
+- 2026-09-17: **Messung** Webradio kommt **nicht** am PC-USB an — nur Demo-FAT; Doku in [PUMP.md](docs/planung/PUMP.md)
+- 2026-09-17: **0.3.1-dev** WebUI Pi-Menü auf Auto-Test; PUMP-Chip; `menuRev`
 - 2026-09-17: **0.3.0-dev** PumpServer, MenuStore.setFromJson, MSC Slot-Overlay, `pump_bridge.py`
-- 2026-09-17: 0.2.5-dev UART STILL vs AKTIV + PING/PONG
-- 2026-09-17: 0.2.4-dev SoftAP „lädt…“ Fix
-- 2026-09-17: 0.2.3-dev LBA-Trace + strengere Play-Heuristik
-- 2026-09-17: 0.2.2-dev RGB LED
-- 2026-09-17: 0.2.1-dev Port-Status AUTO/PI
-- 2026-09-17: 0.2.0-dev Car-Standalone
-- 2026-09-17: 0.1.0-dev WebUI + Hub
+- 2026-09-17: 0.2.5 … 0.1.0 — siehe Git-Log

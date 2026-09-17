@@ -64,16 +64,31 @@ Erfolgskette: `hello_ack` → `menu_set` → `menu_ack` → WebUI zeigt Pi-Label
 |---------|----------|
 | SoftAP/STA WebUI Menü | Pi-Einträge (Favoriten/Quellen/…) statt Demo |
 | Lab Play Folder | `activate:<uid>` → PiDrive navigiert, neues `menu_set` |
-| Lab Play Station | Webradio **Deutschrock (laut.fm)** → mpv spielt |
+| Lab Play Station | Webradio **Deutschrock / Rock Antenne** → mpv auf dem Pi |
 | MSC Slot-Namen | Overlay der ersten 4 sichtbaren Nodes |
+| **Audio am PC-USB** | **Nein** — siehe unten |
+
+### Audio-Durchleitung (Negativ, 2026-09-17)
+
+Messung Lab: OTG = PC (`PIDRIVE USB_MEDIA` 256 KiB), UART = Pi Bridge.
+
+| Beobachtung | Bedeutung |
+|-------------|-----------|
+| `onRead` = `memcpy(DEMO_FAT_IMAGE…)` | Stick liefert nur festes Demo-FAT |
+| Slot-Dateien ≈ **6495 B / 1,57 s** Mono 32 kbit/s | kurzer Demo-Ton, kein Live-Stream |
+| Pi `mpv` → Pulse (Rock Antenne URL) | Webradio spielt **nur lokal auf dem Pi** |
+| UART-Log wächst nicht mit Stream-Bitrate | keine MP3-Frames auf PUMP |
+| `PumpServer` kennt nur hello/menu_set/play_uid | kein `audio_*`-Opcode |
+
+**Fazit:** Menü + Activate funktionieren; **Ton über USB-MSC ist noch nicht implementiert.** Nächste Stufe: Live-MP3 (oder niedriger Bitrate) Pi→ESP→MSC-Ringpuffer — baud 115200 begrenzt (~11 KiB/s ⇒ eher ≤64 kbit/s).
 
 ---
 
 ## Grenzen / nächste Stufen
 
-- Nur **4** FAT-Slots (FAT12-Demo-Image); tiefer Menübaum = Navigation über Zurück/Öffnen
-- Kein MP3-Frame-Stream über UART (Ton kommt weiter vom Pi über BT/Klinke)
-- Bridge noch kein systemd-Service / nicht in `pidrive` integriert (`usb_pump_client` offen)
-- Nach OTA Bridge ggf. neu anbinden
+- Nur **4** FAT-Slots; Navigation über Zurück/Öffnen
+- **Kein** MP3-Frame-Stream über UART (Ton weiter Pi BT/Klinke)
+- Bridge noch kein systemd / nicht in `pidrive` (`usb_pump_client` offen)
+- Nach OTA Bridge neu anbinden
 
 Siehe auch: [PIDRIVE-INTEGRATION.md](PIDRIVE-INTEGRATION.md), [WEBUI.md](WEBUI.md).

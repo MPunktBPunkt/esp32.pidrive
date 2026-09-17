@@ -16,7 +16,7 @@ Ohne fest verdrahteten `usb_pump_client` in PiDrive:
 3. `python3 tools/pump_bridge.py --port /dev/ttyACM0`
 4. WebUI / MSC: Menü öffnen → Bridge schreibt `activate:<uid>`
 
-Damit ist Menü+Navigation E2E nutzbar; Audio weiter über bestehenden Pi-Pfad (BT/Klinke). Nächster Umbau: Bridge als Dienst + `audio_output=usb_gadget`.
+Damit ist Menü+Navigation E2E nutzbar; Audio weiter über bestehenden Pi-Pfad (BT/Klinke). **USB-MSC liefert in 0.3.1 nur Demo-Töne** (Lab-Messung 2026-09-17) — Live-MP3 folgt. Nächster Umbau: Stream-Puffer + Bridge-Forward + später `audio_output=usb_gadget`.
 
 ---
 
