@@ -185,6 +185,7 @@ void App::buildHeartbeat(JsonDocument& doc) {
     ios["otgUp"] = msc.plugged();
     ios["otgSuspended"] = msc.suspended();
     ios["uartUp"] = uart.linkUp();
+    ios["uartState"] = uart.stateName();
     ios["mscReady"] = msc.ready();
     ios["pumpState"] = pumpUp ? "up" : "down";
     ios["bufferMs"] = bufferMs;
@@ -216,6 +217,7 @@ void App::buildStatus(JsonDocument& doc) {
     doc["otgUp"] = msc.plugged();
     doc["otgSuspended"] = msc.suspended();
     doc["uartUp"] = uart.linkUp();
+    doc["uartState"] = uart.stateName();
     doc["mscReady"] = msc.ready();
     doc["pumpUp"] = pumpUp;
     doc["bufferMs"] = bufferMs;
@@ -245,7 +247,9 @@ void App::buildStatus(JsonDocument& doc) {
     pi["label"] = "PI";
     pi["role"] = "uart-bridge";
     pi["up"] = uart.linkUp();
+    pi["state"] = uart.stateName();
     pi["msSinceChange"] = uart.msSinceChange();
+    pi["msSinceRx"] = uart.msSinceRx();
     pi["rxBytes"] = uart.rxBytes();
     pi["sense"] = "serial-activity";
 }

@@ -5,7 +5,7 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 | Feld | Wert |
 |------|------|
 | Stand | 2026-09-17 |
-| Phase | **Firmware 0.2.3-dev** — MSC LBA-Trace, Prefetch≠Play, RGB |
+| Phase | **Firmware 0.2.5-dev — UART STILL/AKTIV, PONG-Handshake |
 | Repo | `MPunktBPunkt/esp32.pidrive` |
 | Build | PlatformIO `env:pidrive-s3` (`pio run`) |
 | Dist | `dist/pidrive.0.2.3-dev.usb.esp32s3.bin` |

@@ -6,24 +6,30 @@
 
 /**
  * UART-USB (Bridge-Chip → Pi/PC): kein nativer Plug-Sensor am ESP.
- * Wir spiegeln Seriellaktivität als „Link“ (später PUMP-Hello).
+ * States: idle (nie Traffic) | up (Traffic) | quiet (hatte Traffic, jetzt still).
+ * „GETRENNT“ wäre irreführend — Kabel kann weiter stecken.
  */
 class UartLinkMonitor {
 public:
+    enum class State : uint8_t { Idle = 0, Up, Quiet };
+
     void begin(EventLog* events);
     void loop();
-    bool linkUp() const { return linkUp_; }
+    bool linkUp() const { return state_ == State::Up; }
+    State state() const { return state_; }
+    const char* stateName() const;
     uint32_t rxBytes() const { return rxBytes_; }
     uint32_t lastRxMs() const { return lastRxMs_; }
     uint32_t msSinceChange() const;
+    uint32_t msSinceRx() const;
     uint32_t changeCount() const { return changeCount_; }
     void toJson(JsonObject obj) const;
 
 private:
-    void setLink(bool up, const char* detail);
+    void setState(State s, const char* detail);
 
     EventLog* events_ = nullptr;
-    bool linkUp_ = false;
+    State state_ = State::Idle;
     uint32_t lastRxMs_ = 0;
     uint32_t changeMs_ = 0;
     uint32_t changeCount_ = 0;

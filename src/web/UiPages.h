@@ -31,15 +31,18 @@ nav{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:12px 0 16px;
 .port{border:1px solid var(--line);border-radius:12px;padding:16px 14px;background:#0c1016;transition:border-color .2s,box-shadow .2s}
 .port.up{border-color:rgba(61,214,140,.55);box-shadow:inset 0 0 0 1px rgba(61,214,140,.12)}
 .port.sus{border-color:rgba(245,165,36,.5)}
+.port.quiet{border-color:rgba(61,156,253,.45);box-shadow:inset 0 0 0 1px rgba(61,156,253,.12)}
 .port .topline{display:flex;align-items:center;gap:10px}
 .port .dot{width:16px;height:16px;border-radius:50%;background:#3a4555;flex-shrink:0;transition:background .2s,box-shadow .2s}
 .port.up .dot{background:var(--ok);box-shadow:0 0 14px rgba(61,214,140,.6)}
 .port.sus .dot{background:var(--warn);box-shadow:0 0 14px rgba(245,165,36,.45)}
+.port.quiet .dot{background:var(--acc);box-shadow:0 0 14px rgba(61,156,253,.45)}
 .port .plabel{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
 .port .pname{font-size:1.05rem;font-weight:700;letter-spacing:-.02em}
 .port .pstate{margin-top:10px;font-size:1.35rem;font-weight:700;letter-spacing:-.02em}
 .port.up .pstate{color:var(--ok)}
 .port.sus .pstate{color:var(--warn)}
+.port.quiet .pstate{color:var(--acc)}
 .port .phint{margin-top:6px;font-size:12px;color:var(--muted);line-height:1.4}
 .port .pmeta{margin-top:10px;font-family:ui-monospace,monospace;font-size:11px;color:var(--muted)}
 table{width:100%;border-collapse:collapse;font-size:13px}
@@ -96,7 +99,7 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
         <div class="port" id="port-uart">
           <div class="topline"><span class="dot"></span><div><div class="plabel">UART · Pi / PC</div><div class="pname">Serial Bridge</div></div></div>
           <div class="pstate" id="uart-state">—</div>
-          <div class="phint">Kein Plug-Sensor am Bridge-Chip — Status = Seriellaktivität (später PUMP).</div>
+          <div class="phint">Kein Plug-Sensor. <b>AKTIV</b>=Traffic · <b>STILL</b>=hatte RX, Kabel ok · <b>KEIN TRAFFIC</b>=noch nie. Später PUMP-Hello.</div>
           <div class="pmeta" id="uart-meta"></div>
         </div>
       </div>
@@ -200,8 +203,13 @@ function setPort(el, state, stateSel){
   if(!el) return;
   el.classList.toggle('up', state==='up');
   el.classList.toggle('sus', state==='sus');
+  el.classList.toggle('quiet', state==='quiet');
   const st=$(stateSel);
-  if(st) st.textContent = state==='up'?'VERBUNDEN':(state==='sus'?'SUSPEND':'GETRENNT');
+  if(st){
+    st.textContent = state==='up'?'AKTIV'
+      :(state==='sus'?'SUSPEND'
+      :(state==='quiet'?'STILL':'KEIN TRAFFIC'));
+  }
 }
 function fillAp(s){
   const el=$('#ap-box');
@@ -217,11 +225,16 @@ async function refreshStatus(){
     const s=await j('/api/status');
     fillAp(s);  // zuerst — SoftAP nie „lädt…“ hängen lassen
     $('#c-ver').innerHTML='v<b>'+s.version+'</b>';
-    const otgUp=!!s.otgUp, otgSus=!!s.otgSuspended, uartUp=!!s.uartUp;
+    const otgUp=!!s.otgUp, otgSus=!!s.otgSuspended;
+    const uartState=(s.uart&&s.uart.state)||(s.uartUp?'up':'idle');
+    const uartUp=uartState==='up';
     const cO=$('#c-otg');
     if(cO){ cO.textContent='AUTO '+(otgUp?(otgSus?'◐':'●'):'○'); chip(cO, otgUp, otgUp&&otgSus); }
     const cU=$('#c-uart');
-    if(cU){ cU.textContent='PI '+(uartUp?'●':'○'); chip(cU, uartUp); }
+    if(cU){
+      cU.textContent='PI '+(uartState==='up'?'●':(uartState==='quiet'?'◐':'○'));
+      chip(cU, uartState==='up', uartState==='quiet');
+    }
     const m=$('#c-msc'); if(m){ m.textContent='MSC '+(s.mscReady?'●':'○'); chip(m,s.mscReady); }
     const cPlay=$('#c-play'); if(cPlay) cPlay.innerHTML='PLAY <b>'+(s.playingName||'-')+'</b>';
     const lat=(s.msc&&s.msc.msPlugToPlayGuess)||0;
@@ -232,23 +245,27 @@ async function refreshStatus(){
     const uart=(s.ports&&s.ports.uart)||{};
     const otgState=otgUp?(otgSus?'sus':'up'):'down';
     setPort($('#port-otg'), otgState, '#otg-state');
+    const otgSt=$('#otg-state');
+    if(otgSt) otgSt.textContent=otgUp?(otgSus?'SUSPEND':'VERBUNDEN'):'GETRENNT';
     const om=$('#otg-meta');
     if(om) om.textContent=
       'seit '+fmtAgo(otg.msSinceChange)+
       ' · up '+((s.msc&&s.msc.plugCount)||otg.plugCount||0)+
       ' · down '+((s.msc&&s.msc.unplugCount)||otg.unplugCount||0)+
       (otgUp?' · mounted '+fmtAgo((s.msc&&s.msc.msSincePlug)||0):'');
-    setPort($('#port-uart'), uartUp?'up':'down', '#uart-state');
+    const uartUi=uartState==='up'?'up':(uartState==='quiet'?'quiet':'down');
+    setPort($('#port-uart'), uartUi, '#uart-state');
     const um=$('#uart-meta');
     if(um) um.textContent=
-      'seit '+fmtAgo(uart.msSinceChange)+
-      ' · rx '+(uart.rxBytes||0)+' B · sense serial-activity';
-
+      'state '+uartState+
+      ' · seit '+fmtAgo(uart.msSinceChange)+
+      ' · lastRx '+fmtAgo((s.uart&&s.uart.msSinceRx)||0)+
+      ' · rx '+(uart.rxBytes||(s.uart&&s.uart.rxBytes)||0)+' B';
     const mm=s.msc||{};
     const metrics=$('#metrics');
     if(metrics) metrics.innerHTML=[
       ['OTG (Auto)', otgUp?(otgSus?'suspend':'up'):'down'],
-      ['UART (Pi)', uartUp?'activity':'idle'],
+      ['UART (Pi)', uartState],
       ['MSC ready', s.mscReady?'yes':'no'],
       ['Reads / Writes', (mm.readCount||0)+' / '+(mm.writeCount||0)],
       ['Bytes R (meta/file)', (mm.bytesRead||0)+' ('+(mm.bytesMeta||0)+'/'+(mm.bytesFile||0)+')'],
