@@ -178,8 +178,13 @@ function tabs(){
     $('#p-'+t.dataset.t).classList.add('active');
   });
 }
-async function j(url,opt){const r=await fetch(url,opt);return r.json()}
+async function j(url,opt){
+  const r=await fetch(url,opt);
+  if(!r.ok) throw new Error(url+' '+r.status);
+  return r.json();
+}
 function chip(el,on,warn){
+  if(!el) return;
   el.classList.toggle('on',!!on && !warn);
   el.classList.toggle('warn',!!warn);
   el.classList.toggle('off',!on && !warn);
@@ -191,101 +196,124 @@ function fmtAgo(ms){
   if(ms<60000) return Math.round(ms/1000)+' s';
   return Math.round(ms/60000)+' min';
 }
-function setPort(el, state, label, meta){
+function setPort(el, state, stateSel){
+  if(!el) return;
   el.classList.toggle('up', state==='up');
   el.classList.toggle('sus', state==='sus');
-  $(label).textContent = state==='up'?'VERBUNDEN':(state==='sus'?'SUSPEND':'GETRENNT');
-  $(meta).textContent = arguments[3]||'';
+  const st=$(stateSel);
+  if(st) st.textContent = state==='up'?'VERBUNDEN':(state==='sus'?'SUSPEND':'GETRENNT');
 }
-async function refreshStatus(){
-  const s=await j('/api/status');
-  $('#c-ver').innerHTML='v<b>'+s.version+'</b>';
-  const otgUp=!!s.otgUp, otgSus=!!s.otgSuspended, uartUp=!!s.uartUp;
-  const cO=$('#c-otg');
-  cO.textContent='AUTO '+(otgUp?(otgSus?'◐':'●'):'○');
-  chip(cO, otgUp, otgUp&&otgSus);
-  const cU=$('#c-uart');
-  cU.textContent='PI '+(uartUp?'●':'○');
-  chip(cU, uartUp);
-  const m=$('#c-msc'); m.textContent='MSC '+(s.mscReady?'●':'○'); chip(m,s.mscReady);
-  $('#c-play').innerHTML='PLAY <b>'+(s.playingName||'-')+'</b>';
-  const lat=(s.msc&&s.msc.msPlugToPlayGuess)||0;
-  $('#c-lat').innerHTML='LAT <b>'+(lat?lat+'ms':'-')+'</b>';
-  $('#c-ap').innerHTML='AP <b>'+(s.softApIp||'-')+'</b>';
-
-  const otg=s.ports&&s.ports.otg||{};
-  const uart=s.ports&&s.ports.uart||{};
-  const otgState=otgUp?(otgSus?'sus':'up'):'down';
-  setPort($('#port-otg'), otgState, '#otg-state');
-  $('#otg-meta').textContent=
-    'seit '+fmtAgo(otg.msSinceChange)+
-    ' · up '+((s.msc&&s.msc.plugCount)||otg.plugCount||0)+
-    ' · down '+((s.msc&&s.msc.unplugCount)||otg.unplugCount||0)+
-    (otgUp?' · mounted '+fmtAgo((s.msc&&s.msc.msSincePlug)||0):'');
-  setPort($('#port-uart'), uartUp?'up':'down', '#uart-state');
-  $('#uart-meta').textContent=
-    'seit '+fmtAgo(uart.msSinceChange)+
-    ' · rx '+(uart.rxBytes||0)+' B · sense serial-activity';
-
-  $('#ap-box').innerHTML=
+function fillAp(s){
+  const el=$('#ap-box');
+  if(!el) return;
+  el.innerHTML=
     'SSID <code>'+(s.softApSsid||'?')+'</code><br>'+
     'Pass <code>'+(s.softApPass||'?')+'</code><br>'+
     'URL <code>http://'+(s.softApIp||'192.168.4.1')+'/</code>'+
     (s.ip?'<br>STA <code>'+s.ip+'</code>':'');
-  const mm=s.msc||{};
-  $('#metrics').innerHTML=[
-    ['OTG (Auto)', otgUp?(otgSus?'suspend':'up'):'down'],
-    ['UART (Pi)', uartUp?'activity':'idle'],
-    ['MSC ready', s.mscReady?'yes':'no'],
-    ['Reads / Writes', (mm.readCount||0)+' / '+(mm.writeCount||0)],
-    ['Bytes R (meta/file)', (mm.bytesRead||0)+' ('+(mm.bytesMeta||0)+'/'+(mm.bytesFile||0)+')'],
-    ['Last LBA', mm.lastReadLba||0],
-    ['Prefetch hits', mm.prefetchHits||0],
-    ['Plug → first read', fmtMs(mm.msPlugToFirstRead)],
-    ['Plug → play guess', fmtMs(mm.msPlugToPlayGuess)],
-    ['Playing', (s.playingName||'-')+' ('+(s.playingUid||'-')+')'],
-    ['Heap', s.freeHeap],
-    ['Uptime', s.uptime],
-    ['LED', s.led||'-']
-  ].map(([k,v])=>`<div class="metric"><span>${k}</span><b>${v}</b></div>`).join('');
-  const tr=s.mscTrace||[];
-  $('#trace-body').innerHTML=tr.slice().reverse().slice(0,24).map(r=>
-    `<tr><td>${r.ms}</td><td>${r.lba}</td><td>${r.n}</td><td>${r.kind}</td><td>${r.tag||''}</td></tr>`
-  ).join('')||'<tr><td colspan="5">noch keine Reads</td></tr>';
+}
+async function refreshStatus(){
+  try{
+    const s=await j('/api/status');
+    fillAp(s);  // zuerst — SoftAP nie „lädt…“ hängen lassen
+    $('#c-ver').innerHTML='v<b>'+s.version+'</b>';
+    const otgUp=!!s.otgUp, otgSus=!!s.otgSuspended, uartUp=!!s.uartUp;
+    const cO=$('#c-otg');
+    if(cO){ cO.textContent='AUTO '+(otgUp?(otgSus?'◐':'●'):'○'); chip(cO, otgUp, otgUp&&otgSus); }
+    const cU=$('#c-uart');
+    if(cU){ cU.textContent='PI '+(uartUp?'●':'○'); chip(cU, uartUp); }
+    const m=$('#c-msc'); if(m){ m.textContent='MSC '+(s.mscReady?'●':'○'); chip(m,s.mscReady); }
+    const cPlay=$('#c-play'); if(cPlay) cPlay.innerHTML='PLAY <b>'+(s.playingName||'-')+'</b>';
+    const lat=(s.msc&&s.msc.msPlugToPlayGuess)||0;
+    const cLat=$('#c-lat'); if(cLat) cLat.innerHTML='LAT <b>'+(lat?lat+'ms':'-')+'</b>';
+    const cAp=$('#c-ap'); if(cAp) cAp.innerHTML='AP <b>'+(s.softApIp||'-')+'</b>';
+
+    const otg=(s.ports&&s.ports.otg)||{};
+    const uart=(s.ports&&s.ports.uart)||{};
+    const otgState=otgUp?(otgSus?'sus':'up'):'down';
+    setPort($('#port-otg'), otgState, '#otg-state');
+    const om=$('#otg-meta');
+    if(om) om.textContent=
+      'seit '+fmtAgo(otg.msSinceChange)+
+      ' · up '+((s.msc&&s.msc.plugCount)||otg.plugCount||0)+
+      ' · down '+((s.msc&&s.msc.unplugCount)||otg.unplugCount||0)+
+      (otgUp?' · mounted '+fmtAgo((s.msc&&s.msc.msSincePlug)||0):'');
+    setPort($('#port-uart'), uartUp?'up':'down', '#uart-state');
+    const um=$('#uart-meta');
+    if(um) um.textContent=
+      'seit '+fmtAgo(uart.msSinceChange)+
+      ' · rx '+(uart.rxBytes||0)+' B · sense serial-activity';
+
+    const mm=s.msc||{};
+    const metrics=$('#metrics');
+    if(metrics) metrics.innerHTML=[
+      ['OTG (Auto)', otgUp?(otgSus?'suspend':'up'):'down'],
+      ['UART (Pi)', uartUp?'activity':'idle'],
+      ['MSC ready', s.mscReady?'yes':'no'],
+      ['Reads / Writes', (mm.readCount||0)+' / '+(mm.writeCount||0)],
+      ['Bytes R (meta/file)', (mm.bytesRead||0)+' ('+(mm.bytesMeta||0)+'/'+(mm.bytesFile||0)+')'],
+      ['Last LBA', mm.lastReadLba||0],
+      ['Prefetch hits', mm.prefetchHits||0],
+      ['Plug → first read', fmtMs(mm.msPlugToFirstRead)],
+      ['Plug → play guess', fmtMs(mm.msPlugToPlayGuess)],
+      ['Playing', (s.playingName||'-')+' ('+(s.playingUid||'-')+')'],
+      ['Heap', s.freeHeap],
+      ['Uptime', s.uptime],
+      ['LED', s.led||'-']
+    ].map(([k,v])=>`<div class="metric"><span>${k}</span><b>${v}</b></div>`).join('');
+    const tb=$('#trace-body');
+    if(tb){
+      const tr=Array.isArray(s.mscTrace)?s.mscTrace:[];
+      tb.innerHTML=tr.slice().reverse().slice(0,24).map(r=>
+        `<tr><td>${r.ms}</td><td>${r.lba}</td><td>${r.n}</td><td>${r.kind}</td><td>${r.tag||''}</td></tr>`
+      ).join('')||'<tr><td colspan="5">noch keine Reads</td></tr>';
+    }
+  }catch(err){
+    const el=$('#ap-box');
+    if(el) el.innerHTML='Status-Fehler: <code>'+String(err.message||err)+'</code> — Hard-Reload versuchen';
+  }
 }
 async function refreshMenu(){
-  const m=await j('/api/menu');
-  const items=m.menu.items||[];
-  $('#menu-meta').textContent='('+items.length+')';
-  $('#menu-body').innerHTML=items.map(it=>`<tr class="${it.playing?'play':''}">
-    <td>${it.path}</td><td>${it.name}</td><td>${it.uid}</td>
-    <td>${it.kind==='station'||it.kind==='action'?`<button class="btn" data-uid="${it.uid}">Play</button>`:''}</td></tr>`).join('');
-  document.querySelectorAll('#menu-body .btn').forEach(b=>b.onclick=async()=>{
-    await j('/api/lab/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:b.dataset.uid})});
-    refreshMenu(); refreshStatus(); refreshEvents();
-  });
+  try{
+    const m=await j('/api/menu');
+    const items=(m.menu&&m.menu.items)||[];
+    const meta=$('#menu-meta'); if(meta) meta.textContent='('+items.length+')';
+    const body=$('#menu-body'); if(!body) return;
+    body.innerHTML=items.map(it=>`<tr class="${it.playing?'play':''}">
+      <td>${it.path}</td><td>${it.name}</td><td>${it.uid}</td>
+      <td>${it.kind==='station'||it.kind==='action'?`<button class="btn" data-uid="${it.uid}">Play</button>`:''}</td></tr>`).join('');
+    body.querySelectorAll('.btn').forEach(b=>b.onclick=async()=>{
+      await j('/api/lab/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:b.dataset.uid})});
+      await refreshMenu(); await refreshStatus(); await refreshEvents();
+    });
+  }catch(e){}
 }
 async function refreshEvents(){
-  const e=await j('/api/events?since='+since);
-  (e.events||[]).forEach(ev=>{
-    since=Math.max(since,ev.seq);
-    const d=document.createElement('div');
-    d.className='ev';
-    d.innerHTML=`<span class="c">${ev.code}</span> <span class="d">${ev.detail||''}</span> <span class="d">@${ev.ms}</span>`;
-    $('#ev-list').prepend(d);
-  });
+  try{
+    const e=await j('/api/events?since='+since);
+    const list=$('#ev-list'); if(!list) return;
+    (e.events||[]).forEach(ev=>{
+      since=Math.max(since,ev.seq);
+      const d=document.createElement('div');
+      d.className='ev';
+      d.innerHTML=`<span class="c">${ev.code}</span> <span class="d">${ev.detail||''}</span> <span class="d">@${ev.ms}</span>`;
+      list.prepend(d);
+    });
+  }catch(e){}
 }
 async function loadConfig(){
-  const c=(await j('/api/config')).config;
-  $('#cfg-name').value=c.deviceName||'';
-  $('#cfg-appass').value=c.softApPass||'';
-  $('#cfg-softap').value=c.enableSoftAp?1:0;
-  $('#cfg-sta').value=c.enableSta?1:0;
-  $('#cfg-host').value=c.hubHost||'';
-  $('#cfg-port').value=c.hubPort||8093;
-  $('#cfg-buf').value=c.bufferTargetMs||5000;
-  $('#cfg-hub').value=c.enableHub?1:0;
-  $('#cfg-lab').value=c.labMode?1:0;
+  try{
+    const c=(await j('/api/config')).config;
+    $('#cfg-name').value=c.deviceName||'';
+    $('#cfg-appass').value=c.softApPass||'';
+    $('#cfg-softap').value=c.enableSoftAp?1:0;
+    $('#cfg-sta').value=c.enableSta?1:0;
+    $('#cfg-host').value=c.hubHost||'';
+    $('#cfg-port').value=c.hubPort||8093;
+    $('#cfg-buf').value=c.bufferTargetMs||5000;
+    $('#cfg-hub').value=c.enableHub?1:0;
+    $('#cfg-lab').value=c.labMode?1:0;
+  }catch(e){}
 }
 async function saveConfig(){
   const body={
@@ -300,10 +328,11 @@ async function saveConfig(){
     labMode:+$('#cfg-lab').value===1
   };
   await j('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  refreshEvents();
+  await refreshEvents();
 }
 function setupOta(){
   const drop=$('#drop'), file=$('#ota-file');
+  if(!drop||!file) return;
   drop.onclick=()=>file.click();
   drop.ondragover=e=>{e.preventDefault();};
   drop.ondrop=e=>{e.preventDefault(); if(e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]);};
@@ -316,13 +345,19 @@ async function upload(f){
   $('#ota-msg').textContent=r.ok?'OK — Neustart':'Fehler '+r.status;
 }
 tabs();
-$('#btn-refresh').onclick=()=>{refreshMenu();refreshStatus()};
-$('#btn-ev-clear').onclick=async()=>{await fetch('/api/events',{method:'DELETE'}); $('#ev-list').innerHTML=''; since=0; refreshEvents()};
-$('#btn-save').onclick=saveConfig;
+$('#btn-refresh').onclick=async()=>{await refreshMenu(); await refreshStatus();};
+$('#btn-ev-clear').onclick=async()=>{await fetch('/api/events',{method:'DELETE'}); $('#ev-list').innerHTML=''; since=0; await refreshEvents();};
+$('#btn-save').onclick=()=>saveConfig();
 $('#btn-restart').onclick=()=>fetch('/api/restart',{method:'POST'});
 setupOta();
-refreshStatus(); refreshMenu(); refreshEvents(); loadConfig();
-setInterval(()=>{refreshStatus(); refreshEvents()},1000);
+(async()=>{
+  // sequentiell — ESP-WebServer mag keine parallelen Requests
+  await refreshStatus();
+  await refreshMenu();
+  await refreshEvents();
+  await loadConfig();
+  setInterval(async()=>{ await refreshStatus(); await refreshEvents(); },1000);
+})();
 </script>
 </body></html>
 )HTML";
