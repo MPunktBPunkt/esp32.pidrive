@@ -42,8 +42,15 @@ MENU_PATH = Path("/tmp/pidrive_menu.json")
 STATUS_PATH = Path("/tmp/pidrive_status.json")
 CMD_PATH = Path("/tmp/pidrive_cmd")
 PROBE_PATH = Path("/tmp/pump_id3_probe.mp3")
+# Custom covers (pidrive repo on the Pi)
+COVER_ROOTS = [
+    Path("/home/pidrive/pidrive/assets/usb-msc-covers"),
+    Path.home() / "pidrive" / "assets" / "usb-msc-covers",
+    Path(__file__).resolve().parents[2] / "assets" / "usb-msc-covers",
+]
 MAX_SLOTS = 4
 FRAME_MAX = 480
+ID3_BUDGET = 12 * 1024  # must match ESP StreamBuffer::kId3Max
 
 
 def read_menu() -> tuple[int, list[dict], dict[str, dict]]:
@@ -89,10 +96,45 @@ def inject(cmd: str) -> None:
     print(f"[inject] {cmd}", flush=True)
 
 
+def find_cover_file(node: dict | None) -> Path | None:
+    """Look up stations/<id>.jpg or uid_<uid>.jpg under cover roots."""
+    if not node:
+        return None
+    candidates: list[str] = []
+    nid = node.get("id")
+    if nid:
+        candidates.append(f"stations/{nid}.jpg")
+    uid = node.get("uid")
+    if uid is not None:
+        candidates.append(f"stations/uid_{uid}.jpg")
+    label = (node.get("label") or "").lower()
+    slug = "".join(c if c.isalnum() else "_" for c in label).strip("_")
+    if slug:
+        candidates.append(f"stations/{slug}.jpg")
+    for root in COVER_ROOTS:
+        if not root.is_dir():
+            continue
+        for rel in candidates:
+            p = root / rel
+            if p.is_file() and p.stat().st_size > 0:
+                return p
+    return None
+
+
+def load_or_make_cover(node: dict | None, title: str, subtitle: str, footer: str) -> bytes:
+    path = find_cover_file(node)
+    if path:
+        data = path.read_bytes()
+        if len(data) > 10_000:
+            print(f"[id3] cover large {len(data)} B: {path}", flush=True)
+        print(f"[id3] cover file {path} ({len(data)} B)", flush=True)
+        return data
+    return make_cover_jpeg(title, subtitle, footer)
+
+
 def make_cover_jpeg(title: str, subtitle: str, footer: str) -> bytes:
     """Small JPEG for ID3 APIC / BMW-ish size."""
     if Image is None:
-        # minimal 1x1 jpeg fallback
         return (
             b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
             b"\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t"
@@ -113,7 +155,12 @@ def make_cover_jpeg(title: str, subtitle: str, footer: str) -> bytes:
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
         font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 13)
     except Exception:
-        font_b = font = font_s = ImageFont.load_default()
+        try:
+            font_b = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", 22)
+            font = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", 16)
+            font_s = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", 13)
+        except Exception:
+            font_b = font = font_s = ImageFont.load_default()
     draw.text((12, 12), "PiDrive", fill=(220, 235, 255), font=font_b)
     draw.text((12, 90), (title or "Station")[:28], fill=(255, 255, 255), font=font_b)
     draw.text((12, 130), (subtitle or "")[:36], fill=(180, 210, 240), font=font)
@@ -224,10 +271,15 @@ class AudioFwd:
         album = st.get("radio_name") or station
         footer = f"BT:{st.get('bt_device') or '-'} WiFi:{'on' if st.get('wifi') else 'off'}"
         try:
-            jpeg = make_cover_jpeg(str(station)[:40], f"{artist} — {title}"[:48], footer)
+            jpeg = load_or_make_cover(node, str(station)[:40], f"{artist} — {title}"[:48], footer)
             tag = build_id3_tag(str(title)[:60], str(artist)[:40], str(album)[:40], jpeg)
-            send_bin(self.ser, 0x56, tag)
-            print(f"[id3] sent {len(tag)} B (jpeg {len(jpeg)} B) → {PROBE_PATH}", flush=True)
+            if len(tag) > ID3_BUDGET:
+                print(f"[id3] tag {len(tag)} B > {ID3_BUDGET}, skip APIC / shrink", flush=True)
+                # retry without custom image
+                jpeg = make_cover_jpeg(str(station)[:40], str(title)[:48], "cover too large")
+                tag = build_id3_tag(str(title)[:60], str(artist)[:40], str(album)[:40], jpeg)
+            send_bin(self.ser, 0x56, tag[:ID3_BUDGET])
+            print(f"[id3] sent {min(len(tag), ID3_BUDGET)} B (jpeg {len(jpeg)} B) → {PROBE_PATH}", flush=True)
         except Exception as e:
             print(f"[id3] skip: {e}", flush=True)
 

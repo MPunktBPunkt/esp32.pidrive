@@ -14,7 +14,8 @@ Planung für `esp32.pidrive` (USB-MSC-Medienpfad für PiDrive).
 | [PIDRIVE-INTEGRATION.md](PIDRIVE-INTEGRATION.md) | Was in `pidrive` additiv gebaut wird |
 | [PHASE-0-LAB.md](PHASE-0-LAB.md) | Lab an Debian/Proxmox vor dem Auto |
 | [CAR-STANDALONE.md](CAR-STANDALONE.md) | **ESP ohne Pi im Auto** — SoftAP, MSC-Demo, Timing |
-| [PUMP.md](PUMP.md) | **PUMP V0.3** — line-JSON UART, menu_set / play_uid, Lab-Bridge |
+| [PUMP.md](PUMP.md) | **PUMP V0.4.2** — UART JSON+Binär, Live-MP3, sticky ID3 |
+| [COVER-ID3.md](COVER-ID3.md) | **Cover/APIC Spec** — Größen, Lab-Check, Hub-Bins |
 | [OFFENE-PUNKTE.md](OFFENE-PUNKTE.md) | Q-USB-*, Entscheidungen, Risiken |
 
 ## Kurzfassung
