@@ -110,6 +110,11 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
       <table><thead><tr><th>#</th><th>Name</th><th>Art</th><th></th></tr></thead>
       <tbody id="car-menu-body"><tr><td colspan="4">lädt…</td></tr></tbody></table>
       <p class="meta" id="car-menu-hint">PUMP vom Pi füllt die Slots. Tab <b>Menü</b> für Details · Play/Öffnen steuert PiDrive.</p>
+      <h3>Live-Audio <span id="listen-meta">—</span></h3>
+      <audio id="listen-audio" controls preload="none" style="width:100%;margin:6px 0"></audio>
+      <button class="btn btn-a" id="btn-listen">Stream hören</button>
+      <button class="btn" id="btn-listen-stop">Stop</button>
+      <p class="meta">Hört den PUMP-MP3-Puffer im Browser (`/api/lab/listen`). Station zuerst per Play aktivieren · PUMP ●.</p>
       <h3>MSC Timing / Metriken</h3>
       <div id="metrics"></div>
       <h3>LBA Read-Trace (Host)</h3>
@@ -298,6 +303,11 @@ async function refreshStatus(){
     const cPlay=$('#c-play'); if(cPlay) cPlay.innerHTML='PLAY <b>'+(s.playingName||'-')+'</b>';
     const cPump=$('#c-pump');
     if(cPump){ cPump.textContent='PUMP '+(s.pumpUp?'●':'○'); chip(cPump, !!s.pumpUp); }
+    const lm=$('#listen-meta');
+    if(lm){
+      const st=s.stream||{};
+      lm.textContent=st.active?('● '+(s.playingName||st.uid||'live')+' · '+(st.size||0)+' B'):'○ kein Stream';
+    }
     const lat=(s.msc&&s.msc.msPlugToPlayGuess)||0;
     const cLat=$('#c-lat'); if(cLat) cLat.innerHTML='LAT <b>'+(lat?lat+'ms':'-')+'</b>';
     const cAp=$('#c-ap'); if(cAp) cAp.innerHTML='AP <b>'+(s.softApIp||'-')+'</b>';
@@ -413,6 +423,15 @@ async function upload(f){
 }
 tabs();
 $('#btn-refresh').onclick=async()=>{await refreshMenu(true); await refreshStatus();};
+$('#btn-listen').onclick=()=>{
+  const a=$('#listen-audio'); if(!a) return;
+  a.src='/api/lab/listen?t='+Date.now();
+  a.play().catch(err=>alert('Audio: '+(err.message||err)+' — zuerst Station Play, Puffer füllen lassen'));
+};
+$('#btn-listen-stop').onclick=()=>{
+  const a=$('#listen-audio'); if(!a) return;
+  a.pause(); a.removeAttribute('src'); a.load();
+};
 $('#btn-ev-clear').onclick=async()=>{await fetch('/api/events',{method:'DELETE'}); $('#ev-list').innerHTML=''; since=0; await refreshEvents();};
 $('#btn-save').onclick=()=>saveConfig();
 $('#btn-restart').onclick=()=>fetch('/api/restart',{method:'POST'});

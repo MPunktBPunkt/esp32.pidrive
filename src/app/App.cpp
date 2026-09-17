@@ -131,6 +131,7 @@ void App::setupWeb() {
     server_.on("/api/config", HTTP_POST, [this]() { handleApiConfigPost(); });
     server_.on("/api/lab/play", HTTP_POST, [this]() { handleApiLabPlay(); });
     server_.on("/api/lab/stream", HTTP_GET, [this]() { handleApiLabStream(); });
+    server_.on("/api/lab/listen", HTTP_GET, [this]() { handleApiLabListen(); });
     server_.on("/api/metrics", HTTP_GET, [this]() { handleApiMetrics(); });
     server_.on("/api/restart", HTTP_POST, [this]() { handleRestart(); });
     server_.on(
@@ -356,14 +357,58 @@ void App::handleApiLabStream() {
         return;
     }
     static uint8_t buf[8192];
-    size_t n = stream.copyBuffered(buf, sizeof(buf));
+    size_t n = stream.copyFrom(stream.absBase(), buf, sizeof(buf));
+    if (!n) n = stream.copyFrom(stream.absEnd() > sizeof(buf) ? stream.absEnd() - sizeof(buf) : stream.absBase(), buf, sizeof(buf));
     server_.sendHeader(F("Cache-Control"), F("no-store"));
     server_.sendHeader(F("X-Stream-Uid"), stream.uid());
     server_.sendHeader(F("X-Stream-Size"), String((unsigned)stream.size()));
     server_.sendHeader(F("X-Stream-AbsEnd"), String(stream.absEnd()));
     server_.setContentLength(n);
     server_.send(200, F("audio/mpeg"), "");
-    server_.client().write(buf, n);
+    if (n) server_.client().write(buf, n);
+}
+
+void App::handleApiLabListen() {
+    if (!stream.active() || stream.size() < 2048) {
+        server_.send(503, F("text/plain"), F("kein Live-Stream — Station per Menü/Play starten"));
+        return;
+    }
+    events.push("audio.listen", stream.uid());
+
+    // Raw body (kein chunked) — sonst kaputt mit client.write(Binary)
+    WiFiClient client = server_.client();
+    client.print(F("HTTP/1.1 200 OK\r\n"));
+    client.print(F("Content-Type: audio/mpeg\r\n"));
+    client.print(F("Cache-Control: no-store\r\n"));
+    client.print(F("Connection: close\r\n"));
+    client.print(F("X-Stream-Uid: "));
+    client.print(stream.uid());
+    client.print(F("\r\n\r\n"));
+
+    uint32_t pos = stream.absBase();
+    if (stream.size() > 12288) {
+        pos = stream.absEnd() - 12288;
+        if (pos < stream.absBase()) pos = stream.absBase();
+    }
+    uint8_t buf[1024];
+    uint32_t lastByteMs = millis();
+    while (client.connected() && stream.active()) {
+        pump.loop();
+        uart.loop();
+        if (pos < stream.absBase()) pos = stream.absBase();
+        size_t got = stream.copyFrom(pos, buf, sizeof(buf));
+        if (got) {
+            size_t w = client.write(buf, got);
+            if (w == 0) break;
+            pos += (uint32_t)w;
+            lastByteMs = millis();
+        } else {
+            delay(15);
+            if (millis() - lastByteMs > 15000) break;
+        }
+        yield();
+    }
+    client.stop();
 }
 
 void App::handleApiMetrics() {

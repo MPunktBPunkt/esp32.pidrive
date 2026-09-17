@@ -78,15 +78,20 @@ public:
         return n;
     }
 
-    /** Copy up to n oldest-available buffered bytes (from absBase_). */
-    size_t copyBuffered(uint8_t* out, size_t n) const {
-        if (!out || !n || !size_) return 0;
-        if (n > size_) n = size_;
+    /** Copy up to n bytes starting at absolute offset; 0 if not in buffer. */
+    size_t copyFrom(uint32_t absOff, uint8_t* out, size_t n) const {
+        if (!out || !n || !active_ || !size_) return 0;
+        if (absOff < absBase_ || absOff >= absEnd_) return 0;
+        size_t avail = (size_t)(absEnd_ - absOff);
+        if (n > avail) n = avail;
+        uint32_t rel = absOff - absBase_;
         for (size_t i = 0; i < n; i++) {
-            out[i] = data_[(head_ + i) % kCapacity];
+            out[i] = data_[(head_ + rel + i) % kCapacity];
         }
         return n;
     }
+
+    uint32_t absBase() const { return absBase_; }
 
     void toJson(JsonObject obj) const {
         obj["active"] = active_;
