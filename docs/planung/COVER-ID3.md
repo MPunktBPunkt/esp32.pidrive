@@ -1,6 +1,6 @@
 # Cover / ID3 / APIC — `esp32.pidrive`
 
-**Stand:** 2026-09-18 · Firmware **0.4.3-dev**  
+**Stand:** 2026-09-18 · Firmware **0.4.4-dev**  
 **Cover-Assets (PiDrive-Repo):** [`pidrive/assets/usb-msc-covers/`](https://github.com/MPunktBPunkt/pidrive/tree/main/assets/usb-msc-covers)  
 **Lab:** [LAB-2026-09-18.md](LAB-2026-09-18.md) — Library **embedded APIC** verifiziert
 
@@ -14,6 +14,8 @@ Am **Autoradio** (BMW USB-Medien) sollen neben dem Ton optional erscheinen:
 - **Albumcover** (ID3 APIC, JPEG)
 
 Menü-Navigation bleibt über virtuelle Dateinamen; Cover ist Zusatz für Now-Playing.
+
+**SoftAP (Lab):** Tab Auto-Test zeigt dasselbe Cover via `GET /api/lab/cover`.
 
 ---
 
@@ -31,7 +33,8 @@ pump_bridge.py → mutagen ID3v2 (TIT2/TPE1/TALB/APIC)
         ▼
 ESP StreamBuffer id3_[≤12 KiB] + audio ring
         ├─ MSC onRead → ID3 dann MP3
-        └─ GET /api/lab/stream → ID3+Audio (PC-ffprobe)
+        ├─ GET /api/lab/stream → ID3+Audio (PC-ffprobe)
+        └─ GET /api/lab/cover → JPEG aus APIC (SoftAP-UI)
 ```
 
 ---
@@ -45,7 +48,7 @@ ESP StreamBuffer id3_[≤12 KiB] + audio ring
 | UART-Frame | ≤ **480 B** Payload | `0x01 0x55` Audio / `0x01 0x56` ID3 |
 | JPEG resize (Bridge) | ≤ **8000 B**, max. Seite **320** | `resize_jpeg` in `pump_bridge.py` |
 
-**SoftAP-UI:** Cover wird **nicht** angezeigt (Stand 0.4.3). Sticky APIC liegt im ESP-Puffer; Anzeige bräuchte z. B. `GET /api/lab/cover` + `<img>` in `UiPages.h`.
+**SoftAP-UI:** Cover über `GET /api/lab/cover` (JPEG aus sticky APIC) und Anzeige im Tab Auto-Test (ab **0.4.4-dev**).
 
 ### Empfohlene Cover-Datei
 
@@ -115,5 +118,5 @@ Bridge-Lookup: APIC aus MP3 → `stations/*.jpg` → Text-Fallback.
 - Zu große APIC (&gt;1000 px) am BMW oft unsichtbar
 - Feldtest NBT noch offen; PC-Pfad ist grün
 
-Firmware-Artefakte: `dist/pidrive.0.4.3-dev.{usb,ota}.esp32s3.bin`  
-Hub-Depot: `iobroker.esp-hub/firmware/pidrive.0.4.3-dev.*.esp32s3.bin`
+Firmware-Artefakte: `dist/pidrive.0.4.4-dev.{usb,ota}.esp32s3.bin`  
+Hub-Depot: `iobroker.esp-hub/firmware/pidrive.0.4.4-dev.*.esp32s3.bin`

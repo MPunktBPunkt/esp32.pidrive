@@ -125,6 +125,96 @@ public:
         return got;
     }
 
+    /**
+     * Extract JPEG bytes from sticky ID3 APIC (mutagen v2.3/v2.4).
+     * Returns copied length, or 0 if none.
+     */
+    size_t extractApicJpeg(uint8_t* out, size_t outCap) const {
+        if (!out || !outCap || id3Len_ < 20) return 0;
+        if (memcmp(id3_, "ID3", 3) != 0) return 0;
+        const uint8_t major = id3_[3];
+        auto synch = [](const uint8_t* p) -> uint32_t {
+            return ((uint32_t)(p[0] & 0x7F) << 21) | ((uint32_t)(p[1] & 0x7F) << 14) |
+                   ((uint32_t)(p[2] & 0x7F) << 7) | (uint32_t)(p[3] & 0x7F);
+        };
+        auto be32 = [](const uint8_t* p) -> uint32_t {
+            return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
+        };
+        uint32_t tagSize = synch(id3_ + 6);
+        size_t end = 10 + (size_t)tagSize;
+        if (end > id3Len_) end = id3Len_;
+        size_t pos = 10;
+        if ((id3_[5] & 0x40) && pos + 4 <= end) {
+            uint32_t ext = (major >= 4) ? synch(id3_ + pos) : be32(id3_ + pos);
+            if (major >= 4) {
+                if (ext < 6 || pos + ext > end) return 0;
+                pos += ext;
+            } else {
+                if (pos + 4 + ext > end) return 0;
+                pos += 4 + ext;
+            }
+        }
+        while (pos + 10 <= end) {
+            if (id3_[pos] == 0) break;
+            const bool isApic = memcmp(id3_ + pos, "APIC", 4) == 0;
+            uint32_t fsize = (major >= 4) ? synch(id3_ + pos + 4) : be32(id3_ + pos + 4);
+            pos += 10;
+            if (fsize == 0 || pos + fsize > end) break;
+            if (isApic && fsize >= 10) {
+                const uint8_t* p = id3_ + pos;
+                size_t rem = fsize;
+                uint8_t enc = p[0];
+                p++;
+                rem--;
+                while (rem && *p) {
+                    p++;
+                    rem--;
+                }
+                if (rem) {
+                    p++;
+                    rem--;
+                }
+                if (!rem) break;
+                p++;
+                rem--;
+                if (enc == 1 || enc == 2) {
+                    while (rem >= 2 && (p[0] || p[1])) {
+                        p += 2;
+                        rem -= 2;
+                    }
+                    if (rem >= 2) {
+                        p += 2;
+                        rem -= 2;
+                    }
+                } else {
+                    while (rem && *p) {
+                        p++;
+                        rem--;
+                    }
+                    if (rem) {
+                        p++;
+                        rem--;
+                    }
+                }
+                if (!rem) break;
+                const uint8_t* jpeg = p;
+                size_t jlen = rem;
+                for (size_t i = 0; i + 2 < rem; i++) {
+                    if (p[i] == 0xFF && p[i + 1] == 0xD8 && p[i + 2] == 0xFF) {
+                        jpeg = p + i;
+                        jlen = rem - i;
+                        break;
+                    }
+                }
+                if (jlen > outCap) jlen = outCap;
+                memcpy(out, jpeg, jlen);
+                return jlen;
+            }
+            pos += fsize;
+        }
+        return 0;
+    }
+
     uint32_t absBase() const { return absBase_; }
 
     void toJson(JsonObject obj) const {
@@ -135,6 +225,7 @@ public:
         obj["absEnd"] = absEnd_;
         obj["underruns"] = underruns_;
         obj["id3Len"] = (int)id3Len_;
+        obj["hasCover"] = id3Len_ >= 20 && id3_[0] == 'I' && id3_[1] == 'D' && id3_[2] == '3';
     }
 
 private:

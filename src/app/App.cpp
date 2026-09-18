@@ -132,6 +132,7 @@ void App::setupWeb() {
     server_.on("/api/lab/play", HTTP_POST, [this]() { handleApiLabPlay(); });
     server_.on("/api/lab/stream", HTTP_GET, [this]() { handleApiLabStream(); });
     server_.on("/api/lab/listen", HTTP_GET, [this]() { handleApiLabListen(); });
+    server_.on("/api/lab/cover", HTTP_GET, [this]() { handleApiLabCover(); });
     server_.on("/api/metrics", HTTP_GET, [this]() { handleApiMetrics(); });
     server_.on("/api/restart", HTTP_POST, [this]() { handleRestart(); });
     server_.on(
@@ -366,6 +367,21 @@ void App::handleApiLabStream() {
     server_.setContentLength(n);
     server_.send(200, F("audio/mpeg"), "");
     if (n) server_.client().write(buf, n);
+}
+
+void App::handleApiLabCover() {
+    static uint8_t jpeg[StreamBuffer::kId3Max];
+    size_t n = stream.extractApicJpeg(jpeg, sizeof(jpeg));
+    if (!n) {
+        server_.send(204, F("text/plain"), F(""));
+        return;
+    }
+    server_.sendHeader(F("Cache-Control"), F("no-store"));
+    server_.sendHeader(F("X-Stream-Uid"), stream.uid());
+    server_.sendHeader(F("X-Cover-Bytes"), String((unsigned)n));
+    server_.setContentLength(n);
+    server_.send(200, F("image/jpeg"), "");
+    server_.client().write(jpeg, n);
 }
 
 void App::handleApiLabListen() {

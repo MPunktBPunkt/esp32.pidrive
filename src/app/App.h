@@ -50,6 +50,7 @@ private:
     void handleApiLabPlay();
     void handleApiLabStream();
     void handleApiLabListen();
+    void handleApiLabCover();
     void handleApiMetrics();
     void handleOtaUpload();
     void handleRestart();

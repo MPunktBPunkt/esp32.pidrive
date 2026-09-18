@@ -65,6 +65,13 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
 .metric b{color:var(--ok)}
 .apbox{background:#0c1016;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px}
 .apbox code{color:var(--acc)}
+.cover-wrap{display:flex;gap:14px;align-items:flex-start;margin:8px 0 4px;flex-wrap:wrap}
+.cover-art{width:160px;height:160px;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:#0c1016;display:none}
+.cover-art.on{display:block}
+.cover-empty{width:160px;height:160px;border-radius:8px;border:1px dashed var(--line);color:var(--muted);display:flex;align-items:center;justify-content:center;font-size:12px;text-align:center;padding:8px}
+.cover-empty.hide{display:none}
+.cover-meta{flex:1;min-width:160px;font-size:13px;color:var(--muted)}
+.cover-meta b{color:var(--ink)}
 </style></head><body>
 <div class="shell">
   <h1>esp32.pidrive</h1>
@@ -110,6 +117,17 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
       <table><thead><tr><th>#</th><th>Name</th><th>Art</th><th></th></tr></thead>
       <tbody id="car-menu-body"><tr><td colspan="4">lädt…</td></tr></tbody></table>
       <p class="meta" id="car-menu-hint">PUMP vom Pi füllt die Slots. Tab <b>Menü</b> für Details · Play/Öffnen steuert PiDrive.</p>
+      <h3>Cover / Now Playing</h3>
+      <div class="cover-wrap">
+        <img id="cover-art" class="cover-art" alt="Cover" width="160" height="160">
+        <div id="cover-empty" class="cover-empty">kein APIC<br>im sticky ID3</div>
+        <div class="cover-meta">
+          <div>Titel <b id="cover-title">—</b></div>
+          <div style="margin-top:6px">ID3 <b id="cover-id3">—</b></div>
+          <div style="margin-top:6px">Cover <b id="cover-bytes">—</b></div>
+          <div class="meta" style="margin-top:8px">Aus sticky ID3 (`/api/lab/cover`). Erscheint nach Play, sobald die Bridge APIC sendet.</div>
+        </div>
+      </div>
       <h3>Live-Audio <span id="listen-meta">—</span></h3>
       <audio id="listen-audio" controls preload="none" style="width:100%;margin:6px 0"></audio>
       <button class="btn btn-a" id="btn-listen">Stream hören</button>
@@ -185,6 +203,7 @@ const $=s=>document.querySelector(s);
 let since=0;
 let lastMenuRev=-1;
 let menuBusy=false;
+let lastCoverKey='';
 function tabs(){
   document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
     document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
@@ -284,6 +303,43 @@ function fillAp(s){
     'URL <code>http://'+(s.softApIp||'192.168.4.1')+'/</code>'+
     (s.ip?'<br>STA <code>'+s.ip+'</code>':'');
 }
+function setCoverVisible(has){
+  const img=$('#cover-art'), empty=$('#cover-empty');
+  if(img) img.classList.toggle('on', !!has);
+  if(empty) empty.classList.toggle('hide', !!has);
+}
+function updateCover(s){
+  const st=s.stream||{};
+  const id3=st.id3Len||0;
+  const uid=st.uid||s.playingUid||'';
+  const titleEl=$('#cover-title');
+  const id3El=$('#cover-id3');
+  const bytesEl=$('#cover-bytes');
+  if(titleEl) titleEl.textContent=s.playingName||st.uid||'—';
+  if(id3El) id3El.textContent=id3? (id3+' B') : '—';
+  const key=uid+'|'+id3;
+  if(!id3){
+    lastCoverKey='';
+    setCoverVisible(false);
+    if(bytesEl) bytesEl.textContent='—';
+    const img=$('#cover-art');
+    if(img){ img.removeAttribute('src'); }
+    return;
+  }
+  if(key===lastCoverKey) return;
+  lastCoverKey=key;
+  const img=$('#cover-art');
+  if(!img) return;
+  img.onload=()=>{
+    setCoverVisible(true);
+    if(bytesEl) bytesEl.textContent='ok';
+  };
+  img.onerror=()=>{
+    setCoverVisible(false);
+    if(bytesEl) bytesEl.textContent='kein APIC';
+  };
+  img.src='/api/lab/cover?u='+encodeURIComponent(uid)+'&id3='+id3+'&t='+Date.now();
+}
 async function refreshStatus(){
   try{
     const s=await j('/api/status');
@@ -308,6 +364,7 @@ async function refreshStatus(){
       const st=s.stream||{};
       lm.textContent=st.active?('● '+(s.playingName||st.uid||'live')+' · '+(st.size||0)+' B'):'○ kein Stream';
     }
+    updateCover(s);
     const lat=(s.msc&&s.msc.msPlugToPlayGuess)||0;
     const cLat=$('#c-lat'); if(cLat) cLat.innerHTML='LAT <b>'+(lat?lat+'ms':'-')+'</b>';
     const cAp=$('#c-ap'); if(cAp) cAp.innerHTML='AP <b>'+(s.softApIp||'-')+'</b>';
