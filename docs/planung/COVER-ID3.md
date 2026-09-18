@@ -28,6 +28,9 @@ Priorität Cover:
   2) assets/usb-msc-covers/stations/<id|uid|slug>.jpg
   3) assets/usb-msc-covers/default.jpg   ← immer, wenn 1+2 fehlen
   4) generiertes Text-Cover (nur ohne default.jpg)
+
+Status (Stop/Idle): status/<kind>.jpg → src=status
+Root-Presets: stations.json favorite=true als erste MSC-Seite (fav0…)
         │
         ▼
 pump_bridge.py → mutagen ID3v2 (TIT2/TPE1/TALB/APIC)
