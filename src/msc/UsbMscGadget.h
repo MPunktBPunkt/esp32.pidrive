@@ -29,7 +29,6 @@ public:
     static constexpr size_t kTraceSize = 24;
     static constexpr size_t kSlots = 4;
     static constexpr uint32_t kDataStartLba = 35;
-    static constexpr uint32_t kStreamLbaEnd = 500;
     static constexpr uint8_t kSpc = 4;  // sectors per cluster (demo FAT)
 
     using PlayHandler = std::function<void(const char* uid)>;
@@ -71,13 +70,17 @@ private:
     const MscFileMap* fileForLba(uint32_t lba) const;
     bool looksLikePlay(const MscFileMap* f, uint32_t startLba, uint32_t seqBytes) const;
     void loadDefaultSlots();
-    void patchDirForStream(uint8_t* sector, uint32_t lba) const;
-    void patchFatForStream(uint8_t* sector, uint32_t lba) const;
+    /** Patch STATIONS/SETTINGS names; sizes/chains always from fixed slot geometry. */
+    void patchDirNames(uint8_t* sector, uint32_t lba) const;
+    void patchFatFixed(uint8_t* sector, uint32_t lba) const;
     void patchFatChain(uint8_t* sector, uint32_t lba, uint16_t cl0, uint16_t cl1) const;
-    void scheduleRemount(uint32_t delayMs);
     static uint16_t lbaToCluster(uint32_t lba) {
         if (lba < kDataStartLba) return 0;
         return (uint16_t)(2 + (lba - kDataStartLba) / kSpc);
+    }
+    static uint32_t slotBytes(const MscFileMap& s) {
+        if (s.lbaEnd < s.lbaStart) return 0;
+        return (s.lbaEnd - s.lbaStart + 1) * 512u;
     }
 
     EventLog* events_ = nullptr;
@@ -86,11 +89,8 @@ private:
     PlayHandler playHandler_;
     MscFileMap slots_[kSlots];
 
+    /** Which slot's payload is live audio — does NOT change FAT/dir geometry. */
     int streamSlot_ = -1;
-    uint32_t streamLba0_ = 0;
-    uint32_t streamLba1_ = 0;
-    uint16_t streamStartCl_ = 0;
-    uint16_t streamEndCl_ = 0;
 
     bool ready_ = false;
     bool plugged_ = false;
@@ -103,6 +103,7 @@ private:
     uint32_t msPlugToPlayGuess_ = 0;
     uint32_t readCount_ = 0;
     uint32_t writeCount_ = 0;
+    uint32_t writeRejectCount_ = 0;
     uint32_t lastReadLba_ = 0;
     uint32_t bytesRead_ = 0;
     uint32_t bytesMeta_ = 0;
@@ -117,7 +118,6 @@ private:
     uint32_t unplugCount_ = 0;
     uint32_t prefetchHits_ = 0;
     uint32_t streamBytesServed_ = 0;
-    uint32_t remountDueMs_ = 0;
 
     MscReadSample trace_[kTraceSize];
     size_t traceHead_ = 0;
