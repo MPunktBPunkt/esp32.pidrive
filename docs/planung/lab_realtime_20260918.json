@@ -1,0 +1,264 @@
+{
+  "ts": "2026-09-18T07:29:14",
+  "fw": "0.4.3-dev",
+  "tests": [
+    {
+      "name": "otg_up",
+      "ok": true,
+      "detail": {
+        "version": "0.4.3-dev",
+        "uptime": "17min 39s"
+      }
+    },
+    {
+      "name": "msc_host_emulation_blocked",
+      "ok": true,
+      "detail": {
+        "why": "LXC ohne /dev/sda trotz lsblk USB_MEDIA",
+        "readCount": 9,
+        "msPlugToFirstRead": 1063,
+        "msPlugToPlayGuess": 0
+      }
+    },
+    {
+      "name": "fat_name_gap_vs_bmw_ui",
+      "ok": true,
+      "detail": {
+        "bmw_would_list": "8.3 names from FAT image (01ROCK.MP3 / 02ANTENN.MP3 / …) until LFN/patch",
+        "softap_lists": "MenuStore labels (Favoriten, Quellen, …)",
+        "slotMap": [
+          "Webradio",
+          "Spotify",
+          "Scanner",
+          "Mehr… (+1)"
+        ]
+      }
+    },
+    {
+      "name": "menu_sync_after_folder_activate_ms",
+      "ok": true,
+      "detail": {
+        "ms": 400,
+        "items": [
+          "Zurueck",
+          "FM Radio",
+          "DAB+",
+          "Mehr… (+4)"
+        ],
+        "lab_play": {
+          "ok": true,
+          "playingUid": "1628800432581751424",
+          "playingName": "Quellen",
+          "pumpUp": true
+        }
+      }
+    },
+    {
+      "name": "paging_to_bibliothek_ms",
+      "ok": true,
+      "detail": {
+        "ms": 2048,
+        "pages": 2,
+        "items": [
+          "Bibliothek",
+          "Seite 1"
+        ]
+      }
+    },
+    {
+      "name": "audio_start_latency",
+      "ok": false,
+      "detail": {
+        "ms_to_id3": null,
+        "ms_to_fwd": null,
+        "stream_head_id3": true,
+        "x_stream_id3": "7724",
+        "on_esp_menu": true,
+        "car_delta": "BMW adds MSC read+play.guess before this path; SoftAP lab_play is optimistic"
+      }
+    },
+    {
+      "name": "uart_stream_60s",
+      "ok": true,
+      "detail": {
+        "underruns": [
+          0,
+          0
+        ],
+        "good_slices": 12,
+        "samples": [
+          {
+            "t": 5,
+            "active": true,
+            "underruns": 0,
+            "size": 49152,
+            "bufferMs": 0,
+            "fwd2s": 11040
+          },
+          {
+            "t": 10,
+            "active": true,
+            "underruns": 0,
+            "size": 49152,
+            "bufferMs": 0,
+            "fwd2s": 11040
+          },
+          {
+            "t": 15,
+            "active": true,
+            "underruns": 0,
+            "size": 49152,
+            "bufferMs": 0,
+            "fwd2s": 11040
+          },
+          {
+            "t": 20,
+            "active": true,
+            "underruns": 0,
+            "size": 49152,
+            "bufferMs": 0,
+            "fwd2s": 11040
+          },
+          {
+            "t": 25,
+            "active": true,
+            "underruns": 0,
+            "size": 49152,
+            "bufferMs": 0,
+            "fwd2s": 11040
+          },
+          {
+            "t": 30,
+            "active": true,
+            "underruns": 0,
+            "size": 49152,
+            "bufferMs": 0,
+            "fwd2s": 11040
+          },
+          {
+            "t": 35,
+            "active": true,
+            "underruns": 0,
+            "size": 49152,
+            "bufferMs": 0,
+            "fwd2s": 11040
+          },
+          {
+            "t": 40,
+            "active": true,
+            "underruns": 0,
+            "size": 49152,
+            "bufferMs": 0,
+            "fwd2s": 11040
+          },
+          {
+            "t": 46,
+            "active": true,
+            "underruns": 0,
+            "size": 49152,
+            "bufferMs": 0,
+            "fwd2s": 11040
+          },
+          {
+            "t": 51,
+            "active": true,
+            "underruns": 0,
+            "size": 49152,
+            "bufferMs": 0,
+            "fwd2s": 11040
+          },
+          {
+            "t": 56,
+            "active": true,
+            "underruns": 0,
+            "size": 49152,
+            "bufferMs": 0,
+            "fwd2s": 11040
+          },
+          {
+            "t": 61,
+            "active": true,
+            "underruns": 0,
+            "size": 49152,
+            "bufferMs": 0,
+            "fwd2s": 11040
+          }
+        ]
+      }
+    },
+    {
+      "name": "page_while_streaming",
+      "ok": true,
+      "detail": {
+        "items_after": [
+          "Metal (laut.fm)  [Metal]",
+          "Bayern 3  [Pop/Rock]",
+          "Seite 1"
+        ],
+        "fwd_after": true,
+        "note": "pump:page_* must not inject activate to Pi"
+      }
+    },
+    {
+      "name": "sticky_id3_at_file_start",
+      "ok": true,
+      "detail": {
+        "id3_B": 8204,
+        "x": "7724",
+        "car": "matches USB player reading file offset 0"
+      }
+    },
+    {
+      "name": "play_guess_msc_host_path",
+      "ok": false,
+      "detail": {
+        "exercised": false,
+        "blocker": "no block device node in CT",
+        "readCount": 9,
+        "prefetchHits": 1,
+        "events": [
+          "msc.slots",
+          "menu.set",
+          "play.guess",
+          "pump.event",
+          "event.sent",
+          "msc.slots",
+          "menu.set",
+          "play.guess",
+          "pump.event",
+          "event.sent",
+          "msc.slots",
+          "menu.set",
+          "play.guess",
+          "pump.event",
+          "event.sent",
+          "msc.slots",
+          "menu.set",
+          "play.guess",
+          "pump.event",
+          "event.sent",
+          "msc.stream_on",
+          "audio.start",
+          "msc.stream_on",
+          "msc.slots",
+          "menu.set",
+          "play.guess",
+          "pump.event",
+          "event.sent",
+          "msc.slots",
+          "menu.set"
+        ]
+      }
+    },
+    {
+      "name": "uart_budget_48k",
+      "ok": true,
+      "detail": {
+        "baud": 115200,
+        "audio_Bps": 6000,
+        "id3_8k_ms": -701,
+        "ok": true
+      }
+    }
+  ]
+}

@@ -13,7 +13,7 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 | Hardware | ESP32-S3-DevKitC-1 (OTG + UART) |
 | Pi-Link | [PUMP.md](docs/planung/PUMP.md) · Bridge `tools/pump_bridge.py` |
 | Cover-Assets | [pidrive/assets/usb-msc-covers](https://github.com/MPunktBPunkt/pidrive/tree/main/assets/usb-msc-covers) · [COVER-ID3.md](docs/planung/COVER-ID3.md) |
-| Lab | [LAB-2026-09-18.md](docs/planung/LAB-2026-09-18.md) |
+| Lab | [LAB-2026-09-18.md](docs/planung/LAB-2026-09-18.md) · [Realtime-Gap](docs/planung/LAB-2026-09-18-REALTIME.md) |
 | Auto-Link | USB-MSC · 4 Slots + Bridge-Paging · Live-Stream + sticky ID3 |
 | WebUI | Auto-Test · Live-Audio · Menü · Events · Config · OTA |
 
@@ -26,6 +26,7 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 
 ## Letzte Änderung
 
+- 2026-09-18: Realtime-Gap-Analyse (Lab≠NBT, 60s UART, MSC-Host-Blocker)
 - 2026-09-18: **0.4.3-dev** Soft-Paging (`Mehr…`/`Seite 1`); APIC aus lokaler MP3; Lab-Protokoll
 - 2026-09-17: **0.4.2-dev** sticky ID3+APIC; Cover-Spec; Bins in Hub-Depot
 - 2026-09-17: **0.4.1-dev** WebUI Stream hören

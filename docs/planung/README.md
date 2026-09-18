@@ -17,6 +17,7 @@ Planung für `esp32.pidrive` (USB-MSC-Medienpfad für PiDrive).
 | [PUMP.md](PUMP.md) | **PUMP V0.4.3** — Soft-Paging, Live-MP3, sticky ID3 |
 | [COVER-ID3.md](COVER-ID3.md) | **Cover/APIC Spec** — embedded + stations + generiert |
 | [LAB-2026-09-18.md](LAB-2026-09-18.md) | Lab: Paging, Webradio, Library-APIC, Spotify |
+| [LAB-2026-09-18-REALTIME.md](LAB-2026-09-18-REALTIME.md) | Lab vs Auto: Lücken, Latenz, 60s-UART, MSC-Host-Blocker |
 | [OFFENE-PUNKTE.md](OFFENE-PUNKTE.md) | Q-USB-*, Entscheidungen, Risiken |
 
 ## Kurzfassung
