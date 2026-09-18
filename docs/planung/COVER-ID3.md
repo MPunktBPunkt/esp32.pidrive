@@ -1,7 +1,8 @@
 # Cover / ID3 / APIC — `esp32.pidrive`
 
-**Stand:** 2026-09-17 · Firmware **0.4.2-dev**  
-**Cover-Assets (PiDrive-Repo):** [`pidrive/assets/usb-msc-covers/`](https://github.com/MPunktBPunkt/pidrive/tree/main/assets/usb-msc-covers)
+**Stand:** 2026-09-18 · Firmware **0.4.3-dev**  
+**Cover-Assets (PiDrive-Repo):** [`pidrive/assets/usb-msc-covers/`](https://github.com/MPunktBPunkt/pidrive/tree/main/assets/usb-msc-covers)  
+**Lab:** [LAB-2026-09-18.md](LAB-2026-09-18.md) — Library **embedded APIC** verifiziert
 
 ---
 
@@ -19,20 +20,17 @@ Menü-Navigation bleibt über virtuelle Dateinamen; Cover ist Zusatz für Now-Pl
 ## Datenfluss
 
 ```
-PiDrive status (track/artist/radio_name)
-        + optional JPEG aus assets/usb-msc-covers/
+Priorität Cover:
+  1) APIC aus lokaler MP3 (local_play / status.library_file) → resize 320px
+  2) assets/usb-msc-covers/stations/<id|uid|slug>.jpg
+  3) generiertes Text-Cover (Pillow)
         │
         ▼
-pump_bridge.py
-  make_cover_jpeg() oder Datei laden
-  mutagen → ID3v2 (TIT2/TPE1/TALB/APIC)
+pump_bridge.py → mutagen ID3v2 (TIT2/TPE1/TALB/APIC)
         │  UART 0x01 0x56 (sticky ID3, chunked ≤480 B)
         ▼
-ESP StreamBuffer
-  id3_[≤12 KiB] sticky @ Dateioffset 0
-  audio ring 48 KiB
-        │
-        ├─ MSC onRead(fileOff) → ID3 dann MP3
+ESP StreamBuffer id3_[≤12 KiB] + audio ring
+        ├─ MSC onRead → ID3 dann MP3
         └─ GET /api/lab/stream → ID3+Audio (PC-ffprobe)
 ```
 
@@ -113,5 +111,5 @@ Bridge-Lookup: zuerst Datei, sonst Text-Fallback.
 - Zu große APIC (&gt;1000 px) am BMW oft unsichtbar
 - Feldtest NBT noch offen; PC-Pfad ist grün
 
-Firmware-Artefakte: `dist/pidrive.0.4.2-dev.{usb,ota}.esp32s3.bin`  
-Hub-Depot: `iobroker.esp-hub/firmware/pidrive.0.4.2-dev.*.esp32s3.bin`
+Firmware-Artefakte: `dist/pidrive.0.4.3-dev.{usb,ota}.esp32s3.bin`  
+Hub-Depot: `iobroker.esp-hub/firmware/pidrive.0.4.3-dev.*.esp32s3.bin`

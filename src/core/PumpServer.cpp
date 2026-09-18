@@ -107,6 +107,7 @@ void PumpServer::handleLine(char* line) {
         ack["ver"] = FW_VERSION;
         ack["fw"] = FW_TYPE;
         ack["slots"] = 4;
+        ack["page"] = true;  // bridge soft-paging (Mehr… / Seite 1)
         ack["audio"] = true;
         ack["bin"] = true;
         sendJson(ack);

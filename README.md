@@ -19,16 +19,16 @@ BMW / Werksradio USB-Host (Medienliste + MP3-Decode)
 
 | | |
 |--|--|
-| **Phase** | **Firmware 0.4.2-dev** — Live-MP3 + ID3/APIC Lab |
+| **Phase** | **Firmware 0.4.3-dev** — Soft-Paging + embedded APIC |
 | **Stand** | [`STATE.md`](STATE.md) |
 | **Build** | PlatformIO: `pio run -e pidrive-s3` |
-| **PUMP** | [`docs/planung/PUMP.md`](docs/planung/PUMP.md) · [`COVER-ID3.md`](docs/planung/COVER-ID3.md) |
+| **PUMP** | [`docs/planung/PUMP.md`](docs/planung/PUMP.md) · [`COVER-ID3.md`](docs/planung/COVER-ID3.md) · [Lab 09-18](docs/planung/LAB-2026-09-18.md) |
 | **Cover-Assets** | [`pidrive/assets/usb-msc-covers`](https://github.com/MPunktBPunkt/pidrive/tree/main/assets/usb-msc-covers) (320×320 JPEG ≤8 KiB) |
 | **Car-Test** | [`docs/planung/CAR-STANDALONE.md`](docs/planung/CAR-STANDALONE.md) |
 | **Planung** | [`docs/planung/`](docs/planung/) |
 | **Chip** | ESP32-S3 (USB-OTG, `ARDUINO_USB_MODE=0`) |
-| **Hub** | [HUB-INTEGRATION.md](docs/planung/HUB-INTEGRATION.md) · Depot `firmware/pidrive.0.4.2-dev.*.esp32s3.bin` |
-| **Dist** | `dist/pidrive.0.4.2-dev.usb.esp32s3.bin` · `.ota.esp32s3.bin` |
+| **Hub** | [HUB-INTEGRATION.md](docs/planung/HUB-INTEGRATION.md) · Depot `firmware/pidrive.0.4.3-dev.*.esp32s3.bin` |
+| **Dist** | `dist/pidrive.0.4.3-dev.usb.esp32s3.bin` · `.ota.esp32s3.bin` |
 
 Gegenstück / Herkunft der Idee: [`pidrive` Planung](https://github.com/MPunktBPunkt/pidrive/tree/main/docs/planung) (`KONZEPT-USB-MSC.md`, …).  
 Schwesterprojekt (BT): [`esp32.bt-gateway`](https://github.com/MPunktBPunkt/esp32.bt-gateway).

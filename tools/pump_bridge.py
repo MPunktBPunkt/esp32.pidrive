@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """PiDrive ↔ esp32.pidrive PUMP bridge (line-JSON + binary audio over UART).
 
-- Syncs /tmp/pidrive_menu.json (≤4 slots) via menu_set
-- On play_uid: activate:<uid> + live MP3 (audio_start + ID3/APIC + 0x01 0x55 frames)
-- Station URL from menu node meta.url; ffmpeg → ~48 kbit/s
-- ID3v2 + generated cover JPEG (sticky on ESP via 0x01 0x56 frames)
+- Syncs /tmp/pidrive_menu.json via menu_set with soft paging (≤4 MSC slots)
+- On play_uid: activate:<uid> + live MP3 (audio_start + ID3/APIC + 0x01 0x55)
+- Cover priority: embedded APIC from local MP3 → stations/*.jpg → generated JPEG
+- Stations (meta.url) and local_play: paths are streamed via ffmpeg
 
 Usage:
   python3 tools/pump_bridge.py [--port /dev/ttyACM0] [--baud 115200] [--bitrate 48k]
@@ -33,8 +33,7 @@ except ImportError:
     Image = None  # type: ignore
 
 try:
-    from mutagen.id3 import ID3, TIT2, TPE1, TALB, APIC, ID3NoHeaderError
-    from mutagen.mp3 import MP3
+    from mutagen.id3 import ID3, TIT2, TPE1, TALB, APIC
 except ImportError:
     ID3 = None  # type: ignore
 
@@ -42,42 +41,26 @@ MENU_PATH = Path("/tmp/pidrive_menu.json")
 STATUS_PATH = Path("/tmp/pidrive_status.json")
 CMD_PATH = Path("/tmp/pidrive_cmd")
 PROBE_PATH = Path("/tmp/pump_id3_probe.mp3")
-# Custom covers (pidrive repo on the Pi)
 COVER_ROOTS = [
     Path("/home/pidrive/pidrive/assets/usb-msc-covers"),
     Path.home() / "pidrive" / "assets" / "usb-msc-covers",
     Path(__file__).resolve().parents[2] / "assets" / "usb-msc-covers",
+    Path("/home/martin/projects/pidrive/assets/usb-msc-covers"),
 ]
 MAX_SLOTS = 4
+PAGE_CONTENT = 3  # when paging: 3 items + Mehr/Seite1
 FRAME_MAX = 480
-ID3_BUDGET = 12 * 1024  # must match ESP StreamBuffer::kId3Max
+ID3_BUDGET = 12 * 1024
+PAGE_NEXT_UID = "pump:page_next"
+PAGE_HOME_UID = "pump:page_home"
+AUDIO_EXTS = {".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wav", ".opus", ".wma"}
 
 
-def read_menu() -> tuple[int, list[dict], dict[str, dict]]:
-    if not MENU_PATH.exists():
-        return 0, [], {}
-    data = json.loads(MENU_PATH.read_text(encoding="utf-8"))
-    rev = int(data.get("rev") or 0)
-    items = []
-    by_uid: dict[str, dict] = {}
-    for n in data.get("nodes") or []:
-        typ = n.get("type") or "info"
-        if typ == "info":
-            continue
-        uid = n.get("uid")
-        if uid is None:
-            continue
-        uid_s = str(uid)
-        by_uid[uid_s] = n
-        if len(items) < MAX_SLOTS:
-            items.append(
-                {
-                    "uid": uid_s,
-                    "name": (n.get("label") or n.get("id") or "?")[:36],
-                    "kind": typ,
-                }
-            )
-    return rev, items, by_uid
+def inject(cmd: str) -> None:
+    CMD_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with CMD_PATH.open("a", encoding="utf-8") as f:
+        f.write(cmd.rstrip() + "\n")
+    print(f"[inject] {cmd}", flush=True)
 
 
 def read_status() -> dict:
@@ -89,15 +72,87 @@ def read_status() -> dict:
         return {}
 
 
-def inject(cmd: str) -> None:
-    CMD_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with CMD_PATH.open("a", encoding="utf-8") as f:
-        f.write(cmd.rstrip() + "\n")
-    print(f"[inject] {cmd}", flush=True)
+def collect_audio_files(path: str) -> list[str]:
+    path = os.path.expanduser(path)
+    if not path or not os.path.exists(path):
+        return []
+    if os.path.isfile(path):
+        return [path] if os.path.splitext(path)[1].lower() in AUDIO_EXTS else []
+    out: list[str] = []
+    for root, _, files in os.walk(path):
+        for name in sorted(files):
+            if os.path.splitext(name)[1].lower() in AUDIO_EXTS:
+                out.append(os.path.join(root, name))
+    return out
+
+
+def read_menu_nodes() -> tuple[int, list[dict], dict[str, dict]]:
+    """Return (rev, visible nodes in folder order, by_uid)."""
+    if not MENU_PATH.exists():
+        return 0, [], {}
+    data = json.loads(MENU_PATH.read_text(encoding="utf-8"))
+    rev = int(data.get("rev") or 0)
+    nodes: list[dict] = []
+    by_uid: dict[str, dict] = {}
+    for n in data.get("nodes") or []:
+        typ = n.get("type") or "info"
+        if typ == "info":
+            continue
+        uid = n.get("uid")
+        if uid is None:
+            continue
+        uid_s = str(uid)
+        by_uid[uid_s] = n
+        nodes.append(n)
+    return rev, nodes, by_uid
+
+
+def page_items(nodes: list[dict], page: int) -> tuple[list[dict], int]:
+    """Build ≤4 slot items; soft-page when more than MAX_SLOTS."""
+    if len(nodes) <= MAX_SLOTS:
+        items = [
+            {
+                "uid": str(n["uid"]),
+                "name": (n.get("label") or n.get("id") or "?")[:36],
+                "kind": n.get("type") or "info",
+            }
+            for n in nodes[:MAX_SLOTS]
+        ]
+        return items, 0
+
+    max_page = (len(nodes) - 1) // PAGE_CONTENT
+    page = max(0, min(page, max_page))
+    start = page * PAGE_CONTENT
+    chunk = nodes[start : start + PAGE_CONTENT]
+    items = [
+        {
+            "uid": str(n["uid"]),
+            "name": (n.get("label") or n.get("id") or "?")[:36],
+            "kind": n.get("type") or "info",
+        }
+        for n in chunk
+    ]
+    if page < max_page:
+        left = len(nodes) - (start + len(chunk))
+        items.append(
+            {
+                "uid": PAGE_NEXT_UID,
+                "name": f"Mehr… (+{left})"[:36],
+                "kind": "action",
+            }
+        )
+    elif page > 0:
+        items.append(
+            {
+                "uid": PAGE_HOME_UID,
+                "name": "Seite 1",
+                "kind": "action",
+            }
+        )
+    return items, page
 
 
 def find_cover_file(node: dict | None) -> Path | None:
-    """Look up stations/<id>.jpg or uid_<uid>.jpg under cover roots."""
     if not node:
         return None
     candidates: list[str] = []
@@ -121,19 +176,44 @@ def find_cover_file(node: dict | None) -> Path | None:
     return None
 
 
-def load_or_make_cover(node: dict | None, title: str, subtitle: str, footer: str) -> bytes:
-    path = find_cover_file(node)
-    if path:
-        data = path.read_bytes()
-        if len(data) > 10_000:
-            print(f"[id3] cover large {len(data)} B: {path}", flush=True)
-        print(f"[id3] cover file {path} ({len(data)} B)", flush=True)
-        return data
-    return make_cover_jpeg(title, subtitle, footer)
+def resize_jpeg(data: bytes, max_side: int = 320, max_bytes: int = 8000) -> bytes:
+    if Image is None:
+        return data[:max_bytes] if len(data) > max_bytes else data
+    try:
+        img = Image.open(io.BytesIO(data)).convert("RGB")
+    except Exception:
+        return data[:max_bytes] if len(data) > max_bytes else data
+    w, h = img.size
+    scale = min(1.0, max_side / max(w, h))
+    if scale < 1.0:
+        img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.Resampling.LANCZOS)
+    for q in (70, 60, 50, 40, 30):
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=q, optimize=True)
+        out = buf.getvalue()
+        if len(out) <= max_bytes:
+            return out
+    return out  # type: ignore[name-defined]
+
+
+def extract_apic_from_file(path: str | None) -> bytes | None:
+    if not path or not os.path.isfile(path) or ID3 is None:
+        return None
+    if os.path.splitext(path)[1].lower() != ".mp3":
+        return None
+    try:
+        tags = ID3(path)
+    except Exception:
+        return None
+    for key in tags.keys():
+        if key.startswith("APIC"):
+            data = getattr(tags[key], "data", None)
+            if data:
+                return resize_jpeg(data)
+    return None
 
 
 def make_cover_jpeg(title: str, subtitle: str, footer: str) -> bytes:
-    """Small JPEG for ID3 APIC / BMW-ish size."""
     if Image is None:
         return (
             b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
@@ -156,9 +236,15 @@ def make_cover_jpeg(title: str, subtitle: str, footer: str) -> bytes:
         font_s = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 13)
     except Exception:
         try:
-            font_b = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", 22)
-            font = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", 16)
-            font_s = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", 13)
+            font_b = ImageFont.truetype(
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", 22
+            )
+            font = ImageFont.truetype(
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", 16
+            )
+            font_s = ImageFont.truetype(
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", 13
+            )
         except Exception:
             font_b = font = font_s = ImageFont.load_default()
     draw.text((12, 12), "PiDrive", fill=(220, 235, 255), font=font_b)
@@ -170,52 +256,51 @@ def make_cover_jpeg(title: str, subtitle: str, footer: str) -> bytes:
     return buf.getvalue()
 
 
+def load_cover(
+    node: dict | None, title: str, subtitle: str, footer: str, media_path: str | None = None
+) -> tuple[bytes, str]:
+    """Return (jpeg_bytes, source_tag)."""
+    embedded = extract_apic_from_file(media_path)
+    if embedded:
+        print(f"[id3] cover from APIC {media_path} ({len(embedded)} B)", flush=True)
+        return embedded, "embedded"
+    path = find_cover_file(node)
+    if path:
+        data = resize_jpeg(path.read_bytes())
+        print(f"[id3] cover file {path} ({len(data)} B)", flush=True)
+        return data, "file"
+    return make_cover_jpeg(title, subtitle, footer), "generated"
+
+
 def build_id3_tag(title: str, artist: str, album: str, jpeg: bytes) -> bytes:
-    """Return raw ID3v2 tag bytes (no audio)."""
     if ID3 is None:
         raise RuntimeError("python3-mutagen missing")
-    # mutagen wants a file; build empty MP3 then strip audio
-    raw_mp3 = (
-        b"\xff\xfb\x90\x00" + b"\x00" * 200
-    )  # tiny frame-ish padding; we'll take only ID3
+    raw_mp3 = b"\xff\xfb\x90\x00" + b"\x00" * 200
     PROBE_PATH.write_bytes(raw_mp3)
-    try:
-        tags = ID3()
-    except Exception:
-        tags = ID3()
+    tags = ID3()
     tags.delall("APIC")
     tags.add(TIT2(encoding=3, text=title or "PiDrive"))
     tags.add(TPE1(encoding=3, text=artist or "PiDrive"))
     tags.add(TALB(encoding=3, text=album or "USB"))
     tags.add(
-        APIC(
-            encoding=3,
-            mime="image/jpeg",
-            type=3,
-            desc="Cover",
-            data=jpeg,
-        )
+        APIC(encoding=3, mime="image/jpeg", type=3, desc="Cover", data=jpeg)
     )
     tags.save(PROBE_PATH)
     data = PROBE_PATH.read_bytes()
     if data[:3] != b"ID3":
         raise RuntimeError("ID3 header missing after mutagen save")
-    # ID3 size synchsafe at bytes 6..9
     size = (
         ((data[6] & 0x7F) << 21)
         | ((data[7] & 0x7F) << 14)
         | ((data[8] & 0x7F) << 7)
         | (data[9] & 0x7F)
     )
-    total = 10 + size
-    tag = data[:total]
-    # keep probe = tag + tiny silence for local ffprobe
+    tag = data[: 10 + size]
     PROBE_PATH.write_bytes(tag + raw_mp3)
     return tag
 
 
 def send_bin(ser: serial.Serial, kind: int, payload: bytes) -> None:
-    """kind 0x55 audio, 0x56 sticky ID3 append."""
     off = 0
     while off < len(payload):
         chunk = payload[off : off + FRAME_MAX]
@@ -247,7 +332,13 @@ class AudioFwd:
             print(f"[tx] {line}", flush=True)
         self.uid = ""
 
-    def start(self, uid: str, url: str, node: dict | None = None) -> None:
+    def start(
+        self,
+        uid: str,
+        url: str,
+        node: dict | None = None,
+        media_path: str | None = None,
+    ) -> None:
         self.stop()
         self.uid = uid
         line = json.dumps(
@@ -267,19 +358,25 @@ class AudioFwd:
             or "Station"
         )
         title = st.get("track") or station
-        artist = st.get("artist") or meta.get("genre") or "Webradio"
-        album = st.get("radio_name") or station
+        artist = st.get("artist") or meta.get("genre") or "PiDrive"
+        album = st.get("album") or st.get("radio_name") or station
         footer = f"BT:{st.get('bt_device') or '-'} WiFi:{'on' if st.get('wifi') else 'off'}"
+        cover_path = media_path or st.get("library_file") or None
         try:
-            jpeg = load_or_make_cover(node, str(station)[:40], f"{artist} — {title}"[:48], footer)
+            jpeg, src = load_cover(
+                node, str(station)[:40], f"{artist} — {title}"[:48], footer, cover_path
+            )
             tag = build_id3_tag(str(title)[:60], str(artist)[:40], str(album)[:40], jpeg)
             if len(tag) > ID3_BUDGET:
-                print(f"[id3] tag {len(tag)} B > {ID3_BUDGET}, skip APIC / shrink", flush=True)
-                # retry without custom image
+                print(f"[id3] tag {len(tag)} B > {ID3_BUDGET}, shrink", flush=True)
                 jpeg = make_cover_jpeg(str(station)[:40], str(title)[:48], "cover too large")
                 tag = build_id3_tag(str(title)[:60], str(artist)[:40], str(album)[:40], jpeg)
+                src = "generated"
             send_bin(self.ser, 0x56, tag[:ID3_BUDGET])
-            print(f"[id3] sent {min(len(tag), ID3_BUDGET)} B (jpeg {len(jpeg)} B) → {PROBE_PATH}", flush=True)
+            print(
+                f"[id3] sent {min(len(tag), ID3_BUDGET)} B jpeg={len(jpeg)} src={src} → {PROBE_PATH}",
+                flush=True,
+            )
         except Exception as e:
             print(f"[id3] skip: {e}", flush=True)
 
@@ -329,6 +426,29 @@ class AudioFwd:
         return len(data)
 
 
+def resolve_stream_target(node: dict) -> tuple[str | None, str | None]:
+    """Return (ffmpeg_input, media_path_for_cover)."""
+    typ = node.get("type") or ""
+    meta = node.get("meta") or {}
+    url = meta.get("url") if isinstance(meta, dict) else None
+    if typ == "station" and url:
+        return str(url), None
+
+    action = node.get("action") or ""
+    if isinstance(action, str) and action.startswith("local_play:"):
+        payload = action[len("local_play:") :]
+        path = payload.split("|", 1)[0].strip()
+        files = collect_audio_files(path)
+        if not files:
+            print(f"[audio] local_play empty: {path}", flush=True)
+            return None, None
+        # Prefer MP3 for APIC; else first file
+        mp3s = [f for f in files if f.lower().endswith(".mp3")]
+        chosen = mp3s[0] if mp3s else files[0]
+        return chosen, chosen
+    return None, None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="PUMP UART bridge PiDrive ↔ esp32.pidrive")
     ap.add_argument("--port", default="/dev/ttyACM0")
@@ -356,13 +476,19 @@ def main() -> int:
     send({"t": "hello", "ver": 1})
     last_rev = -1
     last_sig = ""
+    page = 0
+    folder_sig = ""
     buf = b""
     last_menu = 0.0
     by_uid: dict[str, dict] = {}
     sent_audio = 0
     last_audio_log = time.time()
+    force_menu = False
 
-    print(f"[bridge] {args.port} @ {args.baud} audio={'off' if args.no_audio else args.bitrate}", flush=True)
+    print(
+        f"[bridge] {args.port} @ {args.baud} audio={'off' if args.no_audio else args.bitrate} paging=on",
+        flush=True,
+    )
     try:
         while True:
             chunk = ser.read(512)
@@ -387,32 +513,77 @@ def main() -> int:
                         uid = str(msg.get("uid") or "")
                         if not uid:
                             continue
+                        if uid == PAGE_NEXT_UID:
+                            page += 1
+                            force_menu = True
+                            print(f"[page] next → {page}", flush=True)
+                            continue
+                        if uid == PAGE_HOME_UID:
+                            page = 0
+                            force_menu = True
+                            print("[page] home → 0", flush=True)
+                            continue
+
+                        # Resolve node BEFORE activate — folder leave removes it from menu.json
+                        _, _nodes, by_uid = read_menu_nodes()
+                        node = by_uid.get(uid) or {}
+                        typ = node.get("type") or ""
                         inject(f"activate:{uid}")
                         if args.no_audio:
                             continue
-                        _, _, by_uid = read_menu()
-                        node = by_uid.get(uid) or {}
-                        typ = node.get("type") or ""
-                        meta = node.get("meta") or {}
-                        url = meta.get("url") if isinstance(meta, dict) else None
-                        if typ == "station" and url:
-                            audio.start(uid, str(url), node)
+                        if typ == "folder":
+                            audio.stop()
+                            page = 0
+                            force_menu = True
+                            # allow core to rewrite menu.json before next sync
+                            time.sleep(0.25)
+                            continue
+
+                        src, media_path = resolve_stream_target(node)
+                        if src:
+                            # brief wait so status/library_file can update for covers
+                            time.sleep(0.25)
+                            audio.start(uid, src, node, media_path)
                         else:
                             audio.stop()
+                            print(
+                                f"[audio] no stream target for uid={uid} type={typ} "
+                                f"action={node.get('action')}",
+                                flush=True,
+                            )
                     elif t == "menu_ack":
                         print(f"[menu_ack] ok={msg.get('ok')} n={msg.get('n')}", flush=True)
                     elif t == "audio_ack":
                         print(f"[audio_ack] {msg}", flush=True)
+                    elif t == "hello_ack":
+                        print(
+                            f"[hello_ack] ver={msg.get('ver')} slots={msg.get('slots')} page={msg.get('page')}",
+                            flush=True,
+                        )
 
             now = time.time()
-            if now - last_menu >= args.interval:
+            if force_menu or now - last_menu >= args.interval:
                 last_menu = now
-                rev, items, by_uid = read_menu()
+                rev, nodes, by_uid = read_menu_nodes()
+                # folder identity = path labels + node uids (reset page on navigate)
+                path_key = ""
+                try:
+                    raw = json.loads(MENU_PATH.read_text(encoding="utf-8"))
+                    path_key = json.dumps(raw.get("path_ids") or raw.get("path") or [], separators=(",", ":"))
+                except Exception:
+                    path_key = ""
+                node_uids = ",".join(str(n.get("uid")) for n in nodes)
+                fsig = f"{path_key}|{node_uids}"
+                if fsig != folder_sig:
+                    folder_sig = fsig
+                    page = 0
+                items, page = page_items(nodes, page)
                 sig = json.dumps(items, separators=(",", ":"))
-                if items and (rev != last_rev or sig != last_sig):
-                    send({"t": "menu_set", "rev": rev, "items": items})
+                if items and (force_menu or rev != last_rev or sig != last_sig):
+                    send({"t": "menu_set", "rev": rev, "page": page, "items": items})
                     last_rev = rev
                     last_sig = sig
+                force_menu = False
 
             n = 0 if args.no_audio else audio.pump()
             sent_audio += n
