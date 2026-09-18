@@ -40,9 +40,12 @@ ESP StreamBuffer id3_[≤12 KiB] + audio ring
 
 | Konstante | Wert | Bedeutung |
 |-----------|------|-----------|
-| `StreamBuffer::kId3Max` | **12 384 B** | sticky ID3 inkl. APIC |
-| `StreamBuffer::kCapacity` | **48 KiB** | Live-MP3-Ring |
+| `StreamBuffer::kId3Max` | **12 288 B (12 KiB)** | sticky ID3 inkl. APIC |
+| `StreamBuffer::kCapacity` | **48 KiB** | Live-MP3-Ring (~8 s @ 48 kbit/s) |
 | UART-Frame | ≤ **480 B** Payload | `0x01 0x55` Audio / `0x01 0x56` ID3 |
+| JPEG resize (Bridge) | ≤ **8000 B**, max. Seite **320** | `resize_jpeg` in `pump_bridge.py` |
+
+**SoftAP-UI:** Cover wird **nicht** angezeigt (Stand 0.4.3). Sticky APIC liegt im ESP-Puffer; Anzeige bräuchte z. B. `GET /api/lab/cover` + `<img>` in `UiPages.h`.
 
 ### Empfohlene Cover-Datei
 
@@ -101,7 +104,8 @@ Kurz:
 - `stations/<node_id>.jpg` — Senderlogo  
 - `status/wifi.jpg`, `status/bt_connected.jpg`, `status/dab_scan.jpg` — Zustände  
 
-Bridge-Lookup: zuerst Datei, sonst Text-Fallback.
+Bridge-Lookup: APIC aus MP3 → `stations/*.jpg` → Text-Fallback.  
+`status/*.jpg` ist spezifiziert, aber in der Bridge noch nicht verdrahtet.
 
 ---
 
