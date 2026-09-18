@@ -73,6 +73,8 @@ private:
     void loadDefaultSlots();
     void patchDirForStream(uint8_t* sector, uint32_t lba) const;
     void patchFatForStream(uint8_t* sector, uint32_t lba) const;
+    void patchFatChain(uint8_t* sector, uint32_t lba, uint16_t cl0, uint16_t cl1) const;
+    void scheduleRemount(uint32_t delayMs);
     static uint16_t lbaToCluster(uint32_t lba) {
         if (lba < kDataStartLba) return 0;
         return (uint16_t)(2 + (lba - kDataStartLba) / kSpc);
@@ -115,6 +117,7 @@ private:
     uint32_t unplugCount_ = 0;
     uint32_t prefetchHits_ = 0;
     uint32_t streamBytesServed_ = 0;
+    uint32_t remountDueMs_ = 0;
 
     MscReadSample trace_[kTraceSize];
     size_t traceHead_ = 0;

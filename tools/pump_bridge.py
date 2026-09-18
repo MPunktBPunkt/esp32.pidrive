@@ -73,6 +73,12 @@ PAGE_HOME_UID = "pump:page_home"
 STOP_UID = "pump:stop"
 FAVORITEN_UID = "pump:favoriten"
 ROOT_UID = "pump:root"
+# Default MSC stubs before menu_set — map to root favorite presets
+DEMO_UID_TO_FAV = {
+    "demo:rock_fm": "fav0",
+    "demo:antenne": "fav1",
+    "demo:swr3": "fav2",
+}
 AUDIO_EXTS = {".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wav", ".opus", ".wma"}
 # synthetic preset nodes (uid → node), filled when building root presets page
 _PRESET_BY_UID: dict[str, dict] = {}
@@ -276,11 +282,44 @@ def find_favoriten_uid() -> str | None:
 
 
 def menu_nodes_for_page(path_ids: list | None, nodes: list[dict], page: int) -> tuple[list[dict], int, dict[str, dict]]:
-    """Soft-page visible nodes (≤4 MSC slots). No root-preset overlay."""
+    """Root page 0 = favorite presets as MSC slots (BMW hears stations, not demos once streamed).
+
+    Further pages / non-root = normal soft-paged tree. SoftAP can still navigate via lab/play.
+    """
     global _PRESET_BY_UID
-    _PRESET_BY_UID = {}
+    extra: dict[str, dict] = {}
+    if is_root_menu(path_ids):
+        presets = load_preset_stations(limit=6)
+        if presets:
+            _PRESET_BY_UID = {str(p["uid"]): p for p in presets}
+            if page <= 0:
+                chunk = presets[:PAGE_CONTENT]
+                items = [
+                    {
+                        "uid": str(n["uid"]),
+                        "name": (n.get("label") or n.get("id") or "?")[:36],
+                        "kind": "station",
+                    }
+                    for n in chunk
+                ]
+                items.append(
+                    {
+                        "uid": PAGE_NEXT_UID,
+                        "name": "Menü…"[:36],
+                        "kind": "action",
+                    }
+                )
+                for n in chunk:
+                    extra[str(n["uid"])] = n
+                return items, 0, extra
+            # page≥1 → normal root folders (page 1 → folders page 0)
+            items, p = page_items(nodes, page - 1)
+            return items, page, extra
+        _PRESET_BY_UID = {}
+    else:
+        _PRESET_BY_UID = {}
     items, p = page_items(nodes, page)
-    return items, p, {}
+    return items, p, extra
 
 
 def cover_candidate_rels(node: dict | None) -> list[str]:
@@ -576,8 +615,12 @@ class AudioFwd:
         self.proc: subprocess.Popen | None = None
         self.uid = ""
 
-    def stop(self, status_cover: bool = True) -> None:
-        had = bool(self.uid)
+    def stop(self, status_cover: bool = False) -> None:
+        """Stop ffmpeg + ESP stream.
+
+        Do not push_status() after stop on-car: audio_start status:* is not an MSC
+        slot and leaves stream.active empty → BMW „keine Einträge“.
+        """
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
             try:
@@ -591,11 +634,8 @@ class AudioFwd:
             self.ser.flush()
             print(f"[tx] {line}", flush=True)
         self.uid = ""
-        if had and status_cover:
-            try:
-                self.push_status()
-            except Exception as e:
-                print(f"[id3] status cover after stop: {e}", flush=True)
+        if status_cover:
+            print("[id3] status cover skipped (MSC-safe)", flush=True)
 
     def push_status(self, kind: str | None = None) -> None:
         """Sticky ID3+APIC with status/*.jpg so SoftAP still shows a cover when idle."""
@@ -845,6 +885,9 @@ def main() -> int:
 
     audio = AudioFwd(ser, args.bitrate)
     send({"t": "hello", "ver": 1})
+    # Always clear any leftover live stream so BMW can index the demo FAT MP3s.
+    send({"t": "audio_stop"})
+    audio.uid = ""
     last_rev = -1
     last_sig = ""
     page = 0
@@ -855,6 +898,12 @@ def main() -> int:
     sent_audio = 0
     last_audio_log = time.time()
     force_menu = False
+    # Never auto-start audio on plug/scan: NBT reports „keine abspielbaren Titel“
+    # while a live stream patches FAT/payload. Demo MP3s (~6.5 KiB) also never
+    # reach play.guess (≥8 KiB) — Webradio-over-USB needs larger stubs / FW change.
+    # Live audio: SoftAP lab/play or play_uid only when the user explicitly starts it
+    # *after* titles are listed (and expect a re-open of the track).
+    resume_at = 0.0
 
     print(
         f"[bridge] {args.port} @ {args.baud} audio={'off' if args.no_audio else args.bitrate} paging=on",
@@ -873,6 +922,18 @@ def main() -> int:
                     if not text.startswith("{") and not text.startswith("["):
                         if text.startswith("[") or "EVT" in text or "MSC" in text or "UART" in text:
                             print(f"[rx] {text}", flush=True)
+                        if "usb.otg.up" in text:
+                            page = 0
+                            force_menu = True
+                            last_sig = ""
+                            resume_at = 0.0
+                            if audio.uid:
+                                audio.stop(status_cover=False)
+                            print("[plug] stream off for BMW index (demos)", flush=True)
+                        if "usb.otg.down" in text:
+                            resume_at = 0.0
+                            if audio.uid:
+                                audio.stop(status_cover=False)
                         continue
                     print(f"[rx] {text}", flush=True)
                     try:
@@ -884,6 +945,11 @@ def main() -> int:
                         uid = str(msg.get("uid") or "")
                         if not uid:
                             continue
+                        # Stub UIDs from demo FAT before/without menu_set → favorite presets
+                        if uid in DEMO_UID_TO_FAV:
+                            mapped = DEMO_UID_TO_FAV[uid]
+                            print(f"[map] {uid} → {mapped}", flush=True)
+                            uid = mapped
                         if uid == PAGE_NEXT_UID:
                             page += 1
                             force_menu = True
@@ -895,7 +961,7 @@ def main() -> int:
                             print("[page] home → 0", flush=True)
                             continue
                         if uid == STOP_UID:
-                            audio.stop(status_cover=True)
+                            audio.stop(status_cover=False)
                             print("[audio] stop (SoftAP/Remote)", flush=True)
                             continue
                         if uid == ROOT_UID:
@@ -917,10 +983,33 @@ def main() -> int:
                         _, _nodes, by_uid = read_menu_nodes()
                         node = by_uid.get(uid) or _PRESET_BY_UID.get(uid) or {}
                         typ = node.get("type") or ""
+
+                        # Statuszeile (IP, BT, SSID) — nur anzeigen, Audio nicht anfassen
                         if typ == "info":
-                            # Statuszeile (IP, BT, SSID) — nur anzeigen, Audio nicht anfassen
                             print(f"[menu] info {(node.get('label') or uid)[:48]}", flush=True)
                             continue
+
+                        # Root-Favoriten (fav0…) — vor Stale-Fallback, sonst activate:fav0 ohne Stream
+                        if uid.startswith("fav"):
+                            if not node:
+                                for p in load_preset_stations(limit=6):
+                                    _PRESET_BY_UID[str(p["uid"])] = p
+                                node = _PRESET_BY_UID.get(uid) or {}
+                            if args.no_audio:
+                                continue
+                            # Ignore rapid neighbor-stub play_uids after we just started
+                            if audio.uid and uid != audio.uid and (time.time() - last_audio_log) < 4.0:
+                                print(f"[audio] ignore rapid {uid} (have {audio.uid})", flush=True)
+                                continue
+                            src, media_path = resolve_stream_target(node) if node else (None, None)
+                            if src:
+                                time.sleep(0.05)
+                                audio.start(uid, src, node, media_path)
+                            else:
+                                audio.stop(status_cover=False)
+                                print(f"[audio] fav without url: {uid}", flush=True)
+                            continue
+
                         # Stale SoftAP UID (Menü schon gewechselt): trotzdem activate versuchen
                         if not node and uid and not uid.startswith("pump:"):
                             inject(f"activate:{uid}")
@@ -928,17 +1017,6 @@ def main() -> int:
                             force_menu = True
                             time.sleep(0.35)
                             print(f"[nav] stale/unknown uid activate:{uid}", flush=True)
-                            continue
-                        # Preset stations: stream without requiring menu activate path
-                        if uid.startswith("fav") and node:
-                            if args.no_audio:
-                                continue
-                            src, media_path = resolve_stream_target(node)
-                            if src:
-                                time.sleep(0.05)
-                                audio.start(uid, src, node, media_path)
-                            else:
-                                audio.stop(status_cover=True)
                             continue
 
                         inject(f"activate:{uid}")
@@ -958,7 +1036,7 @@ def main() -> int:
                             time.sleep(0.25)
                             audio.start(uid, src, node, media_path)
                         else:
-                            audio.stop(status_cover=True)
+                            audio.stop(status_cover=False)
                             print(
                                 f"[audio] no stream target for uid={uid} type={typ} "
                                 f"action={node.get('action')}",

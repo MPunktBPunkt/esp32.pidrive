@@ -43,12 +43,14 @@ static void usb_event_cb(void* arg, esp_event_base_t event_base, int32_t event_i
 }
 
 void UsbMscGadget::loadDefaultSlots() {
-    // Geometry from demo_fat.bin
+    // Geometry: disjoint LBA ranges so each station can advertise a long chain
+    // without overlapping (Android stops at FAT EOF — short stubs never trigger play).
     const char* names[] = {"ROCK FM", "Antenne 1", "SWR3", "About"};
     const char* uids[] = {"demo:rock_fm", "demo:antenne", "demo:swr3", "action:about"};
     const char* paths[] = {
         "STATIONS/01ROCK.MP3", "STATIONS/02ANTENN.MP3", "STATIONS/03SWR3.MP3", "SETTINGS/ABOUT.MP3"};
-    const uint32_t ranges[][2] = {{43, 58}, {59, 74}, {75, 90}, {91, 102}};
+    // ~64 KiB each for stations (enough past stub for play.guess); settings stays short
+    const uint32_t ranges[][2] = {{43, 170}, {171, 298}, {299, 426}, {427, 438}};
     for (size_t i = 0; i < kSlots; i++) {
         slots_[i].lbaStart = ranges[i][0];
         slots_[i].lbaEnd = ranges[i][1];
@@ -105,6 +107,9 @@ void UsbMscGadget::startStream(const char* uid) {
                           (unsigned)streamLba0_, (unsigned)streamLba1_, (unsigned)streamStartCl_,
                           (unsigned)streamEndCl_);
             if (events_) events_->push("msc.stream_on", uid);
+            // Android caches short stubs — force re-enumerate so the next open
+            // re-reads USB and hits the live overlay.
+            scheduleRemount(250);
             return;
         }
     }
@@ -115,11 +120,18 @@ void UsbMscGadget::stopStream() {
     if (streamSlot_ >= 0) {
         loadDefaultSlots();  // restore geometry; names re-applied via next menu_set
         if (menu_) applyMenuSlots(*menu_);
+        scheduleRemount(200);
     }
     streamSlot_ = -1;
     streamLba0_ = streamLba1_ = 0;
     streamStartCl_ = streamEndCl_ = 0;
     if (events_) events_->push("msc.stream_off", "");
+}
+
+void UsbMscGadget::scheduleRemount(uint32_t delayMs) {
+    uint32_t due = millis() + delayMs;
+    if (!remountDueMs_ || (int32_t)(due - remountDueMs_) < 0) remountDueMs_ = due;
+    MSC.mediaPresent(false);
 }
 
 static void fat12Set(uint8_t* fat, uint16_t cl, uint16_t val) {
@@ -135,36 +147,20 @@ static void fat12Set(uint8_t* fat, uint16_t cl, uint16_t val) {
     }
 }
 
-void UsbMscGadget::patchFatForStream(uint8_t* sector, uint32_t lba) const {
-    if (streamSlot_ < 0 || streamStartCl_ < 2) return;
+void UsbMscGadget::patchFatChain(uint8_t* sector, uint32_t lba, uint16_t cl0, uint16_t cl1) const {
+    if (cl0 < 2 || cl1 < cl0) return;
     // Demo FAT: reserved=1, fats=2, fatz=2 → FAT0 at LBA 1-2, FAT1 at LBA 3-4
     if (lba != 1 && lba != 2 && lba != 3 && lba != 4) return;
 
-    // Build a tiny absolute FAT view for clusters we touch by reading both FAT sectors from image
-    // into stack is heavy; instead patch only entries whose bytes fall in this sector.
-    uint32_t fatIndex = (lba == 1 || lba == 3) ? 0 : 1;  // which sector of a FAT copy
+    uint32_t fatIndex = (lba == 1 || lba == 3) ? 0 : 1;
     uint32_t fatBase = fatIndex * 512;
 
-    for (uint16_t cl = streamStartCl_; cl <= streamEndCl_; cl++) {
-        uint16_t next = (cl < streamEndCl_) ? (uint16_t)(cl + 1) : 0xFFF;
-        size_t byteIndex = cl + (cl / 2);  // first byte of entry in FAT
-        // entry spans byteIndex and byteIndex+1
-        if (byteIndex >= fatBase + 512 && byteIndex + 1 < fatBase) continue;
-        // Work on a 2-sector window around this FAT half — patch into `sector` when bytes map here
-        uint8_t tmp[4];
-        // load neighboring bytes from DEMO image for correct nibble merge
-        uint32_t abs0 = 512u + byteIndex;  // FAT0 starts at LBA1 = offset 512
-        if (lba == 3 || lba == 4) abs0 = 512u * 3 + byteIndex;  // FAT1
-        // Actually: LBA1 offset=512, LBA2 offset=1024 for FAT0
-        uint32_t fatStartOff = (lba <= 2) ? 512u : 1536u;
-        (void)fatStartOff;
-        // Simpler: copy from DEMO into local 1024 buffer once per call — too heavy in loop.
-        // Patch only if both bytes of entry lie in this sector:
+    for (uint16_t cl = cl0; cl <= cl1; cl++) {
+        uint16_t next = (cl < cl1) ? (uint16_t)(cl + 1) : 0xFFF;
+        size_t byteIndex = cl + (cl / 2);
         size_t local = byteIndex - fatBase;
         if (local < 511) {
-            uint8_t a = sector[local];
-            uint8_t b = sector[local + 1];
-            uint8_t pair[2] = {a, b};
+            uint8_t pair[2] = {sector[local], sector[local + 1]};
             if (cl & 1) {
                 pair[0] = (uint8_t)((pair[0] & 0x0F) | ((next & 0x0F) << 4));
                 pair[1] = (uint8_t)(next >> 4);
@@ -175,7 +171,6 @@ void UsbMscGadget::patchFatForStream(uint8_t* sector, uint32_t lba) const {
             sector[local] = pair[0];
             sector[local + 1] = pair[1];
         } else if (local == 511) {
-            // spans sector boundary — patch low byte here; high on next sector read
             if (cl & 1) {
                 sector[511] = (uint8_t)((sector[511] & 0x0F) | ((next & 0x0F) << 4));
             } else {
@@ -186,29 +181,210 @@ void UsbMscGadget::patchFatForStream(uint8_t* sector, uint32_t lba) const {
     (void)fat12Set;
 }
 
+void UsbMscGadget::patchFatForStream(uint8_t* sector, uint32_t lba) const {
+    // Always publish long chains for station slots so hosts keep reading past the
+    // ~6.5 KiB demo stub (required for play.guess on phones).
+    for (size_t i = 0; i < 3; i++) {
+        if (!slots_[i].active) continue;
+        uint16_t cl0 = lbaToCluster(slots_[i].lbaStart);
+        uint16_t cl1 = lbaToCluster(slots_[i].lbaEnd);
+        if ((int)i == streamSlot_ && streamStartCl_ >= 2) {
+            cl0 = streamStartCl_;
+            cl1 = streamEndCl_;
+        }
+        patchFatChain(sector, lba, cl0, cl1);
+    }
+}
+
+static uint8_t fat83Checksum(const uint8_t name83[11]) {
+    uint8_t sum = 0;
+    for (int i = 0; i < 11; i++) {
+        sum = (uint8_t)(((sum & 1) ? 0x80 : 0) + (sum >> 1) + name83[i]);
+    }
+    return sum;
+}
+
+/** Map label to FAT 8.3 (name + "MP3"), uppercase ASCII. */
+static void labelTo83(const char* label, uint8_t out[11]) {
+    memset(out, ' ', 11);
+    out[8] = 'M';
+    out[9] = 'P';
+    out[10] = '3';
+    if (!label) label = "TRACK";
+    int n = 0;
+    for (const char* p = label; *p && n < 8; ++p) {
+        unsigned char c = (unsigned char)*p;
+        if (c >= 'a' && c <= 'z') c = (unsigned char)(c - 'a' + 'A');
+        // fold a few common non-ASCII
+        if (c == 0xC3) continue;  // UTF-8 lead — skip, next byte handled loosely
+        if (c & 0x80) {
+            // rough: ü/ä/ö → U/A/O if we see latin1-ish
+            if (c == 0xFC || c == 0xDC) c = 'U';
+            else if (c == 0xE4 || c == 0xC4) c = 'A';
+            else if (c == 0xF6 || c == 0xD6) c = 'O';
+            else if (c == 0xDF) { /* ß */ if (n < 7) { out[n++] = 'S'; out[n++] = 'S'; } continue; }
+            else continue;
+        }
+        if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+            out[n++] = c;
+        }
+    }
+    if (n == 0) {
+        memcpy(out, "TRACK   ", 8);
+    }
+}
+
+/** Write one LFN entry (13 UTF-16 code units). ord = 1..N, last has 0x40. */
+static void writeLfnEntry(uint8_t* ent, uint8_t ord, bool last, const uint16_t* u16, int u16Len,
+                          uint8_t checksum) {
+    memset(ent, 0xFF, 32);
+    ent[0] = (uint8_t)(ord | (last ? 0x40 : 0));
+    ent[11] = 0x0F;
+    ent[12] = 0;
+    ent[13] = checksum;
+    ent[26] = 0;
+    ent[27] = 0;
+    // name1[5] at 1, name2[6] at 14, name3[2] at 28
+    const int pos[13] = {1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30};
+    for (int i = 0; i < 13; i++) {
+        int idx = (ord - 1) * 13 + i;
+        uint16_t ch;
+        if (idx < u16Len) ch = u16[idx];
+        else if (idx == u16Len) ch = 0;
+        else ch = 0xFFFF;
+        ent[pos[i]] = (uint8_t)(ch & 0xFF);
+        ent[pos[i] + 1] = (uint8_t)(ch >> 8);
+    }
+}
+
+static int labelToUtf16(const char* label, uint16_t* out, int maxOut) {
+    if (!label) label = "Track";
+    int n = 0;
+    const unsigned char* p = (const unsigned char*)label;
+    while (*p && n < maxOut) {
+        unsigned char c = *p++;
+        if (c < 0x80) {
+            out[n++] = c;
+        } else if ((c & 0xE0) == 0xC0 && *p) {
+            unsigned char c2 = *p++;
+            out[n++] = (uint16_t)(((c & 0x1F) << 6) | (c2 & 0x3F));
+        } else if ((c & 0xF0) == 0xE0 && p[0] && p[1]) {
+            unsigned char c2 = *p++;
+            unsigned char c3 = *p++;
+            out[n++] = (uint16_t)(((c & 0x0F) << 12) | ((c2 & 0x3F) << 6) | (c3 & 0x3F));
+        } else {
+            out[n++] = '?';
+        }
+    }
+    return n;
+}
+
+static void write83File(uint8_t* ent, const uint8_t name83[11], uint16_t startCl, uint32_t size) {
+    memset(ent, 0, 32);
+    memcpy(ent, name83, 11);
+    ent[11] = 0x20;  // archive
+    ent[26] = (uint8_t)(startCl & 0xFF);
+    ent[27] = (uint8_t)(startCl >> 8);
+    ent[28] = (uint8_t)(size & 0xFF);
+    ent[29] = (uint8_t)((size >> 8) & 0xFF);
+    ent[30] = (uint8_t)((size >> 16) & 0xFF);
+    ent[31] = (uint8_t)((size >> 24) & 0xFF);
+}
+
+static void writeDotDirs(uint8_t* sector, uint16_t selfCl) {
+    memset(sector, 0, 512);
+    // .
+    memset(sector, ' ', 11);
+    sector[0] = '.';
+    sector[11] = 0x10;
+    sector[26] = (uint8_t)(selfCl & 0xFF);
+    sector[27] = (uint8_t)(selfCl >> 8);
+    // ..
+    memset(sector + 32, ' ', 11);
+    sector[32] = '.';
+    sector[33] = '.';
+    sector[32 + 11] = 0x10;
+}
+
 void UsbMscGadget::patchDirForStream(uint8_t* sector, uint32_t lba) const {
-    if (streamSlot_ < 0 || streamSlot_ >= (int)kSlots) return;
-    // STATIONS directory lives at cluster 2 → LBA 35 (+ maybe 36-38)
-    if (lba < 35 || lba > 38) return;
-    // 8.3 names in demo: 01ROCK  02ANTENN 03SWR3 — slot index → order
-    const char* shortNames[3] = {"01ROCK  ", "02ANTENN", "03SWR3  "};
-    if (streamSlot_ > 2) return;  // ABOUT in SETTINGS — skip expand for now
-    const char* want = shortNames[streamSlot_];
-    uint32_t fileBytes = (streamLba1_ - streamLba0_ + 1) * 512u;
-    for (int i = 0; i < 512; i += 32) {
-        if (sector[i] == 0x00) break;
-        if (sector[i] == 0xE5 || sector[i + 11] == 0x0F) continue;
-        if (sector[i + 11] & 0x08) continue;
-        if (sector[i + 11] & 0x10) continue;
-        if (memcmp(sector + i, want, 8) != 0) continue;
-        // start cluster
-        sector[i + 26] = (uint8_t)(streamStartCl_ & 0xFF);
-        sector[i + 27] = (uint8_t)(streamStartCl_ >> 8);
-        sector[i + 28] = (uint8_t)(fileBytes & 0xFF);
-        sector[i + 29] = (uint8_t)((fileBytes >> 8) & 0xFF);
-        sector[i + 30] = (uint8_t)((fileBytes >> 16) & 0xFF);
-        sector[i + 31] = (uint8_t)((fileBytes >> 24) & 0xFF);
-        break;
+    // STATIONS = cluster 2 → LBA 35; SETTINGS = cluster 3 → LBA 39
+    const bool stations = (lba == 35);
+    const bool settings = (lba == 39);
+    if (!stations && !settings) return;
+
+    static const uint32_t kAdvertiseBytes = 4u * 1024u * 1024u;
+
+    if (stations) {
+        writeDotDirs(sector, 2);
+        int ent = 2;  // next 32-byte slot index
+        for (int slot = 0; slot < 3 && ent < 16; slot++) {
+            if (!slots_[slot].active || !slots_[slot].name[0]) continue;
+
+            uint8_t name83[11];
+            labelTo83(slots_[slot].name, name83);
+            uint8_t sum = fat83Checksum(name83);
+
+            uint16_t u16[40];
+            int u16Len = labelToUtf16(slots_[slot].name, u16, 39);
+            // ensure .mp3 visible in LFN for picky hosts
+            if (u16Len < 36) {
+                const char* ext = ".mp3";
+                for (int i = 0; ext[i] && u16Len < 39; i++) u16[u16Len++] = (uint16_t)ext[i];
+            }
+            int nLfn = (u16Len + 12) / 13;
+            if (nLfn < 1) nLfn = 1;
+            if (ent + nLfn + 1 > 16) break;
+
+            for (int ord = nLfn; ord >= 1; --ord) {
+                writeLfnEntry(sector + ent * 32, (uint8_t)ord, ord == nLfn, u16, u16Len, sum);
+                ent++;
+            }
+
+            uint16_t startCl = lbaToCluster(slots_[slot].lbaStart);
+            // Idle size = FAT chain length so phones keep reading past the stub.
+            uint32_t fileBytes =
+                (slots_[slot].lbaEnd >= slots_[slot].lbaStart)
+                    ? (slots_[slot].lbaEnd - slots_[slot].lbaStart + 1) * 512u
+                    : 64u * 1024u;
+            if (streamSlot_ == slot && streamStartCl_ >= 2) {
+                fileBytes = kAdvertiseBytes;
+                startCl = streamStartCl_;
+            }
+            write83File(sector + ent * 32, name83, startCl, fileBytes);
+            ent++;
+        }
+        return;
+    }
+
+    // SETTINGS: keep . .. and rename ABOUT → slots_[3]
+    if (settings && slots_[3].active && slots_[3].name[0]) {
+        writeDotDirs(sector, 3);
+        uint8_t name83[11];
+        labelTo83(slots_[3].name, name83);
+        uint8_t sum = fat83Checksum(name83);
+        uint16_t u16[40];
+        int u16Len = labelToUtf16(slots_[3].name, u16, 39);
+        if (u16Len < 36) {
+            const char* ext = ".mp3";
+            for (int i = 0; ext[i] && u16Len < 39; i++) u16[u16Len++] = (uint16_t)ext[i];
+        }
+        int nLfn = (u16Len + 12) / 13;
+        if (nLfn < 1) nLfn = 1;
+        int ent = 2;
+        for (int ord = nLfn; ord >= 1 && ent < 15; --ord) {
+            writeLfnEntry(sector + ent * 32, (uint8_t)ord, ord == nLfn, u16, u16Len, sum);
+            ent++;
+        }
+        uint16_t startCl = lbaToCluster(slots_[3].lbaStart);
+        uint32_t fileBytes =
+            (slots_[3].lbaEnd >= slots_[3].lbaStart)
+                ? (slots_[3].lbaEnd - slots_[3].lbaStart + 1) * 512u
+                : 8u * 1024u;
+        if (streamSlot_ == 3 && streamStartCl_ >= 2) {
+            fileBytes = kAdvertiseBytes;
+            startCl = streamStartCl_;
+        }
+        write83File(sector + ent * 32, name83, startCl, fileBytes);
     }
 }
 
@@ -221,16 +397,35 @@ int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32
     memcpy(buffer, DEMO_FAT_IMAGE + pos, bufsize);
 
     uint8_t* out = (uint8_t*)buffer;
-    // Apply FAT/DIR patches when streaming (sector-aligned reads expected)
-    if (streamSlot_ >= 0 && offset == 0 && bufsize >= 512) {
+    // Directory names + FAT chains (always — phones stop at short stub EOF otherwise).
+    if (offset == 0 && bufsize >= 512) {
         for (uint32_t off = 0; off + 512 <= bufsize; off += 512) {
             uint32_t sec = lba + off / 512;
-            patchFatForStream(out + off, sec);
             patchDirForStream(out + off, sec);
+            patchFatForStream(out + off, sec);
         }
-    } else if (streamSlot_ >= 0 && offset == 0 && bufsize == 512) {
-        patchFatForStream(out, lba);
-        patchDirForStream(out, lba);
+    }
+
+    // Map idle station reads onto original demo stubs (first 16 LBAs), else pad.
+    // New geometry moves fav1/fav2 starts away from the baked stub LBAs.
+    static const uint32_t kStubLba[3] = {43, 59, 75};
+    if (!(stream_ && stream_->active() && streamSlot_ >= 0 && lba >= streamLba0_ &&
+          lba <= streamLba1_)) {
+        for (size_t i = 0; i < 3; i++) {
+            if (!slots_[i].active) continue;
+            if (lba < slots_[i].lbaStart || lba > slots_[i].lbaEnd) continue;
+            uint32_t rel = lba - slots_[i].lbaStart;
+            if (rel < 16) {
+                uint32_t src = kStubLba[i] + rel;
+                uint32_t spos = src * DEMO_FAT_SECTOR_SIZE + offset;
+                if (spos + bufsize <= DEMO_FAT_SIZE) {
+                    memcpy(out, DEMO_FAT_IMAGE + spos, bufsize);
+                }
+            } else {
+                memset(out, 0xFF, bufsize);
+            }
+            break;
+        }
     }
 
     // Live MP3 payload for expanded stream LBAs
@@ -297,10 +492,12 @@ void UsbMscGadget::onUsbPlugged(bool on) {
         prefetchHits_ = 0;
         traceHead_ = 0;
         traceCount_ = 0;
+        streamBytesServed_ = 0;
         plugCount_++;
         if (events_) events_->push("usb.otg.up", "car-host");
     } else {
         unplugCount_++;
+        remountDueMs_ = 0;
         if (events_) events_->push("usb.otg.down", "car-host");
         if (menu_) menu_->clearPlaying();
     }
@@ -347,10 +544,15 @@ UsbMscGadget::Region UsbMscGadget::classify(uint32_t lba, const MscFileMap** fil
 
 bool UsbMscGadget::looksLikePlay(const MscFileMap* f, uint32_t startLba, uint32_t seqBytes) const {
     if (!f || !f->active || !f->uid[0]) return false;
-    const bool fromHead = startLba <= f->lbaStart + 2;
+    // Hosts often 4 KiB-align; first USB read may start a few LBAs after file start.
+    const bool fromHead = startLba <= f->lbaStart + 12;
     if (!fromHead) return false;
-    if (seqBytes < 8192) return false;
-    if (plugMs_ && (millis() - plugMs_) < 1500 && seqBytes < 16384) return false;
+    // Demo stubs are ~6.5 KiB. BMW indexes the whole stub in the first 1–2 s after
+    // plug — that must NOT arm live stream (else NBT: „keine abspielbaren Titel“).
+    // Real play usually re-reads from the head after the index window.
+    if (plugMs_ && (millis() - plugMs_) < 2500) return false;
+    // Slightly under stub size so a full re-read of 01ROCK.MP3 (6495 B) counts as play.
+    if (seqBytes < 6000) return false;
     return true;
 }
 
@@ -430,23 +632,32 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
     seqBytes_ += bufsize;
 
     if (seqBytes_ >= 2048 && !looksLikePlay(f, seqStartLba_, seqBytes_)) {
+        // Mid-file prefetch only — from-head reads must keep accumulating so a
+        // phone that reads past the stub after the plug-window can still arm.
         if (seqStartLba_ > f->lbaStart + 2) {
             prefetchHits_++;
             if (events_ && millis() - lastEventMs_ > 800) {
                 lastEventMs_ = millis();
                 events_->push("msc.prefetch", f->uid);
             }
+            return;
         }
-        return;
     }
 
     if (looksLikePlay(f, seqStartLba_, seqBytes_)) {
+        // One live-stream arm per plug window — neighboring stubs are often
+        // touched right after the first play and must not steal the stream.
+        if (playGuessMs_ != 0 && (millis() - playGuessMs_) < 5000) {
+            return;
+        }
         bool fresh = !menu_ || strcmp(menu_->playingUid(), f->uid) != 0;
         if (menu_) menu_->playByUid(f->uid);
         if (fresh) {
-            if (playGuessMs_ == 0 && plugMs_) {
+            if (plugMs_) {
                 playGuessMs_ = millis();
                 msPlugToPlayGuess_ = playGuessMs_ - plugMs_;
+            } else {
+                playGuessMs_ = millis();
             }
             if (events_ && millis() - lastEventMs_ > 400) {
                 lastEventMs_ = millis();
@@ -460,7 +671,22 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
     }
 }
 
-void UsbMscGadget::loop() {}
+void UsbMscGadget::loop() {
+    if (remountDueMs_ && (int32_t)(millis() - remountDueMs_) >= 0) {
+        remountDueMs_ = 0;
+        MSC.mediaPresent(true);
+        // Restart plug-window so MediaStore re-index does not arm play.guess.
+        if (plugged_) {
+            plugMs_ = millis();
+            playGuessMs_ = 0;
+            firstReadMs_ = 0;
+            seqBytes_ = 0;
+            seqFile_ = nullptr;
+        }
+        if (events_) events_->push("msc.remount", "present");
+        Serial.println("[MSC] mediaPresent pulse");
+    }
+}
 
 uint32_t UsbMscGadget::msSincePlug() const {
     if (!plugged_ || !plugMs_) return 0;
