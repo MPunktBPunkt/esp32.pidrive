@@ -220,7 +220,9 @@ def main() -> int:
     )
 
     meta_start = geom.fat_lba
-    meta_count = (geom.data_lba - geom.fat_lba) + 16
+    # Only FAT + root + STATIONS/SETTINGS dir LBAs — NOT file payload (would change on stream).
+    # data_lba=35 STATIONS, 39 SETTINGS; file data starts at cluster 4 / LBA 43.
+    meta_count = geom.data_lba - geom.fat_lba + 8  # through ~LBA 42
     print(f"meta capture: LBA {meta_start}..{meta_start + meta_count - 1} ({meta_count} sectors)")
 
     results: dict[str, bool] = {}
