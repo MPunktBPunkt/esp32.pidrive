@@ -123,7 +123,7 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
       <h3>Aktuelle Slots <span id="remote-menu-meta"></span></h3>
       <table><thead><tr><th>#</th><th>Name</th><th></th></tr></thead>
       <tbody id="remote-menu-body"><tr><td colspan="3">lädt…</td></tr></tbody></table>
-      <p class="meta">Root zeigt Favoriten-Presets (Sender mit ★). Mehr… / Menü… blättert weiter.</p>
+      <p class="meta">Max. <b>4 Slots</b> wie am USB-Stick — mit <b>Mehr…</b> blättern. Nach Öffnen kurz warten, bis die Liste aktualisiert.</p>
     </div>
   </section>
 
@@ -149,7 +149,7 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
       <h3>Aktuelles Menü <span id="car-menu-meta"></span></h3>
       <table><thead><tr><th>#</th><th>Name</th><th>Art</th><th></th></tr></thead>
       <tbody id="car-menu-body"><tr><td colspan="4">lädt…</td></tr></tbody></table>
-      <p class="meta" id="car-menu-hint">PUMP vom Pi füllt die Slots. Tab <b>Menü</b> für Details · Play/Öffnen steuert PiDrive.</p>
+      <p class="meta" id="car-menu-hint">USB-Stick zeigt max. <b>4 Dateien</b> (MSC-Slots). Mehr Einträge → <b>Mehr…</b> tippen (Soft-Paging). SoftAP spiegelt dieselben 4 Slots.</p>
       <h3>Cover / Now Playing</h3>
       <div class="cover-wrap">
         <img id="cover-art" class="cover-art" alt="Cover" width="160" height="160">
@@ -271,9 +271,16 @@ function bindPlayButtons(root){
   root.querySelectorAll('[data-uid]').forEach(b=>{
     b.onclick=async()=>{
       b.disabled=true;
+      const prevRev=lastMenuRev;
       try{
         await j('/api/lab/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:b.dataset.uid})});
-        await refreshMenu(true); await refreshStatus(); await refreshEvents();
+        // Menü kann 200–800 ms brauchen — warten bis rev wechselt oder Timeout
+        for(let i=0;i<12;i++){
+          await refreshMenu(true);
+          if(lastMenuRev!==prevRev) break;
+          await new Promise(r=>setTimeout(r,120));
+        }
+        await refreshStatus(); await refreshEvents();
       }catch(e){
         alert('Play fehlgeschlagen: '+(e.message||e));
       }finally{ b.disabled=false; }

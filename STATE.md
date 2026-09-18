@@ -26,6 +26,7 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 
 ## Letzte Änderung
 
+- 2026-09-18: **0.4.8-dev** Root wieder normales Menü; SoftAP kein 404; Favoriten aus stations.json ★
 - 2026-09-18: **0.4.7-dev** info-Nodes (IP/SSID/BT) als MSC-Slots; Hotspot-IP-Erkennung
 - 2026-09-18: **0.4.6-dev** SoftAP Remote-Tab, `/api/lab/stop`, Status-Cover, Root-Favoriten-Presets
 - 2026-09-18: **0.4.5-dev** SoftAP Cover (`GET /api/lab/cover` + UI)

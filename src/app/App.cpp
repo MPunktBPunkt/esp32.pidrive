@@ -346,13 +346,14 @@ void App::handleApiLabPlay() {
     JsonDocument body;
     if (!NetUtil::readJsonBody(server_, body)) return;
     const char* uid = body["uid"] | "";
-    // Special SoftAP remote UIDs (stop/root/favoriten/paging) — always forward
-    const bool pumpSpecial = (strncmp(uid, "pump:", 5) == 0) || (strncmp(uid, "fav", 3) == 0);
-    if (!pumpSpecial && !menu.playByUid(uid)) {
-        NetUtil::sendError(server_, 404, "uid unbekannt");
+    if (!uid[0]) {
+        NetUtil::sendError(server_, 400, "uid fehlt");
         return;
     }
-    if (pumpSpecial) {
+    // SoftAP kann nach Navigation noch alte Buttons zeigen — trotzdem an PUMP
+    // weiterleiten (kein 404). playByUid setzt playing-Markierung wenn bekannt.
+    const bool known = menu.playByUid(uid);
+    if (!known) {
         menu.setPlaying(uid);
     }
     events.push("play.guess", uid);
@@ -362,6 +363,7 @@ void App::handleApiLabPlay() {
     doc["ok"] = true;
     doc["playingUid"] = menu.playingUid();
     doc["playingName"] = menu.playingName();
+    doc["known"] = known;
     doc["pumpUp"] = pump.up();
     NetUtil::sendJson(server_, 200, doc);
 }

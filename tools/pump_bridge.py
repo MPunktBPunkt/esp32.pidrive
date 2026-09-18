@@ -276,42 +276,11 @@ def find_favoriten_uid() -> str | None:
 
 
 def menu_nodes_for_page(path_ids: list | None, nodes: list[dict], page: int) -> tuple[list[dict], int, dict[str, dict]]:
-    """Root page 0 = favorite presets as slots; further pages = normal tree."""
+    """Soft-page visible nodes (≤4 MSC slots). No root-preset overlay."""
     global _PRESET_BY_UID
-    extra: dict[str, dict] = {}
-    if is_root_menu(path_ids):
-        presets = load_preset_stations(limit=6)
-        if presets:
-            _PRESET_BY_UID = {str(p["uid"]): p for p in presets}
-            # page 0: up to 3 presets + Mehr…  |  page>=1: normal root folders
-            if page <= 0:
-                chunk = presets[:PAGE_CONTENT]
-                items = [
-                    {
-                        "uid": str(n["uid"]),
-                        "name": (n.get("label") or n.get("id") or "?")[:36],
-                        "kind": "station",
-                    }
-                    for n in chunk
-                ]
-                items.append(
-                    {
-                        "uid": PAGE_NEXT_UID,
-                        "name": "Menü…"[:36],
-                        "kind": "action",
-                    }
-                )
-                for n in chunk:
-                    extra[str(n["uid"])] = n
-                return items, 0, extra
-            # shift: page 1 → root folders page 0
-            items, p = page_items(nodes, page - 1)
-            return items, page, extra
-        _PRESET_BY_UID = {}
-    else:
-        _PRESET_BY_UID = {}
+    _PRESET_BY_UID = {}
     items, p = page_items(nodes, page)
-    return items, p, extra
+    return items, p, {}
 
 
 def cover_candidate_rels(node: dict | None) -> list[str]:
@@ -951,6 +920,14 @@ def main() -> int:
                         if typ == "info":
                             # Statuszeile (IP, BT, SSID) — nur anzeigen, Audio nicht anfassen
                             print(f"[menu] info {(node.get('label') or uid)[:48]}", flush=True)
+                            continue
+                        # Stale SoftAP UID (Menü schon gewechselt): trotzdem activate versuchen
+                        if not node and uid and not uid.startswith("pump:"):
+                            inject(f"activate:{uid}")
+                            page = 0
+                            force_menu = True
+                            time.sleep(0.35)
+                            print(f"[nav] stale/unknown uid activate:{uid}", flush=True)
                             continue
                         # Preset stations: stream without requiring menu activate path
                         if uid.startswith("fav") and node:
