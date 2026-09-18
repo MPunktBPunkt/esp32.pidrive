@@ -146,7 +146,10 @@ void PumpServer::handleLine(char* line) {
             return;
         }
         menu_->setFromJson(items, rev);
-        if (msc_) msc_->applyMenuSlots(*menu_);
+        if (msc_) {
+            msc_->applyMenuSlots(*menu_);
+            msc_->presentMedia("menu_set");
+        }
         up_ = true;
         JsonDocument ack;
         ack["t"] = "menu_ack";

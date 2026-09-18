@@ -67,37 +67,68 @@ void UsbMscGadget::loadDefaultSlots() {
 }
 
 void UsbMscGadget::applyMenuSlots(const MenuStore& menu) {
-    // Preserve geometry; only refresh uid/name. Do not touch streamSlot_.
+    // Preserve geometry; only refresh uid/name when content actually differs.
     const uint32_t ranges[][2] = {{43, 170}, {171, 298}, {299, 426}, {427, 438}};
     size_t n = menu.count();
     if (n > kSlots) n = kSlots;
+
+    bool same = true;
+    size_t activeBefore = 0;
     for (size_t i = 0; i < kSlots; i++) {
-        slots_[i].lbaStart = ranges[i][0];
-        slots_[i].lbaEnd = ranges[i][1];
-        if (i < n) {
+        if (slots_[i].active) activeBefore++;
+    }
+    if (activeBefore != n) same = false;
+    if (same) {
+        for (size_t i = 0; i < n; i++) {
             const MenuItem* it = menu.itemAt(i);
-            if (!it) continue;
-            strncpy(slots_[i].uid, it->uid, sizeof(slots_[i].uid) - 1);
-            slots_[i].uid[sizeof(slots_[i].uid) - 1] = 0;
-            strncpy(slots_[i].name, it->name, sizeof(slots_[i].name) - 1);
-            slots_[i].name[sizeof(slots_[i].name) - 1] = 0;
-            slots_[i].active = true;
-        } else {
-            slots_[i].active = false;
-            slots_[i].uid[0] = 0;
-            slots_[i].name[0] = 0;
+            if (!it || !slots_[i].active || strcmp(slots_[i].uid, it->uid) != 0 ||
+                strcmp(slots_[i].name, it->name) != 0) {
+                same = false;
+                break;
+            }
         }
     }
+
+    if (!same) {
+        for (size_t i = 0; i < kSlots; i++) {
+            slots_[i].lbaStart = ranges[i][0];
+            slots_[i].lbaEnd = ranges[i][1];
+            if (i < n) {
+                const MenuItem* it = menu.itemAt(i);
+                if (!it) continue;
+                strncpy(slots_[i].uid, it->uid, sizeof(slots_[i].uid) - 1);
+                slots_[i].uid[sizeof(slots_[i].uid) - 1] = 0;
+                strncpy(slots_[i].name, it->name, sizeof(slots_[i].name) - 1);
+                slots_[i].name[sizeof(slots_[i].name) - 1] = 0;
+                slots_[i].active = true;
+            } else {
+                slots_[i].active = false;
+                slots_[i].uid[0] = 0;
+                slots_[i].name[0] = 0;
+            }
+        }
+        if (events_) {
+            char d[32];
+            snprintf(d, sizeof(d), "slots=%u", (unsigned)n);
+            events_->push("msc.slots", d);
+        }
+        Serial.printf("[MSC] applyMenuSlots n=%u (static FAT)\n", (unsigned)n);
+    }
+
     // Re-resolve stream slot index if uid still present (geometry unchanged).
     if (stream_ && stream_->active() && stream_->uid()[0]) {
         startStream(stream_->uid());
     }
-    if (events_) {
-        char d[32];
-        snprintf(d, sizeof(d), "slots=%u", (unsigned)n);
-        events_->push("msc.slots", d);
-    }
-    Serial.printf("[MSC] applyMenuSlots n=%u (static FAT)\n", (unsigned)n);
+    // mediaPresent is NOT toggled here — see presentMedia() (menu_set / NVS / timeout).
+}
+
+void UsbMscGadget::presentMedia(const char* reason) {
+    if (mediaPresented_) return;
+    MSC.mediaPresent(true);
+    mediaPresented_ = true;
+    presentDeadlineMs_ = 0;
+    if (events_) events_->push("msc.media_on", reason ? reason : "");
+    Serial.printf("[MSC] mediaPresent=true (%s)\n", reason ? reason : "");
 }
 
 void UsbMscGadget::startStream(const char* uid) {
@@ -416,15 +447,19 @@ bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
     MSC.onStartStop(pidrive_msc_start_stop);
     MSC.onRead(pidrive_msc_read);
     MSC.onWrite(pidrive_msc_write);
-    MSC.mediaPresent(true);
+    // Hold medium until menu_set / NVS present / timeout — avoids demo→menu flicker.
+    mediaPresented_ = false;
+    presentDeadlineMs_ = millis() + kMediaPresentTimeoutMs;
+    MSC.mediaPresent(false);
     if (!MSC.begin(DEMO_FAT_SECTOR_COUNT, DEMO_FAT_SECTOR_SIZE)) {
         if (events_) events_->push("msc.fail", "begin");
         return false;
     }
     USB.begin();
     ready_ = true;
-    if (events_) events_->push("msc.ready", "FAT12 static");
-    Serial.printf("[MSC] ready sectors=%u static-FAT\n", DEMO_FAT_SECTOR_COUNT);
+    if (events_) events_->push("msc.ready", "FAT12 static wait-menu");
+    Serial.printf("[MSC] ready sectors=%u media=held timeout=%ums\n", DEMO_FAT_SECTOR_COUNT,
+                  (unsigned)kMediaPresentTimeoutMs);
     return true;
 }
 
@@ -627,7 +662,11 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
     }
 }
 
-void UsbMscGadget::loop() {}
+void UsbMscGadget::loop() {
+    if (!mediaPresented_ && presentDeadlineMs_ && (int32_t)(millis() - presentDeadlineMs_) >= 0) {
+        presentMedia("timeout");
+    }
+}
 
 uint32_t UsbMscGadget::msSincePlug() const {
     if (!plugged_ || !plugMs_) return 0;
@@ -668,6 +707,10 @@ void UsbMscGadget::toJson(JsonObject obj) const {
     obj["streamSlot"] = streamSlot_;
     obj["streamBytes"] = streamBytesServed_;
     obj["fatMode"] = "static";
+    obj["mediaPresented"] = mediaPresented_;
+    obj["mediaWaitMs"] = (!mediaPresented_ && presentDeadlineMs_)
+                             ? (int32_t)(presentDeadlineMs_ - millis())
+                             : 0;
     if (stream_) {
         JsonObject s = obj["stream"].to<JsonObject>();
         stream_->toJson(s);
@@ -706,6 +749,7 @@ bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
 }
 void UsbMscGadget::loop() {}
 void UsbMscGadget::applyMenuSlots(const MenuStore&) {}
+void UsbMscGadget::presentMedia(const char*) {}
 void UsbMscGadget::startStream(const char*) {}
 void UsbMscGadget::stopStream() {}
 void UsbMscGadget::onUsbPlugged(bool) {}

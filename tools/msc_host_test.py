@@ -244,7 +244,7 @@ def main() -> int:
     ver = st0.get("version")
     fat_mode = (st0.get("msc") or {}).get("fatMode")
     print(f"ESP fw={ver} fatMode={fat_mode} plugged={(st0.get('msc') or {}).get('plugged')}")
-    results["fw_0412"] = bool(ver and str(ver).startswith("0.4.12"))
+    results["fw_0412"] = bool(ver and str(ver).startswith("0.4.1"))  # 0.4.12+
     results["fat_mode_static"] = fat_mode == "static"
 
     try:

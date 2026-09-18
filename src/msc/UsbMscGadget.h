@@ -30,12 +30,18 @@ public:
     static constexpr size_t kSlots = 4;
     static constexpr uint32_t kDataStartLba = 35;
     static constexpr uint8_t kSpc = 4;  // sectors per cluster (demo FAT)
+    /** Wait for menu_set before mediaPresent; then show last-known/demo. */
+    static constexpr uint32_t kMediaPresentTimeoutMs = 7000;
 
     using PlayHandler = std::function<void(const char* uid)>;
 
     bool begin(EventLog* events, MenuStore* menu);
     void loop();
+    /** Apply menu names to slots; presents media on first apply / after wait. */
     void applyMenuSlots(const MenuStore& menu);
+    /** Show MSC medium to host (idempotent). */
+    void presentMedia(const char* reason);
+    bool mediaPresented() const { return mediaPresented_; }
     void setPlayHandler(PlayHandler h) { playHandler_ = h; }
     void setStreamBuffer(StreamBuffer* s) { stream_ = s; }
     void startStream(const char* uid);
@@ -118,6 +124,8 @@ private:
     uint32_t unplugCount_ = 0;
     uint32_t prefetchHits_ = 0;
     uint32_t streamBytesServed_ = 0;
+    bool mediaPresented_ = false;
+    uint32_t presentDeadlineMs_ = 0;
 
     MscReadSample trace_[kTraceSize];
     size_t traceHead_ = 0;

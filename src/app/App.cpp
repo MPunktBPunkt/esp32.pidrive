@@ -35,6 +35,11 @@ void App::begin() {
     // MSC before WiFi so car USB enumerates quickly when bus-powered
     msc.begin(&events, &menu);
     msc.setStreamBuffer(&stream);
+    // Apply last-known / demo names; present immediately if restored from NVS.
+    msc.applyMenuSlots(menu);
+    if (menu.fromNvs()) {
+        msc.presentMedia("nvs");
+    }
     uart.begin(&events);
     pump.begin(&events, &menu, &msc, &uart, &stream);
     msc.setPlayHandler([](const char* uid) { App::instance().pump.sendPlayUid(uid); });
