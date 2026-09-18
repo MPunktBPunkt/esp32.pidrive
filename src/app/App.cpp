@@ -130,6 +130,7 @@ void App::setupWeb() {
     server_.on("/api/config", HTTP_GET, [this]() { handleApiConfigGet(); });
     server_.on("/api/config", HTTP_POST, [this]() { handleApiConfigPost(); });
     server_.on("/api/lab/play", HTTP_POST, [this]() { handleApiLabPlay(); });
+    server_.on("/api/lab/stop", HTTP_POST, [this]() { handleApiLabStop(); });
     server_.on("/api/lab/stream", HTTP_GET, [this]() { handleApiLabStream(); });
     server_.on("/api/lab/listen", HTTP_GET, [this]() { handleApiLabListen(); });
     server_.on("/api/lab/cover", HTTP_GET, [this]() { handleApiLabCover(); });
@@ -345,9 +346,14 @@ void App::handleApiLabPlay() {
     JsonDocument body;
     if (!NetUtil::readJsonBody(server_, body)) return;
     const char* uid = body["uid"] | "";
-    if (!menu.playByUid(uid)) {
+    // Special SoftAP remote UIDs (stop/root/favoriten/paging) — always forward
+    const bool pumpSpecial = (strncmp(uid, "pump:", 5) == 0) || (strncmp(uid, "fav", 3) == 0);
+    if (!pumpSpecial && !menu.playByUid(uid)) {
         NetUtil::sendError(server_, 404, "uid unbekannt");
         return;
+    }
+    if (pumpSpecial) {
+        menu.setPlaying(uid);
     }
     events.push("play.guess", uid);
     pump.sendPlayUid(uid);
@@ -356,6 +362,20 @@ void App::handleApiLabPlay() {
     doc["ok"] = true;
     doc["playingUid"] = menu.playingUid();
     doc["playingName"] = menu.playingName();
+    doc["pumpUp"] = pump.up();
+    NetUtil::sendJson(server_, 200, doc);
+}
+
+void App::handleApiLabStop() {
+    if (!config.labMode) {
+        NetUtil::sendError(server_, 403, "labMode aus");
+        return;
+    }
+    menu.clearPlaying();
+    events.push("lab.stop", "remote");
+    pump.sendPlayUid("pump:stop");
+    JsonDocument doc;
+    doc["ok"] = true;
     doc["pumpUp"] = pump.up();
     NetUtil::sendJson(server_, 200, doc);
 }

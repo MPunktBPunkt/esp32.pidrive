@@ -15,7 +15,8 @@ Am **Autoradio** (BMW USB-Medien) sollen neben dem Ton optional erscheinen:
 
 Menü-Navigation bleibt über virtuelle Dateinamen; Cover ist Zusatz für Now-Playing.
 
-**SoftAP (Lab):** Tab Auto-Test zeigt dasselbe Cover via `GET /api/lab/cover`.
+**SoftAP (Lab):** Tab **Remote** (Fernbedienung) + Auto-Test Cover via `GET /api/lab/cover`.
+Stop: `POST /api/lab/stop` → Status-Cover.
 
 ---
 

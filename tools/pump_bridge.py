@@ -4,8 +4,11 @@
 - Syncs /tmp/pidrive_menu.json via menu_set with soft paging (≤4 MSC slots)
 - On play_uid: activate:<uid> + live MP3 (audio_start + ID3/APIC + 0x01 0x55)
 - Cover priority: embedded APIC → stations/*.jpg → default.jpg → generated JPEG
+- Status covers: assets/usb-msc-covers/status/*.jpg on stop / idle / no-stream
+- Root presets: favorite webradio stations as first MSC page (≤3 + Mehr…)
 - audio_start carries cSrc/cPath/cTry for SoftAP cover-hint UI
 - Stations (meta.url) and local_play: paths are streamed via ffmpeg
+- Special UIDs: pump:stop · pump:favoriten · pump:page_*
 
 Usage:
   python3 tools/pump_bridge.py [--port /dev/ttyACM0] [--baud 115200] [--bitrate 48k]
@@ -48,6 +51,18 @@ COVER_ROOTS = [
     Path(__file__).resolve().parents[2] / "assets" / "usb-msc-covers",
     Path("/home/martin/projects/pidrive/assets/usb-msc-covers"),
 ]
+STATIONS_JSON_PATHS = [
+    Path("/home/pidrive/pidrive/pidrive/config/stations.json"),
+    Path("/home/pidrive/pidrive/config/stations.json"),
+    Path.home() / "pidrive" / "pidrive" / "config" / "stations.json",
+    Path("/home/martin/projects/pidrive/pidrive/config/stations.json"),
+]
+FAVORITES_JSON_PATHS = [
+    Path("/home/pidrive/pidrive/pidrive/config/favorites.json"),
+    Path("/home/pidrive/pidrive/config/favorites.json"),
+    Path.home() / "pidrive" / "pidrive" / "config" / "favorites.json",
+    Path("/home/martin/projects/pidrive/pidrive/config/favorites.json"),
+]
 DEFAULT_COVER_REL = "default.jpg"  # immer, wenn kein Station-/APIC-Cover
 MAX_SLOTS = 4
 PAGE_CONTENT = 3  # when paging: 3 items + Mehr/Seite1
@@ -55,7 +70,12 @@ FRAME_MAX = 480
 ID3_BUDGET = 12 * 1024
 PAGE_NEXT_UID = "pump:page_next"
 PAGE_HOME_UID = "pump:page_home"
+STOP_UID = "pump:stop"
+FAVORITEN_UID = "pump:favoriten"
+ROOT_UID = "pump:root"
 AUDIO_EXTS = {".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wav", ".opus", ".wma"}
+# synthetic preset nodes (uid → node), filled when building root presets page
+_PRESET_BY_UID: dict[str, dict] = {}
 
 
 def inject(cmd: str) -> None:
@@ -154,6 +174,144 @@ def page_items(nodes: list[dict], page: int) -> tuple[list[dict], int]:
     return items, page
 
 
+def _first_existing(paths: list[Path]) -> Path | None:
+    for p in paths:
+        if p.is_file():
+            return p
+    return None
+
+
+def load_preset_stations(limit: int = 6) -> list[dict]:
+    """Playable favorite stations for root MSC presets (Favoriten als Slots)."""
+    out: list[dict] = []
+    seen: set[str] = set()
+
+    fav_path = _first_existing(FAVORITES_JSON_PATHS)
+    if fav_path:
+        try:
+            data = json.loads(fav_path.read_text(encoding="utf-8"))
+            for fav in data.get("favorites") or []:
+                meta = fav.get("meta") or {}
+                url = meta.get("url") or fav.get("url")
+                if not url:
+                    continue
+                sid = str(fav.get("id") or url)
+                if sid in seen:
+                    continue
+                seen.add(sid)
+                uid = f"fav{len(out)}"  # short for ESP MenuItem.uid[24]
+                out.append(
+                    {
+                        "uid": uid,
+                        "id": sid,
+                        "label": (fav.get("name") or sid)[:36],
+                        "type": "station",
+                        "meta": {"url": url, "name": fav.get("name") or sid, "favorite": True},
+                    }
+                )
+                if len(out) >= limit:
+                    return out
+        except Exception as e:
+            print(f"[presets] favorites.json: {e}", flush=True)
+
+    st_path = _first_existing(STATIONS_JSON_PATHS)
+    if st_path:
+        try:
+            data = json.loads(st_path.read_text(encoding="utf-8"))
+            for s in data.get("stations") or []:
+                if not s.get("favorite"):
+                    continue
+                url = s.get("url")
+                if not url:
+                    continue
+                sid = str(s.get("id") or url)
+                if sid in seen:
+                    continue
+                seen.add(sid)
+                uid = f"fav{len(out)}"
+                out.append(
+                    {
+                        "uid": uid,
+                        "id": sid,
+                        "label": (s.get("name") or sid)[:36],
+                        "type": "station",
+                        "meta": {
+                            "url": url,
+                            "name": s.get("name") or sid,
+                            "genre": s.get("genre") or "",
+                            "favorite": True,
+                        },
+                    }
+                )
+                if len(out) >= limit:
+                    break
+        except Exception as e:
+            print(f"[presets] stations.json: {e}", flush=True)
+    return out
+
+
+def is_root_menu(path_ids: list | None) -> bool:
+    if not path_ids:
+        return True
+    if len(path_ids) == 1 and str(path_ids[0]) in ("root", "PiDrive", ""):
+        return True
+    return list(path_ids) == ["root"]
+
+
+def find_favoriten_uid() -> str | None:
+    """Look up Favoriten folder uid from current or walk menu.json nodes."""
+    if not MENU_PATH.exists():
+        return None
+    try:
+        data = json.loads(MENU_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    for n in data.get("nodes") or []:
+        if n.get("id") == "favoriten" or (n.get("label") or "") == "Favoriten":
+            if n.get("uid") is not None:
+                return str(n.get("uid"))
+    return None
+
+
+def menu_nodes_for_page(path_ids: list | None, nodes: list[dict], page: int) -> tuple[list[dict], int, dict[str, dict]]:
+    """Root page 0 = favorite presets as slots; further pages = normal tree."""
+    global _PRESET_BY_UID
+    extra: dict[str, dict] = {}
+    if is_root_menu(path_ids):
+        presets = load_preset_stations(limit=6)
+        if presets:
+            _PRESET_BY_UID = {str(p["uid"]): p for p in presets}
+            # page 0: up to 3 presets + Mehr…  |  page>=1: normal root folders
+            if page <= 0:
+                chunk = presets[:PAGE_CONTENT]
+                items = [
+                    {
+                        "uid": str(n["uid"]),
+                        "name": (n.get("label") or n.get("id") or "?")[:36],
+                        "kind": "station",
+                    }
+                    for n in chunk
+                ]
+                items.append(
+                    {
+                        "uid": PAGE_NEXT_UID,
+                        "name": "Menü…"[:36],
+                        "kind": "action",
+                    }
+                )
+                for n in chunk:
+                    extra[str(n["uid"])] = n
+                return items, 0, extra
+            # shift: page 1 → root folders page 0
+            items, p = page_items(nodes, page - 1)
+            return items, page, extra
+        _PRESET_BY_UID = {}
+    else:
+        _PRESET_BY_UID = {}
+    items, p = page_items(nodes, page)
+    return items, p, extra
+
+
 def cover_candidate_rels(node: dict | None) -> list[str]:
     """Relative paths under assets/usb-msc-covers/ for this menu node."""
     if not node:
@@ -164,7 +322,11 @@ def cover_candidate_rels(node: dict | None) -> list[str]:
         candidates.append(f"stations/{nid}.jpg")
     uid = node.get("uid")
     if uid is not None:
-        candidates.append(f"stations/uid_{uid}.jpg")
+        uid_s = str(uid)
+        if uid_s.startswith("fav"):
+            pass  # use id below
+        else:
+            candidates.append(f"stations/uid_{uid_s}.jpg")
     label = (node.get("label") or "").lower()
     slug = "".join(c if c.isalnum() else "_" for c in label).strip("_")
     while "__" in slug:
@@ -199,6 +361,60 @@ def find_cover_file(node: dict | None) -> Path | None:
 
 def find_default_cover() -> Path | None:
     return resolve_under_roots(DEFAULT_COVER_REL)
+
+
+def find_status_cover(kind: str) -> Path | None:
+    """status/<kind>.jpg — wifi, bt_connected, bt_disconnected, dab_scan, idle, no_pi."""
+    kind = (kind or "idle").replace("..", "").replace("/", "")
+    return resolve_under_roots(f"status/{kind}.jpg")
+
+
+def infer_status_kind(st: dict | None = None) -> str:
+    st = st or read_status()
+    src = str(st.get("source") or st.get("active_source") or "").lower()
+    if "dab" in src and (st.get("dab_scanning") or st.get("scanning")):
+        return "dab_scan"
+    wifi = st.get("wifi")
+    if wifi is False or wifi == 0 or wifi == "off":
+        # only if explicitly off
+        pass
+    bt = st.get("bt_connected")
+    if bt is True or st.get("bt_device"):
+        if find_status_cover("bt_connected"):
+            return "bt_connected"
+    if bt is False and find_status_cover("bt_disconnected"):
+        return "bt_disconnected"
+    if not st and find_status_cover("no_pi"):
+        return "no_pi"
+    if find_status_cover("idle"):
+        return "idle"
+    return "idle"
+
+
+def load_status_cover_bytes(kind: str | None = None) -> tuple[bytes, str, dict]:
+    kind = kind or infer_status_kind()
+    path = find_status_cover(kind)
+    meta = {
+        "src": "status",
+        "path": "",
+        "rel": f"status/{kind}.jpg",
+        "preferred": f"status/{kind}.jpg",
+        "candidates": [f"status/{kind}.jpg"],
+        "default": DEFAULT_COVER_REL,
+    }
+    if path:
+        data = resize_jpeg(path.read_bytes())
+        meta.update({"path": str(path), "rel": f"status/{kind}.jpg"})
+        print(f"[id3] cover STATUS {path} ({len(data)} B)", flush=True)
+        return data, "status", meta
+    default = find_default_cover()
+    if default:
+        data = resize_jpeg(default.read_bytes())
+        meta.update({"src": "default", "path": str(default), "rel": DEFAULT_COVER_REL})
+        return data, "default", meta
+    jpeg = make_cover_jpeg("Status", kind, "PiDrive")
+    meta.update({"src": "generated"})
+    return jpeg, "generated", meta
 
 
 def cover_hint_for(node: dict | None) -> dict:
@@ -389,7 +605,8 @@ class AudioFwd:
         self.proc: subprocess.Popen | None = None
         self.uid = ""
 
-    def stop(self) -> None:
+    def stop(self, status_cover: bool = True) -> None:
+        had = bool(self.uid)
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
             try:
@@ -403,6 +620,59 @@ class AudioFwd:
             self.ser.flush()
             print(f"[tx] {line}", flush=True)
         self.uid = ""
+        if had and status_cover:
+            try:
+                self.push_status()
+            except Exception as e:
+                print(f"[id3] status cover after stop: {e}", flush=True)
+
+    def push_status(self, kind: str | None = None) -> None:
+        """Sticky ID3+APIC with status/*.jpg so SoftAP still shows a cover when idle."""
+        jpeg, src, cover_meta = load_status_cover_bytes(kind)
+        kind = kind or infer_status_kind()
+        uid = f"status:{kind}"
+        self.uid = uid
+        c_rel = (cover_meta.get("rel") or "")[:72]
+        start_msg = {
+            "t": "audio_start",
+            "uid": uid,
+            "codec": "mp3",
+            "br": self.bitrate,
+            "cSrc": src[:12],
+            "cPath": c_rel,
+            "cTry": c_rel,
+        }
+        line = json.dumps(start_msg, separators=(",", ":"))
+        self.ser.write((line + "\n").encode())
+        self.ser.flush()
+        print(f"[tx] {line}", flush=True)
+        try:
+            tag = build_id3_tag("PiDrive", kind.replace("_", " "), "Status", jpeg)
+            if len(tag) > ID3_BUDGET:
+                tag = tag[:ID3_BUDGET]
+            send_bin(self.ser, 0x56, tag)  # sticky ID3
+            print(f"[id3] status sent {len(tag)} B src={src} rel={c_rel}", flush=True)
+        except Exception as e:
+            print(f"[id3] status send failed: {e}", flush=True)
+        Path("/tmp/pidrive_cover_hint.json").write_text(
+            json.dumps(
+                {
+                    "uid": uid,
+                    "station": "Status",
+                    "src": src,
+                    "rel": cover_meta.get("rel") or "",
+                    "path": cover_meta.get("path") or "",
+                    "preferred": cover_meta.get("preferred") or c_rel,
+                    "candidates": cover_meta.get("candidates") or [],
+                    "default": DEFAULT_COVER_REL,
+                    "folder": "assets/usb-msc-covers/",
+                    "ts": time.time(),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
 
     def start(
         self,
@@ -411,7 +681,7 @@ class AudioFwd:
         node: dict | None = None,
         media_path: str | None = None,
     ) -> None:
-        self.stop()
+        self.stop(status_cover=False)
         self.uid = uid
         # Cover meta filled after load_cover; sent in audio_start below
         cover_meta: dict = {}
@@ -653,16 +923,46 @@ def main() -> int:
                             force_menu = True
                             print("[page] home → 0", flush=True)
                             continue
+                        if uid == STOP_UID:
+                            audio.stop(status_cover=True)
+                            print("[audio] stop (SoftAP/Remote)", flush=True)
+                            continue
+                        if uid == ROOT_UID:
+                            inject("goto:root")
+                            page = 0
+                            force_menu = True
+                            time.sleep(0.3)
+                            print("[nav] root", flush=True)
+                            continue
+                        if uid == FAVORITEN_UID:
+                            inject("goto:favoriten")
+                            page = 0
+                            force_menu = True
+                            time.sleep(0.3)
+                            print("[nav] Favoriten", flush=True)
+                            continue
 
                         # Resolve node BEFORE activate — folder leave removes it from menu.json
                         _, _nodes, by_uid = read_menu_nodes()
-                        node = by_uid.get(uid) or {}
+                        node = by_uid.get(uid) or _PRESET_BY_UID.get(uid) or {}
                         typ = node.get("type") or ""
+                        # Preset stations: stream without requiring menu activate path
+                        if uid.startswith("fav") and node:
+                            if args.no_audio:
+                                continue
+                            src, media_path = resolve_stream_target(node)
+                            if src:
+                                time.sleep(0.05)
+                                audio.start(uid, src, node, media_path)
+                            else:
+                                audio.stop(status_cover=True)
+                            continue
+
                         inject(f"activate:{uid}")
                         if args.no_audio:
                             continue
                         if typ == "folder":
-                            audio.stop()
+                            audio.stop(status_cover=False)
                             page = 0
                             force_menu = True
                             # allow core to rewrite menu.json before next sync
@@ -675,7 +975,7 @@ def main() -> int:
                             time.sleep(0.25)
                             audio.start(uid, src, node, media_path)
                         else:
-                            audio.stop()
+                            audio.stop(status_cover=True)
                             print(
                                 f"[audio] no stream target for uid={uid} type={typ} "
                                 f"action={node.get('action')}",
@@ -696,10 +996,12 @@ def main() -> int:
                 last_menu = now
                 rev, nodes, by_uid = read_menu_nodes()
                 # folder identity = path labels + node uids (reset page on navigate)
+                path_ids: list = []
                 path_key = ""
                 try:
                     raw = json.loads(MENU_PATH.read_text(encoding="utf-8"))
-                    path_key = json.dumps(raw.get("path_ids") or raw.get("path") or [], separators=(",", ":"))
+                    path_ids = list(raw.get("path_ids") or raw.get("path") or [])
+                    path_key = json.dumps(path_ids, separators=(",", ":"))
                 except Exception:
                     path_key = ""
                 node_uids = ",".join(str(n.get("uid")) for n in nodes)
@@ -707,7 +1009,9 @@ def main() -> int:
                 if fsig != folder_sig:
                     folder_sig = fsig
                     page = 0
-                items, page = page_items(nodes, page)
+                items, page, extra = menu_nodes_for_page(path_ids, nodes, page)
+                if extra:
+                    by_uid.update(extra)
                 sig = json.dumps(items, separators=(",", ":"))
                 if items and (force_menu or rev != last_rev or sig != last_sig):
                     send({"t": "menu_set", "rev": rev, "page": page, "items": items})

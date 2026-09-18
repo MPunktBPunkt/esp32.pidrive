@@ -68,10 +68,15 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
 .cover-wrap{display:flex;gap:14px;align-items:flex-start;margin:8px 0 4px;flex-wrap:wrap}
 .cover-art{width:160px;height:160px;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:#0c1016;display:none}
 .cover-art.on{display:block}
+.cover-art.lg{width:220px;height:220px}
 .cover-empty{width:160px;height:160px;border-radius:8px;border:1px dashed var(--line);color:var(--muted);display:flex;align-items:center;justify-content:center;font-size:12px;text-align:center;padding:8px}
+.cover-empty.lg{width:220px;height:220px}
 .cover-empty.hide{display:none}
 .cover-meta{flex:1;min-width:160px;font-size:13px;color:var(--muted)}
 .cover-meta b{color:var(--ink)}
+.remote-actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.btn-bad{background:rgba(247,108,108,.12);border-color:rgba(247,108,108,.45);color:var(--bad)}
+.now-title{font-size:1.25rem;font-weight:700;letter-spacing:-.02em;margin:4px 0}
 </style></head><body>
 <div class="shell">
   <h1>esp32.pidrive</h1>
@@ -87,14 +92,42 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
     <span class="chip" id="c-ap">AP -</span>
   </div>
   <nav>
-    <button class="tab active" data-t="car">Auto-Test</button>
+    <button class="tab active" data-t="remote">Remote</button>
+    <button class="tab" data-t="car">Auto-Test</button>
     <button class="tab" data-t="menu">Menü</button>
     <button class="tab" data-t="events">Events</button>
     <button class="tab" data-t="config">Config</button>
     <button class="tab" data-t="ota">OTA</button>
   </nav>
 
-  <section class="pane active" id="p-car">
+  <section class="pane active" id="p-remote">
+    <div class="panel">
+      <h3>Fernbedienung</h3>
+      <div class="now-title" id="remote-title">—</div>
+      <div class="cover-wrap">
+        <img id="remote-art" class="cover-art lg" alt="Cover" width="220" height="220">
+        <div id="remote-empty" class="cover-empty lg">kein Cover</div>
+        <div class="cover-meta">
+          <div>Quelle <b id="remote-src">—</b></div>
+          <div style="margin-top:6px">Datei <code id="remote-path">—</code></div>
+          <div style="margin-top:6px">ID3 <b id="remote-id3">—</b></div>
+          <div class="meta" style="margin-top:8px">Handy am SoftAP · steuert PiDrive über PUMP</div>
+        </div>
+      </div>
+      <div class="remote-actions">
+        <button class="btn btn-a" id="btn-root">Home / Presets</button>
+        <button class="btn" id="btn-fav">Favoriten</button>
+        <button class="btn btn-bad" id="btn-stop">Stop</button>
+        <button class="btn" id="btn-remote-listen">Hören</button>
+      </div>
+      <h3>Aktuelle Slots <span id="remote-menu-meta"></span></h3>
+      <table><thead><tr><th>#</th><th>Name</th><th></th></tr></thead>
+      <tbody id="remote-menu-body"><tr><td colspan="3">lädt…</td></tr></tbody></table>
+      <p class="meta">Root zeigt Favoriten-Presets (Sender mit ★). Mehr… / Menü… blättert weiter.</p>
+    </div>
+  </section>
+
+  <section class="pane" id="p-car">
     <div class="panel">
       <h3>USB-Anschlüsse</h3>
       <div class="ports">
@@ -250,6 +283,9 @@ function renderMenuRows(items, mode){
   if(!items.length) return '<tr><td colspan="4">kein Menü — Bridge/PUMP prüfen</td></tr>';
   return items.map((it,i)=>{
     const btn=`<button class="btn" data-uid="${it.uid}">${actLabel(it.kind)}</button>`;
+    if(mode==='remote'){
+      return `<tr class="${it.playing?'play':''}"><td>${i+1}</td><td>${it.name||'?'}</td><td>${btn}</td></tr>`;
+    }
     if(mode==='car'){
       return `<tr class="${it.playing?'play':''}"><td>${i+1}</td><td>${it.name||'?'}</td><td>${it.kind||''}</td><td>${btn}</td></tr>`;
     }
@@ -269,10 +305,13 @@ async function refreshMenu(force){
     const metaTxt='('+items.length+(rev?' · rev '+rev:'')+')';
     const meta=$('#menu-meta'); if(meta) meta.textContent=metaTxt;
     const cmeta=$('#car-menu-meta'); if(cmeta) cmeta.textContent=metaTxt;
+    const rmeta=$('#remote-menu-meta'); if(rmeta) rmeta.textContent=metaTxt;
     const body=$('#menu-body');
     if(body){ body.innerHTML=renderMenuRows(items,'full'); bindPlayButtons(body); }
     const cbody=$('#car-menu-body');
     if(cbody){ cbody.innerHTML=renderMenuRows(items,'car'); bindPlayButtons(cbody); }
+    const rbody=$('#remote-menu-body');
+    if(rbody){ rbody.innerHTML=renderMenuRows(items,'remote'); bindPlayButtons(rbody); }
   }catch(e){
     const body=$('#menu-body');
     if(body && !body.dataset.ok) body.innerHTML='<tr><td colspan="4">Menü-Fehler: '+(e.message||e)+'</td></tr>';
@@ -310,6 +349,9 @@ function setCoverVisible(has){
   const img=$('#cover-art'), empty=$('#cover-empty');
   if(img) img.classList.toggle('on', !!has);
   if(empty) empty.classList.toggle('hide', !!has);
+  const rimg=$('#remote-art'), rempty=$('#remote-empty');
+  if(rimg) rimg.classList.toggle('on', !!has);
+  if(rempty) rempty.classList.toggle('hide', !!has);
 }
 function updateCover(s){
   const st=s.stream||{};
@@ -323,13 +365,21 @@ function updateCover(s){
   const pathEl=$('#cover-path');
   const replEl=$('#cover-replace');
   const tryEl=$('#cover-try');
+  const rTitle=$('#remote-title');
+  const rSrc=$('#remote-src');
+  const rPath=$('#remote-path');
+  const rId3=$('#remote-id3');
   if(titleEl) titleEl.textContent=s.playingName||st.uid||'—';
+  if(rTitle) rTitle.textContent=s.playingName||st.uid||'—';
   if(id3El) id3El.textContent=id3? (id3+' B') : '—';
+  if(rId3) rId3.textContent=id3? (id3+' B') : '—';
+  const map={file:'Datei',default:'Default',embedded:'MP3-APIC',generated:'Text',status:'Status',none:'—',error:'Fehler'};
   if(srcEl){
-    const map={file:'Datei',default:'Default',embedded:'MP3-APIC',generated:'Text',none:'—',error:'Fehler'};
     srcEl.textContent=(map[cov.src]||cov.src||'—')+(cov.src?(' ('+cov.src+')'):'');
   }
+  if(rSrc) rSrc.textContent=(map[cov.src]||cov.src||'—');
   if(pathEl) pathEl.textContent=cov.path||'—';
+  if(rPath) rPath.textContent=cov.path||'—';
   // preferred replace target = first candidate or path for file override
   let preferred='stations/<menu_id>.jpg';
   const tries=(cov.try||'').split('|').filter(Boolean);
@@ -345,21 +395,21 @@ function updateCover(s){
     if(bytesEl) bytesEl.textContent='—';
     const img=$('#cover-art');
     if(img){ img.removeAttribute('src'); }
+    const rimg=$('#remote-art');
+    if(rimg){ rimg.removeAttribute('src'); }
     return;
   }
   if(key===lastCoverKey) return;
   lastCoverKey=key;
-  const img=$('#cover-art');
-  if(!img) return;
-  img.onload=()=>{
-    setCoverVisible(true);
-    if(bytesEl) bytesEl.textContent='ok';
+  const url='/api/lab/cover?u='+encodeURIComponent(uid)+'&id3='+id3+'&t='+Date.now();
+  const apply=(img)=>{
+    if(!img) return;
+    img.onload=()=>{ setCoverVisible(true); if(bytesEl) bytesEl.textContent='ok'; };
+    img.onerror=()=>{ setCoverVisible(false); if(bytesEl) bytesEl.textContent='kein APIC'; };
+    img.src=url;
   };
-  img.onerror=()=>{
-    setCoverVisible(false);
-    if(bytesEl) bytesEl.textContent='kein APIC';
-  };
-  img.src='/api/lab/cover?u='+encodeURIComponent(uid)+'&id3='+id3+'&t='+Date.now();
+  apply($('#cover-art'));
+  apply($('#remote-art'));
 }
 async function refreshStatus(){
   try{
@@ -501,10 +551,27 @@ async function upload(f){
 }
 tabs();
 $('#btn-refresh').onclick=async()=>{await refreshMenu(true); await refreshStatus();};
+async function labPlayUid(uid){
+  await j('/api/lab/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid})});
+  await refreshMenu(true); await refreshStatus(); await refreshEvents();
+}
+const btnRoot=$('#btn-root'); if(btnRoot) btnRoot.onclick=()=>labPlayUid('pump:root');
+const btnFav=$('#btn-fav'); if(btnFav) btnFav.onclick=()=>labPlayUid('pump:favoriten');
+const btnStop=$('#btn-stop'); if(btnStop) btnStop.onclick=async()=>{
+  try{ await j('/api/lab/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); }
+  catch(e){ try{ await labPlayUid('pump:stop'); }catch(_){ alert('Stop: '+(e.message||e)); } }
+  await refreshStatus(); await refreshEvents();
+};
 $('#btn-listen').onclick=()=>{
   const a=$('#listen-audio'); if(!a) return;
   a.src='/api/lab/listen?t='+Date.now();
   a.play().catch(err=>alert('Audio: '+(err.message||err)+' — zuerst Station Play, Puffer füllen lassen'));
+};
+const btnRL=$('#btn-remote-listen');
+if(btnRL) btnRL.onclick=()=>{
+  const a=$('#listen-audio'); if(!a) return;
+  a.src='/api/lab/listen?t='+Date.now();
+  a.play().catch(err=>alert('Audio: '+(err.message||err)));
 };
 $('#btn-listen-stop').onclick=()=>{
   const a=$('#listen-audio'); if(!a) return;
