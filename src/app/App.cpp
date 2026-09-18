@@ -234,6 +234,14 @@ void App::buildStatus(JsonDocument& doc) {
     doc["playingName"] = menu.playingName();
     doc["menuRev"] = menu.rev();
     doc["menuCount"] = (int)menu.count();
+    {
+        JsonObject cover = doc["cover"].to<JsonObject>();
+        cover["src"] = pump.coverSrc();
+        cover["path"] = pump.coverPath();
+        cover["try"] = pump.coverTry();
+        cover["folder"] = "assets/usb-msc-covers/";
+        cover["default"] = "default.jpg";
+    }
     if (stream.active()) {
         JsonObject s = doc["stream"].to<JsonObject>();
         stream.toJson(s);

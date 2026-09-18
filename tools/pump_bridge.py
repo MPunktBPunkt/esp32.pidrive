@@ -3,7 +3,8 @@
 
 - Syncs /tmp/pidrive_menu.json via menu_set with soft paging (≤4 MSC slots)
 - On play_uid: activate:<uid> + live MP3 (audio_start + ID3/APIC + 0x01 0x55)
-- Cover priority: embedded APIC from local MP3 → stations/*.jpg → generated JPEG
+- Cover priority: embedded APIC → stations/*.jpg → default.jpg → generated JPEG
+- audio_start carries cSrc/cPath/cTry for SoftAP cover-hint UI
 - Stations (meta.url) and local_play: paths are streamed via ffmpeg
 
 Usage:
@@ -47,6 +48,7 @@ COVER_ROOTS = [
     Path(__file__).resolve().parents[2] / "assets" / "usb-msc-covers",
     Path("/home/martin/projects/pidrive/assets/usb-msc-covers"),
 ]
+DEFAULT_COVER_REL = "default.jpg"  # immer, wenn kein Station-/APIC-Cover
 MAX_SLOTS = 4
 PAGE_CONTENT = 3  # when paging: 3 items + Mehr/Seite1
 FRAME_MAX = 480
@@ -152,9 +154,10 @@ def page_items(nodes: list[dict], page: int) -> tuple[list[dict], int]:
     return items, page
 
 
-def find_cover_file(node: dict | None) -> Path | None:
+def cover_candidate_rels(node: dict | None) -> list[str]:
+    """Relative paths under assets/usb-msc-covers/ for this menu node."""
     if not node:
-        return None
+        return []
     candidates: list[str] = []
     nid = node.get("id")
     if nid:
@@ -164,16 +167,101 @@ def find_cover_file(node: dict | None) -> Path | None:
         candidates.append(f"stations/uid_{uid}.jpg")
     label = (node.get("label") or "").lower()
     slug = "".join(c if c.isalnum() else "_" for c in label).strip("_")
+    while "__" in slug:
+        slug = slug.replace("__", "_")
     if slug:
         candidates.append(f"stations/{slug}.jpg")
+    # unique preserve order
+    out: list[str] = []
+    for c in candidates:
+        if c not in out:
+            out.append(c)
+    return out
+
+
+def resolve_under_roots(rel: str) -> Path | None:
     for root in COVER_ROOTS:
         if not root.is_dir():
             continue
-        for rel in candidates:
-            p = root / rel
-            if p.is_file() and p.stat().st_size > 0:
-                return p
+        p = root / rel
+        if p.is_file() and p.stat().st_size > 0:
+            return p
     return None
+
+
+def find_cover_file(node: dict | None) -> Path | None:
+    for rel in cover_candidate_rels(node):
+        p = resolve_under_roots(rel)
+        if p:
+            return p
+    return None
+
+
+def find_default_cover() -> Path | None:
+    return resolve_under_roots(DEFAULT_COVER_REL)
+
+
+def cover_hint_for(node: dict | None) -> dict:
+    """Human/UI hint: which file to drop in to replace current cover."""
+    cands = cover_candidate_rels(node)
+    preferred = cands[0] if cands else "stations/<menu_id>.jpg"
+    return {
+        "folder": "assets/usb-msc-covers/",
+        "preferred": preferred,
+        "candidates": cands,
+        "default": DEFAULT_COVER_REL,
+        "repo": "https://github.com/MPunktBPunkt/pidrive/tree/main/assets/usb-msc-covers",
+    }
+
+
+def load_cover(
+    node: dict | None, title: str, subtitle: str, footer: str, media_path: str | None = None
+) -> tuple[bytes, str, dict]:
+    """Return (jpeg_bytes, source_tag, meta).
+
+    Priority: embedded APIC → stations/*.jpg → default.jpg → generated text.
+    """
+    hint = cover_hint_for(node)
+    meta = {
+        "src": "none",
+        "path": "",
+        "rel": "",
+        "preferred": hint["preferred"],
+        "candidates": hint["candidates"],
+        "default": DEFAULT_COVER_REL,
+    }
+    embedded = extract_apic_from_file(media_path)
+    if embedded:
+        print(f"[id3] cover from APIC {media_path} ({len(embedded)} B)", flush=True)
+        meta.update({"src": "embedded", "path": media_path or "", "rel": ""})
+        return embedded, "embedded", meta
+
+    path = find_cover_file(node)
+    if path:
+        data = resize_jpeg(path.read_bytes())
+        # find matching rel
+        rel = ""
+        for c in hint["candidates"]:
+            if path.name == Path(c).name or str(path).endswith(c):
+                rel = c
+                break
+        if not rel:
+            rel = f"stations/{path.name}"
+        print(f"[id3] cover file {path} ({len(data)} B)", flush=True)
+        meta.update({"src": "file", "path": str(path), "rel": rel})
+        return data, "file", meta
+
+    default = find_default_cover()
+    if default:
+        data = resize_jpeg(default.read_bytes())
+        print(f"[id3] cover DEFAULT {default} ({len(data)} B)", flush=True)
+        meta.update({"src": "default", "path": str(default), "rel": DEFAULT_COVER_REL})
+        return data, "default", meta
+
+    jpeg = make_cover_jpeg(title, subtitle, footer)
+    print(f"[id3] cover generated text ({len(jpeg)} B) — no {DEFAULT_COVER_REL}", flush=True)
+    meta.update({"src": "generated", "path": "", "rel": ""})
+    return jpeg, "generated", meta
 
 
 def resize_jpeg(data: bytes, max_side: int = 320, max_bytes: int = 8000) -> bytes:
@@ -256,22 +344,6 @@ def make_cover_jpeg(title: str, subtitle: str, footer: str) -> bytes:
     return buf.getvalue()
 
 
-def load_cover(
-    node: dict | None, title: str, subtitle: str, footer: str, media_path: str | None = None
-) -> tuple[bytes, str]:
-    """Return (jpeg_bytes, source_tag)."""
-    embedded = extract_apic_from_file(media_path)
-    if embedded:
-        print(f"[id3] cover from APIC {media_path} ({len(embedded)} B)", flush=True)
-        return embedded, "embedded"
-    path = find_cover_file(node)
-    if path:
-        data = resize_jpeg(path.read_bytes())
-        print(f"[id3] cover file {path} ({len(data)} B)", flush=True)
-        return data, "file"
-    return make_cover_jpeg(title, subtitle, footer), "generated"
-
-
 def build_id3_tag(title: str, artist: str, album: str, jpeg: bytes) -> bytes:
     if ID3 is None:
         raise RuntimeError("python3-mutagen missing")
@@ -341,14 +413,8 @@ class AudioFwd:
     ) -> None:
         self.stop()
         self.uid = uid
-        line = json.dumps(
-            {"t": "audio_start", "uid": uid, "codec": "mp3", "br": self.bitrate},
-            separators=(",", ":"),
-        )
-        self.ser.write((line + "\n").encode())
-        self.ser.flush()
-        print(f"[tx] {line}", flush=True)
-
+        # Cover meta filled after load_cover; sent in audio_start below
+        cover_meta: dict = {}
         meta = (node or {}).get("meta") or {}
         st = read_status()
         station = (
@@ -362,19 +428,83 @@ class AudioFwd:
         album = st.get("album") or st.get("radio_name") or station
         footer = f"BT:{st.get('bt_device') or '-'} WiFi:{'on' if st.get('wifi') else 'off'}"
         cover_path = media_path or st.get("library_file") or None
+        jpeg = b""
+        src = "none"
         try:
-            jpeg, src = load_cover(
+            jpeg, src, cover_meta = load_cover(
                 node, str(station)[:40], f"{artist} — {title}"[:48], footer, cover_path
             )
+        except Exception as e:
+            print(f"[id3] load_cover: {e}", flush=True)
+            cover_meta = cover_hint_for(node)
+            cover_meta.update({"src": "error", "path": "", "rel": ""})
+
+        # Prefer short fields for UART line budget (line_[384] on ESP)
+        c_rel = (cover_meta.get("rel") or cover_meta.get("preferred") or "")[:72]
+        c_try = "|".join((cover_meta.get("candidates") or [])[:3])[:90]
+        start_msg = {
+            "t": "audio_start",
+            "uid": uid,
+            "codec": "mp3",
+            "br": self.bitrate,
+            "cSrc": src[:12],
+            "cPath": c_rel,
+            "cTry": c_try,
+        }
+        line = json.dumps(start_msg, separators=(",", ":"))
+        self.ser.write((line + "\n").encode())
+        self.ser.flush()
+        print(f"[tx] {line}", flush=True)
+
+        # Persist hint for SoftAP / humans
+        try:
+            hint_path = Path("/tmp/pidrive_cover_hint.json")
+            hint_path.write_text(
+                json.dumps(
+                    {
+                        "uid": uid,
+                        "station": station,
+                        "src": src,
+                        "rel": cover_meta.get("rel") or "",
+                        "path": cover_meta.get("path") or "",
+                        "preferred": cover_meta.get("preferred") or c_rel,
+                        "candidates": cover_meta.get("candidates") or [],
+                        "default": DEFAULT_COVER_REL,
+                        "folder": "assets/usb-msc-covers/",
+                        "ts": time.time(),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+        try:
+            if not jpeg:
+                d = find_default_cover()
+                if d:
+                    jpeg = resize_jpeg(d.read_bytes())
+                    src = "default"
+                else:
+                    jpeg = make_cover_jpeg(str(station)[:40], str(title)[:48], footer)
+                    src = "generated"
             tag = build_id3_tag(str(title)[:60], str(artist)[:40], str(album)[:40], jpeg)
             if len(tag) > ID3_BUDGET:
                 print(f"[id3] tag {len(tag)} B > {ID3_BUDGET}, shrink", flush=True)
-                jpeg = make_cover_jpeg(str(station)[:40], str(title)[:48], "cover too large")
+                d = find_default_cover()
+                if d:
+                    jpeg = resize_jpeg(d.read_bytes())
+                    src = "default"
+                else:
+                    jpeg = make_cover_jpeg(str(station)[:40], str(title)[:48], "cover too large")
+                    src = "generated"
                 tag = build_id3_tag(str(title)[:60], str(artist)[:40], str(album)[:40], jpeg)
-                src = "generated"
             send_bin(self.ser, 0x56, tag[:ID3_BUDGET])
             print(
-                f"[id3] sent {min(len(tag), ID3_BUDGET)} B jpeg={len(jpeg)} src={src} → {PROBE_PATH}",
+                f"[id3] sent {min(len(tag), ID3_BUDGET)} B jpeg={len(jpeg)} src={src} "
+                f"rel={c_rel!r} → {PROBE_PATH}",
                 flush=True,
             )
         except Exception as e:

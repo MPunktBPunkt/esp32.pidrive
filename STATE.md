@@ -5,11 +5,11 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 | Feld | Wert |
 |------|------|
 | Stand | 2026-09-18 |
-| Phase | **Firmware 0.4.4-dev** — SoftAP Cover-Anzeige (`/api/lab/cover`) |
+| Phase | **Firmware 0.4.5-dev** — SoftAP Cover-Anzeige (`/api/lab/cover`) |
 | Repo | `MPunktBPunkt/esp32.pidrive` |
 | Build | PlatformIO `env:pidrive-s3` (`pio run`) |
-| Dist | `dist/pidrive.0.4.4-dev.usb.esp32s3.bin` / `.ota.esp32s3.bin` |
-| Hub-Depot | `iobroker.esp-hub/firmware/pidrive.0.4.4-dev.*.esp32s3.bin` |
+| Dist | `dist/pidrive.0.4.5-dev.usb.esp32s3.bin` / `.ota.esp32s3.bin` |
+| Hub-Depot | `iobroker.esp-hub/firmware/pidrive.0.4.5-dev.*.esp32s3.bin` |
 | Hardware | ESP32-S3-DevKitC-1 (OTG + UART) |
 | Pi-Link | [PUMP.md](docs/planung/PUMP.md) · Bridge `tools/pump_bridge.py` |
 | Cover-Assets | [pidrive/assets/usb-msc-covers](https://github.com/MPunktBPunkt/pidrive/tree/main/assets/usb-msc-covers) · [COVER-ID3.md](docs/planung/COVER-ID3.md) |
@@ -26,7 +26,7 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 
 ## Letzte Änderung
 
-- 2026-09-18: **0.4.4-dev** SoftAP Cover (`GET /api/lab/cover` + UI)
+- 2026-09-18: **0.4.5-dev** SoftAP Cover (`GET /api/lab/cover` + UI)
 - 2026-09-18: Realtime-Gap-Analyse (Lab≠NBT, 60s UART, MSC-Host-Blocker)
 - 2026-09-18: **0.4.3-dev** Soft-Paging (`Mehr…`/`Seite 1`); APIC aus lokaler MP3; Lab-Protokoll
 - 2026-09-17: **0.4.2-dev** sticky ID3+APIC; Cover-Spec; Bins in Hub-Depot

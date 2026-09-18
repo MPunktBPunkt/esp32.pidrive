@@ -124,8 +124,11 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
         <div class="cover-meta">
           <div>Titel <b id="cover-title">—</b></div>
           <div style="margin-top:6px">ID3 <b id="cover-id3">—</b></div>
-          <div style="margin-top:6px">Cover <b id="cover-bytes">—</b></div>
-          <div class="meta" style="margin-top:8px">Aus sticky ID3 (`/api/lab/cover`). Erscheint nach Play, sobald die Bridge APIC sendet.</div>
+          <div style="margin-top:6px">Quelle <b id="cover-src">—</b></div>
+          <div style="margin-top:6px">Aktuell <code id="cover-path">—</code></div>
+          <div style="margin-top:6px">Ersetzen mit <code id="cover-replace">—</code></div>
+          <div style="margin-top:4px;font-size:11px;word-break:break-all">Kandidaten <span id="cover-try">—</span></div>
+          <div class="meta" style="margin-top:8px">Repo-Ordner <code>assets/usb-msc-covers/</code> · Default <code>default.jpg</code> wenn kein Station-Cover.</div>
         </div>
       </div>
       <h3>Live-Audio <span id="listen-meta">—</span></h3>
@@ -312,12 +315,30 @@ function updateCover(s){
   const st=s.stream||{};
   const id3=st.id3Len||0;
   const uid=st.uid||s.playingUid||'';
+  const cov=s.cover||{};
   const titleEl=$('#cover-title');
   const id3El=$('#cover-id3');
   const bytesEl=$('#cover-bytes');
+  const srcEl=$('#cover-src');
+  const pathEl=$('#cover-path');
+  const replEl=$('#cover-replace');
+  const tryEl=$('#cover-try');
   if(titleEl) titleEl.textContent=s.playingName||st.uid||'—';
   if(id3El) id3El.textContent=id3? (id3+' B') : '—';
-  const key=uid+'|'+id3;
+  if(srcEl){
+    const map={file:'Datei',default:'Default',embedded:'MP3-APIC',generated:'Text',none:'—',error:'Fehler'};
+    srcEl.textContent=(map[cov.src]||cov.src||'—')+(cov.src?(' ('+cov.src+')'):'');
+  }
+  if(pathEl) pathEl.textContent=cov.path||'—';
+  // preferred replace target = first candidate or path for file override
+  let preferred='stations/<menu_id>.jpg';
+  const tries=(cov.try||'').split('|').filter(Boolean);
+  if(tries.length) preferred=tries[0];
+  else if(cov.path && cov.src==='file') preferred=cov.path;
+  else if(cov.path && cov.src==='default') preferred=tries[0]||'stations/<menu_id>.jpg';
+  if(replEl) replEl.textContent='assets/usb-msc-covers/'+preferred;
+  if(tryEl) tryEl.textContent=tries.length?tries.map(t=>'assets/usb-msc-covers/'+t).join(' · '):'—';
+  const key=uid+'|'+id3+'|'+(cov.src||'')+'|'+(cov.path||'');
   if(!id3){
     lastCoverKey='';
     setCoverVisible(false);

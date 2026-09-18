@@ -25,16 +25,19 @@ Menü-Navigation bleibt über virtuelle Dateinamen; Cover ist Zusatz für Now-Pl
 Priorität Cover:
   1) APIC aus lokaler MP3 (local_play / status.library_file) → resize 320px
   2) assets/usb-msc-covers/stations/<id|uid|slug>.jpg
-  3) generiertes Text-Cover (Pillow)
+  3) assets/usb-msc-covers/default.jpg   ← immer, wenn 1+2 fehlen
+  4) generiertes Text-Cover (nur ohne default.jpg)
         │
         ▼
 pump_bridge.py → mutagen ID3v2 (TIT2/TPE1/TALB/APIC)
+        │  audio_start: cSrc/cPath/cTry (SoftAP-Hinweis)
         │  UART 0x01 0x56 (sticky ID3, chunked ≤480 B)
         ▼
 ESP StreamBuffer id3_[≤12 KiB] + audio ring
         ├─ MSC onRead → ID3 dann MP3
         ├─ GET /api/lab/stream → ID3+Audio (PC-ffprobe)
-        └─ GET /api/lab/cover → JPEG aus APIC (SoftAP-UI)
+        ├─ GET /api/lab/cover → JPEG aus APIC (SoftAP-UI)
+        └─ /api/status.cover → src/path/try für Dateinamen-Hinweis
 ```
 
 ---

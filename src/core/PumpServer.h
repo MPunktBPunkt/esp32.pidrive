@@ -19,10 +19,16 @@ public:
     void sendJson(const JsonDocument& doc);
     StreamBuffer* stream() { return stream_; }
 
+    const char* coverSrc() const { return coverSrc_; }
+    const char* coverPath() const { return coverPath_; }
+    const char* coverTry() const { return coverTry_; }
+
 private:
     void handleLine(char* line);
     void sendRaw(const char* s);
     void handleBinaryByte(uint8_t c);
+    void setCoverMeta(const char* src, const char* path, const char* tryList);
+    void clearCoverMeta();
 
     EventLog* events_ = nullptr;
     MenuStore* menu_ = nullptr;
@@ -32,6 +38,9 @@ private:
     bool up_ = false;
     char line_[384];
     size_t lineLen_ = 0;
+    char coverSrc_[16] = {0};
+    char coverPath_[80] = {0};
+    char coverTry_[120] = {0};
 
     // Binary: 0x01 0x55 = audio, 0x01 0x56 = sticky ID3 append
     enum class BinState : uint8_t { Idle, GotMagic1, GotMagic2, GotLenLo, Payload };

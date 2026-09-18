@@ -37,6 +37,26 @@ void PumpServer::sendPlayUid(const char* uid) {
     if (events_) events_->push("pump.event", uid);
 }
 
+void PumpServer::setCoverMeta(const char* src, const char* path, const char* tryList) {
+    coverSrc_[0] = coverPath_[0] = coverTry_[0] = 0;
+    if (src && src[0]) {
+        strncpy(coverSrc_, src, sizeof(coverSrc_) - 1);
+        coverSrc_[sizeof(coverSrc_) - 1] = 0;
+    }
+    if (path && path[0]) {
+        strncpy(coverPath_, path, sizeof(coverPath_) - 1);
+        coverPath_[sizeof(coverPath_) - 1] = 0;
+    }
+    if (tryList && tryList[0]) {
+        strncpy(coverTry_, tryList, sizeof(coverTry_) - 1);
+        coverTry_[sizeof(coverTry_) - 1] = 0;
+    }
+}
+
+void PumpServer::clearCoverMeta() {
+    coverSrc_[0] = coverPath_[0] = coverTry_[0] = 0;
+}
+
 void PumpServer::handleBinaryByte(uint8_t c) {
     switch (binState_) {
         case BinState::Idle:
@@ -142,6 +162,10 @@ void PumpServer::handleLine(char* line) {
 
     if (!strcmp(t, "audio_start")) {
         const char* uid = doc["uid"] | "";
+        const char* cSrc = doc["cSrc"] | "";
+        const char* cPath = doc["cPath"] | "";
+        const char* cTry = doc["cTry"] | "";
+        setCoverMeta(cSrc, cPath, cTry);
         if (stream_) {
             stream_->start(uid);
             stream_->clearId3();
@@ -162,6 +186,7 @@ void PumpServer::handleLine(char* line) {
     if (!strcmp(t, "audio_stop")) {
         if (stream_) stream_->stop();
         if (msc_) msc_->stopStream();
+        clearCoverMeta();
         JsonDocument ack;
         ack["t"] = "audio_ack";
         ack["ok"] = true;
