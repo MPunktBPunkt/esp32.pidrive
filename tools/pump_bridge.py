@@ -109,7 +109,11 @@ def collect_audio_files(path: str) -> list[str]:
 
 
 def read_menu_nodes() -> tuple[int, list[dict], dict[str, dict]]:
-    """Return (rev, visible nodes in folder order, by_uid)."""
+    """Return (rev, visible nodes in folder order, by_uid).
+
+    ``info`` nodes (IP, BT-Status, SSID, …) are included so they appear as
+    MSC/SoftAP slot labels. Selecting them must not stop audio.
+    """
     if not MENU_PATH.exists():
         return 0, [], {}
     data = json.loads(MENU_PATH.read_text(encoding="utf-8"))
@@ -118,8 +122,6 @@ def read_menu_nodes() -> tuple[int, list[dict], dict[str, dict]]:
     by_uid: dict[str, dict] = {}
     for n in data.get("nodes") or []:
         typ = n.get("type") or "info"
-        if typ == "info":
-            continue
         uid = n.get("uid")
         if uid is None:
             continue
@@ -946,6 +948,10 @@ def main() -> int:
                         _, _nodes, by_uid = read_menu_nodes()
                         node = by_uid.get(uid) or _PRESET_BY_UID.get(uid) or {}
                         typ = node.get("type") or ""
+                        if typ == "info":
+                            # Statuszeile (IP, BT, SSID) — nur anzeigen, Audio nicht anfassen
+                            print(f"[menu] info {(node.get('label') or uid)[:48]}", flush=True)
+                            continue
                         # Preset stations: stream without requiring menu activate path
                         if uid.startswith("fav") and node:
                             if args.no_audio:

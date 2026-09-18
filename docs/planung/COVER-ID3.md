@@ -115,7 +115,7 @@ Kurz:
 - `status/wifi.jpg`, `status/bt_connected.jpg`, `status/dab_scan.jpg` — Zustände  
 
 Bridge-Lookup: APIC aus MP3 → `stations/*.jpg` → Text-Fallback.  
-`status/*.jpg` ist spezifiziert, aber in der Bridge noch nicht verdrahtet.
+`status/*.jpg` wird bei Stop/Idle von der Bridge als sticky APIC gesetzt (`src=status`).
 
 ---
 

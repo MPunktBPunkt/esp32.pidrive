@@ -5,11 +5,11 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 | Feld | Wert |
 |------|------|
 | Stand | 2026-09-18 |
-| Phase | **Firmware 0.4.6-dev** — SoftAP Remote + Status-Cover + Root-Presets |
+| Phase | **Firmware 0.4.7-dev** — info-Slots (IP/Status) im MSC-Menü |
 | Repo | `MPunktBPunkt/esp32.pidrive` |
 | Build | PlatformIO `env:pidrive-s3` (`pio run`) |
-| Dist | `dist/pidrive.0.4.6-dev.usb.esp32s3.bin` / `.ota.esp32s3.bin` |
-| Hub-Depot | `iobroker.esp-hub/firmware/pidrive.0.4.6-dev.*.esp32s3.bin` |
+| Dist | `dist/pidrive.0.4.7-dev.usb.esp32s3.bin` / `.ota.esp32s3.bin` |
+| Hub-Depot | `iobroker.esp-hub/firmware/pidrive.0.4.7-dev.*.esp32s3.bin` |
 | Hardware | ESP32-S3-DevKitC-1 (OTG + UART) |
 | Pi-Link | [PUMP.md](docs/planung/PUMP.md) · Bridge `tools/pump_bridge.py` |
 | Cover-Assets | [pidrive/assets/usb-msc-covers](https://github.com/MPunktBPunkt/pidrive/tree/main/assets/usb-msc-covers) · [COVER-ID3.md](docs/planung/COVER-ID3.md) |
@@ -26,6 +26,7 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 
 ## Letzte Änderung
 
+- 2026-09-18: **0.4.7-dev** info-Nodes (IP/SSID/BT) als MSC-Slots; Hotspot-IP-Erkennung
 - 2026-09-18: **0.4.6-dev** SoftAP Remote-Tab, `/api/lab/stop`, Status-Cover, Root-Favoriten-Presets
 - 2026-09-18: **0.4.5-dev** SoftAP Cover (`GET /api/lab/cover` + UI)
 - 2026-09-18: Realtime-Gap-Analyse; MSC-Host am Pi

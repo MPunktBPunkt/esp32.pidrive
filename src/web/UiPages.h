@@ -262,6 +262,7 @@ function chip(el,on,warn){
 }
 function actLabel(kind){
   if(kind==='folder') return 'Öffnen';
+  if(kind==='info') return 'Info';
   if(kind==='station'||kind==='action') return 'Play';
   return 'Aktivieren';
 }
