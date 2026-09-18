@@ -93,6 +93,8 @@ Der Proxmox-CT sieht `USB_MEDIA` in `lsblk`/`sysfs`, hat aber **kein** `/dev/sda
 
 Empfehlung für den nächsten Lab-Schritt: OTG an eine **VM/Host mit Device-Node** (`/dev/sda` mountbar) — dann `dd`/`ffmpeg -i /mnt/…/01ROCK.MP3` als BMW-Proxy.
 
+**0.4.12+ Regression:** [`tools/msc_host_test.py`](../../tools/msc_host_test.py) — raw FAT/Dir vor/während Stream, PASS/FAIL für Problem A.
+
 **Erledigt 2026-09-18 (vormittags):** beide ESP-Buchsen am Pi (`.111`) → siehe §6.
 
 ---
