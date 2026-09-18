@@ -1,0 +1,141 @@
+{
+  "ts": "2026-09-18T08:12:50",
+  "fw": "0.4.3-dev",
+  "phase": "msc-host-pi",
+  "tests": [
+    {
+      "name": "links",
+      "ok": true,
+      "detail": {
+        "otg": true,
+        "uart": true,
+        "pump": true
+      }
+    },
+    {
+      "name": "fat_boot",
+      "ok": true,
+      "detail": {
+        "label": "PIDRIVE",
+        "root": [
+          "PIDRIVE    ",
+          "\u0001\u0017�\u0001\u0019�\u0001\u001b�\u0001\u001d",
+          "�\u0002-�\u0002/\u0000\u00031 \u0003",
+          "A \u0004C@\u0004E`\u0004G�",
+          "\u0005W�\u0005Y�\u0005[�\u0005]",
+          "�\u0006m�\u0006o\u0000\u0007q \u0007"
+        ]
+      }
+    },
+    {
+      "name": "mount",
+      "ok": true,
+      "detail": {
+        "listing": [
+          "SETTINGS",
+          "SETTINGS/ABOUT.MP3",
+          "STATIONS",
+          "STATIONS/01ROCK.MP3",
+          "STATIONS/02ANTENN.MP3",
+          "STATIONS/03SWR3.MP3"
+        ],
+        "err": ""
+      }
+    },
+    {
+      "name": "files",
+      "ok": true,
+      "detail": {
+        "mp3": [
+          "STATIONS/01ROCK.MP3",
+          "STATIONS/02ANTENN.MP3",
+          "STATIONS/03SWR3.MP3",
+          "SETTINGS/ABOUT.MP3"
+        ],
+        "sizes": {
+          "STATIONS/01ROCK.MP3": 6495,
+          "STATIONS/02ANTENN.MP3": 6495,
+          "STATIONS/03SWR3.MP3": 6495,
+          "SETTINGS/ABOUT.MP3": 5242
+        }
+      }
+    },
+    {
+      "name": "play_guess",
+      "ok": true,
+      "detail": {
+        "slot": "Naechster Sender",
+        "lba0": 59,
+        "host_bytes": 16384,
+        "reads": [
+          212,
+          244
+        ],
+        "bytesFile": 100864,
+        "playing": "Vorheriger Sender",
+        "uid": "15773435517741805152",
+        "guesses": [
+          {
+            "seq": 117,
+            "ms": 1327243,
+            "code": "play.guess",
+            "detail": "5679408291292205592"
+          }
+        ],
+        "head_id3": true,
+        "dd_err": ""
+      }
+    },
+    {
+      "name": "metrics",
+      "ok": true,
+      "detail": {
+        "readCount": 308,
+        "bytesFile": 123392,
+        "bytesRead": 396800,
+        "msPlugToPlayGuess": 1326214,
+        "prefetchHits": 19,
+        "plugCount": 1
+      }
+    },
+    {
+      "name": "stream_active",
+      "ok": true,
+      "detail": {
+        "id3Len": 8204,
+        "active": true,
+        "slot": 1,
+        "name": "Deutschrock (laut.fm)  [Deutschrock]",
+        "underruns": 0
+      }
+    },
+    {
+      "name": "msc_live_head",
+      "ok": true,
+      "detail": {
+        "lba0": 59,
+        "bytes": 49152,
+        "id3_B": 8204,
+        "title": "Deutschrock (laut.fm)",
+        "apic": true,
+        "apic_B": 7052,
+        "stream_id3Len": 8204,
+        "station": "Deutschrock (laut.fm)  [Deutschrock]"
+      }
+    },
+    {
+      "name": "ffprobe",
+      "ok": true,
+      "detail": {
+        "note": "raw MSC capture"
+      }
+    },
+    {
+      "name": "ffmpeg_1s",
+      "ok": true,
+      "detail": {
+        "cut": 8204
+      }
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 # Phase 0 / Lab — MSC an Debian/Proxmox
 
-**Stand:** 2026-09-17  
-**Ziel:** Stack (USB Device, FAT, Reads, später PUMP) **ohne** Fahrzeug debuggen.  
+**Stand:** 2026-09-18  
+**Ziel:** Stack (USB Device, FAT, Reads, PUMP) **ohne** Fahrzeug debuggen.  
 **Ersetzt nicht:** Stick-Spike / NBT-Evo-Timing (G-USB-0 in `pidrive`).
 
 ---
@@ -9,7 +9,7 @@
 ## 1. Warum Lab zuerst
 
 - Schnelle Iteration an Enumeration, Mount, sequentiellem Lesen, Serial-Logs
-- Cursor/SSH kann auf demselben Debian hosten und debuggen (`lsusb`, `dmesg`, `ttyUSB*`)
+- Cursor/SSH kann auf demselben Debian hosten und debuggen (`lsusb`, `dmesg`, `ttyUSB*` / `ttyACM*`)
 - Auto erst für HU-Read-ahead, Scan, Dateinamenslimits
 
 ---
@@ -17,16 +17,17 @@
 ## 2. Topologie Lab
 
 ```
-Debian / Proxmox-VM (USB-Passthrough)
+Pi (192.168.178.111) — bevorzugtes Phase-0-Lab
   │
-  ├── USB-A Host  ←── ESP „UART“-Buchse   (Console + später PUMP)
-  └── USB-A Host  ←── ESP OTG „USB“       (MSC Device)
+  ├── USB-A Host  ←── ESP „UART“-Buchse   (/dev/ttyACM0, PUMP + Bridge)
+  └── USB-A Host  ←── ESP OTG „USB“       (/dev/sda MSC, Label PIDRIVE)
 ```
 
 Hinweise:
 
-- LXC-Passthrough oft fragil → eher **VM** oder ESP direkt am Proxmox-Host.
-- Beide Buchsen gleichzeitig nutzen (Bridge ≠ zweiter OTG).
+- LXC ohne Device-Node (`/dev/sda` fehlt) → OTG **nicht** am CT; beide Seiten am Pi.
+- Leserecht: Gruppe `disk` + udev (Skript `enable-msc-access.sh` auf dem Pi).
+- SoftAP-Menütests ≠ MSC-Host; beides ergänzen — siehe `LAB-2026-09-18-REALTIME.md` §6.
 
 ---
 

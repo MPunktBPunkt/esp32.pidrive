@@ -93,6 +93,8 @@ Der Proxmox-CT sieht `USB_MEDIA` in `lsblk`/`sysfs`, hat aber **kein** `/dev/sda
 
 Empfehlung für den nächsten Lab-Schritt: OTG an eine **VM/Host mit Device-Node** (`/dev/sda` mountbar) — dann `dd`/`ffmpeg -i /mnt/…/01ROCK.MP3` als BMW-Proxy.
 
+**Erledigt 2026-09-18 (vormittags):** beide ESP-Buchsen am Pi (`.111`) → siehe §6.
+
 ---
 
 ## 4. Bewertung der gestrigen/heutigen Quellentests
@@ -124,3 +126,41 @@ Empfehlung für den nächsten Lab-Schritt: OTG an eine **VM/Host mit Device-Node
 ```
 
 Vollständige Datei auf dem Pi: `/tmp/lab_realtime_20260918.json`.
+
+---
+
+## 6. MSC-Host am Pi (beide ESP-Seiten)
+
+**Setup:** OTG → Pi `/dev/sda` (`PIDRIVE` / `USB_MEDIA`), UART → `/dev/ttyACM0`, Bridge + PUMP aktiv.  
+**ACL:** User `pidrive` in Gruppe `disk` + udev `99-pidrive-msc.rules` (`/home/pidrive/bin/enable-msc-access.sh`).  
+**Rohdaten:** [lab_msc_host_20260918.json](lab_msc_host_20260918.json)
+
+| Test | Ergebnis |
+|------|----------|
+| Links otg+uart+pump | ok |
+| FAT mount / Liste | `STATIONS/01ROCK.MP3` … (8.3), Dateien ~6,5 KiB sticky |
+| `play.guess` | ok — `dd iflag=direct` ≥16 KiB ab Slot-LBA → Event + `msPlugToPlayGuess` gesetzt |
+| Live-Stream (Deutschrock) | `stream.active`, `id3Len=8204`, Underruns **0** beim Capture |
+| MSC-Head + APIC | ID3 **8204 B**, Frame `APIC:Cover` **7052 B** JPEG, TIT2 ok |
+| ffmpeg 1 s nach ID3-Cut | ok |
+
+### Was das schließt / was offen bleibt
+
+| Lücke aus §1 | Status nach Pi-Host |
+|--------------|---------------------|
+| Mount + Dateiliste | **geschlossen** (Lab) |
+| `play.guess` über Sektor-Reads | **geschlossen** (Lab-Proxy; ≠ NBT-Heuristik) |
+| Host dekodiert MP3 aus MSC | **geschlossen** (ffmpeg am Pi) |
+| Sticky ID3 + embedded APIC am Stick | **geschlossen** (mutagen am Capture) |
+| FAT 8.3 vs. SoftAP-Labels | bestätigt: Host sieht 8.3 |
+| NBT Cover-Cache / Hörbarkeit | **weiterhin nur Auto** |
+
+```json
+{
+  "play_guess": true,
+  "stream_id3Len": 8204,
+  "apic_B": 7052,
+  "ffmpeg_1s": true,
+  "fat_example": "STATIONS/01ROCK.MP3"
+}
+```
