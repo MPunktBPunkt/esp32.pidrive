@@ -24,6 +24,15 @@ struct MscReadSample {
     char tag[12] = {0};
 };
 
+/** Tunable looksLikePlay thresholds (from ConfigStore / SoftAP). */
+struct PlayDetectParams {
+    uint16_t plugWindowMs = 2500;
+    uint16_t minSeqBytes = 6000;
+    uint8_t headLbaSlop = 12;
+    uint16_t cooldownMs = 5000;
+    uint8_t prefetchLbaSlop = 2;
+};
+
 class UsbMscGadget {
 public:
     static constexpr size_t kTraceSize = 24;
@@ -44,6 +53,8 @@ public:
     bool mediaPresented() const { return mediaPresented_; }
     void setPlayHandler(PlayHandler h) { playHandler_ = h; }
     void setStreamBuffer(StreamBuffer* s) { stream_ = s; }
+    void setPlayDetectParams(const PlayDetectParams& p) { playDetect_ = p; }
+    PlayDetectParams playDetectParams() const { return playDetect_; }
     void startStream(const char* uid);
     void stopStream();
 
@@ -69,12 +80,22 @@ public:
 
 private:
     enum class Region : uint8_t { Meta, Dir, File };
+    enum class PlayEval : uint8_t {
+        Ok = 0,
+        BadFile,
+        NotFromHead,
+        PlugWindow,
+        SeqShort,
+    };
 
     void noteDataRead(uint32_t lba, uint32_t bufsize);
     void pushTrace(uint32_t lba, uint32_t bufsize, uint8_t kind, const char* tag);
     Region classify(uint32_t lba, const MscFileMap** fileOut) const;
     const MscFileMap* fileForLba(uint32_t lba) const;
-    bool looksLikePlay(const MscFileMap* f, uint32_t startLba, uint32_t seqBytes) const;
+    PlayEval evaluatePlay(const MscFileMap* f, uint32_t startLba, uint32_t seqBytes) const;
+    static const char* playEvalName(PlayEval e);
+    void emitPlayReject(PlayEval eval, const MscFileMap* f, uint32_t startLba, uint32_t seqBytes,
+                        const char* extra = nullptr);
     void loadDefaultSlots();
     /** Patch STATIONS/SETTINGS names; sizes/chains always from fixed slot geometry. */
     void patchDirNames(uint8_t* sector, uint32_t lba) const;
@@ -94,6 +115,7 @@ private:
     StreamBuffer* stream_ = nullptr;
     PlayHandler playHandler_;
     MscFileMap slots_[kSlots];
+    PlayDetectParams playDetect_;
 
     /** Which slot's payload is live audio — does NOT change FAT/dir geometry. */
     int streamSlot_ = -1;
@@ -120,9 +142,13 @@ private:
     const MscFileMap* seqFile_ = nullptr;
     uint32_t lastEventMs_ = 0;
     uint32_t lastTraceLogMs_ = 0;
+    uint32_t lastRejectMs_ = 0;
+    uint8_t lastRejectEval_ = 0xFF;
     uint32_t plugCount_ = 0;
     uint32_t unplugCount_ = 0;
     uint32_t prefetchHits_ = 0;
+    uint32_t playRejectCount_ = 0;
+    uint32_t playGuessCount_ = 0;
     uint32_t streamBytesServed_ = 0;
     bool mediaPresented_ = false;
     uint32_t presentDeadlineMs_ = 0;

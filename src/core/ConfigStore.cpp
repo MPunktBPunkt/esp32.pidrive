@@ -16,6 +16,11 @@ void ConfigStore::applyDefaults() {
     enableSoftAp = true;
     softApPass = "pidrive12";
     enableSta = true;  // Lab: WLAN wiederfinden nach OTA; SoftAP parallel
+    playPlugWindowMs = 2500;
+    playMinSeqBytes = 6000;
+    playHeadLbaSlop = 12;
+    playCooldownMs = 5000;
+    playPrefetchLbaSlop = 2;
 }
 
 void ConfigStore::begin() {
@@ -45,10 +50,18 @@ void ConfigStore::load() {
     enableSoftAp = prefs.getBool("softap", enableSoftAp);
     softApPass = prefs.getString("ap_pass", softApPass);
     enableSta = prefs.getBool("en_sta", enableSta);
+    playPlugWindowMs = prefs.getUShort("play_plug", playPlugWindowMs);
+    playMinSeqBytes = prefs.getUShort("play_seq", playMinSeqBytes);
+    playHeadLbaSlop = prefs.getUChar("play_head", playHeadLbaSlop);
+    playCooldownMs = prefs.getUShort("play_cd", playCooldownMs);
+    playPrefetchLbaSlop = prefs.getUChar("play_pf", playPrefetchLbaSlop);
     prefs.end();
     if (heartbeatIntervalS < 5) heartbeatIntervalS = 5;
     if (bufferTargetMs < 500) bufferTargetMs = 500;
     if (softApPass.length() < 8) softApPass = "pidrive12";
+    if (playMinSeqBytes < 512) playMinSeqBytes = 512;
+    if (playHeadLbaSlop > 64) playHeadLbaSlop = 64;
+    if (playPrefetchLbaSlop > 32) playPrefetchLbaSlop = 32;
 }
 
 void ConfigStore::save() {
@@ -69,6 +82,11 @@ void ConfigStore::save() {
     prefs.putBool("softap", enableSoftAp);
     prefs.putString("ap_pass", softApPass);
     prefs.putBool("en_sta", enableSta);
+    prefs.putUShort("play_plug", playPlugWindowMs);
+    prefs.putUShort("play_seq", playMinSeqBytes);
+    prefs.putUChar("play_head", playHeadLbaSlop);
+    prefs.putUShort("play_cd", playCooldownMs);
+    prefs.putUChar("play_pf", playPrefetchLbaSlop);
     prefs.end();
 }
 
@@ -93,6 +111,11 @@ void ConfigStore::toJson(JsonObject obj) const {
     obj["enableSoftAp"] = enableSoftAp;
     obj["softApPass"] = softApPass;
     obj["enableSta"] = enableSta;
+    obj["playPlugWindowMs"] = playPlugWindowMs;
+    obj["playMinSeqBytes"] = playMinSeqBytes;
+    obj["playHeadLbaSlop"] = playHeadLbaSlop;
+    obj["playCooldownMs"] = playCooldownMs;
+    obj["playPrefetchLbaSlop"] = playPrefetchLbaSlop;
 }
 
 bool ConfigStore::fromJson(JsonVariantConst obj) {
@@ -108,10 +131,18 @@ bool ConfigStore::fromJson(JsonVariantConst obj) {
     if (!obj["enableSoftAp"].isNull()) enableSoftAp = obj["enableSoftAp"].as<bool>();
     if (obj["softApPass"].is<const char*>()) softApPass = obj["softApPass"].as<String>();
     if (!obj["enableSta"].isNull()) enableSta = obj["enableSta"].as<bool>();
+    if (!obj["playPlugWindowMs"].isNull()) playPlugWindowMs = obj["playPlugWindowMs"].as<uint16_t>();
+    if (!obj["playMinSeqBytes"].isNull()) playMinSeqBytes = obj["playMinSeqBytes"].as<uint16_t>();
+    if (!obj["playHeadLbaSlop"].isNull()) playHeadLbaSlop = obj["playHeadLbaSlop"].as<uint8_t>();
+    if (!obj["playCooldownMs"].isNull()) playCooldownMs = obj["playCooldownMs"].as<uint16_t>();
+    if (!obj["playPrefetchLbaSlop"].isNull()) playPrefetchLbaSlop = obj["playPrefetchLbaSlop"].as<uint8_t>();
     if (deviceName.length() == 0) deviceName = DEVICE_NAME_DEFAULT;
     if (hubPort <= 0 || hubPort > 65535) hubPort = HUB_PORT_DEFAULT;
     if (heartbeatIntervalS < 5) heartbeatIntervalS = 5;
     if (bufferTargetMs < 500) bufferTargetMs = 500;
     if (softApPass.length() < 8) softApPass = "pidrive12";
+    if (playMinSeqBytes < 512) playMinSeqBytes = 512;
+    if (playHeadLbaSlop > 64) playHeadLbaSlop = 64;
+    if (playPrefetchLbaSlop > 32) playPrefetchLbaSlop = 32;
     return true;
 }

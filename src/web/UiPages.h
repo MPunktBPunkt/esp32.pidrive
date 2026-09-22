@@ -174,7 +174,7 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
       <h3>LBA Read-Trace (Host)</h3>
       <table><thead><tr><th>ms</th><th>LBA</th><th>n</th><th>kind</th><th>tag</th></tr></thead>
       <tbody id="trace-body"></tbody></table>
-      <p class="meta">PC-Test: Prefetch ≠ Play. Play braucht Start nah am Dateianfang + ≥8 KiB sequentiell. Events: <code>msc.prefetch</code>, <code>play.guess</code>, <code>msc.write</code>.</p>
+      <p class="meta">PC-Test: Prefetch ≠ Play. Play braucht Start nah am Dateianfang + genug sequentielle Bytes (Config <code>playMinSeqBytes</code>, Default 6000). Events: <code>msc.prefetch</code>, <code>play.reject</code>, <code>play.guess</code>, <code>msc.write</code>.</p>
     </div>
   </section>
 
@@ -219,9 +219,22 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
         <div><label>Buffer Ziel (ms)</label><input id="cfg-buf" type="number"></div>
         <div></div>
       </div>
+      <h3>Play-Detection (BMW A/B)</h3>
+      <div class="row">
+        <div><label>Plug-Fenster (ms)</label><input id="cfg-play-plug" type="number" min="0" step="100"></div>
+        <div><label>Min. Seq-Bytes</label><input id="cfg-play-seq" type="number" min="512" step="512"></div>
+      </div>
+      <div class="row">
+        <div><label>Head-LBA-Slop</label><input id="cfg-play-head" type="number" min="0" max="64"></div>
+        <div><label>Cooldown (ms)</label><input id="cfg-play-cd" type="number" min="0" step="100"></div>
+      </div>
+      <div class="row">
+        <div><label>Prefetch-LBA-Slop</label><input id="cfg-play-pf" type="number" min="0" max="32"></div>
+        <div></div>
+      </div>
       <button class="btn btn-a" id="btn-save">Speichern</button>
       <button class="btn" id="btn-restart">Neustart</button>
-      <p class="meta">Car-Default: SoftAP an, STA aus. STA nur für Hub/Home-WLAN einschalten.</p>
+      <p class="meta">Car-Default: SoftAP an, STA aus. Play-Detection sofort aktiv (kein Reboot). Events: <code>play.reject</code> / <code>play.guess</code>.</p>
     </div>
   </section>
 
@@ -526,6 +539,11 @@ async function loadConfig(){
     $('#cfg-buf').value=c.bufferTargetMs||5000;
     $('#cfg-hub').value=c.enableHub?1:0;
     $('#cfg-lab').value=c.labMode?1:0;
+    $('#cfg-play-plug').value=c.playPlugWindowMs??2500;
+    $('#cfg-play-seq').value=c.playMinSeqBytes??6000;
+    $('#cfg-play-head').value=c.playHeadLbaSlop??12;
+    $('#cfg-play-cd').value=c.playCooldownMs??5000;
+    $('#cfg-play-pf').value=c.playPrefetchLbaSlop??2;
   }catch(e){}
 }
 async function saveConfig(){
@@ -538,7 +556,12 @@ async function saveConfig(){
     hubPort:+$('#cfg-port').value,
     bufferTargetMs:+$('#cfg-buf').value,
     enableHub:+$('#cfg-hub').value===1,
-    labMode:+$('#cfg-lab').value===1
+    labMode:+$('#cfg-lab').value===1,
+    playPlugWindowMs:+$('#cfg-play-plug').value,
+    playMinSeqBytes:+$('#cfg-play-seq').value,
+    playHeadLbaSlop:+$('#cfg-play-head').value,
+    playCooldownMs:+$('#cfg-play-cd').value,
+    playPrefetchLbaSlop:+$('#cfg-play-pf').value
   };
   await j('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   await refreshEvents();

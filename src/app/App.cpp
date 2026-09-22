@@ -35,6 +35,7 @@ void App::begin() {
     // MSC before WiFi so car USB enumerates quickly when bus-powered
     msc.begin(&events, &menu);
     msc.setStreamBuffer(&stream);
+    applyPlayDetectFromConfig();
     // Apply last-known / demo names; present immediately if restored from NVS.
     msc.applyMenuSlots(menu);
     if (menu.fromNvs()) {
@@ -335,6 +336,7 @@ void App::handleApiConfigPost() {
     if (!cfgIn.isNull()) config.fromJson(cfgIn);
     else config.fromJson(body.as<JsonVariantConst>());
     config.save();
+    applyPlayDetectFromConfig();
     events.push("config.save", config.deviceName.c_str());
     JsonDocument doc;
     doc["ok"] = true;
@@ -498,4 +500,17 @@ void App::handleRestart() {
     server_.send(200, F("text/plain"), F("OK"));
     delay(300);
     ESP.restart();
+}
+
+void App::applyPlayDetectFromConfig() {
+    PlayDetectParams p;
+    p.plugWindowMs = config.playPlugWindowMs;
+    p.minSeqBytes = config.playMinSeqBytes;
+    p.headLbaSlop = config.playHeadLbaSlop;
+    p.cooldownMs = config.playCooldownMs;
+    p.prefetchLbaSlop = config.playPrefetchLbaSlop;
+    msc.setPlayDetectParams(p);
+    Serial.printf("[MSC] playDetect plug=%ums seq=%u head=%u cd=%ums pf=%u\n",
+                  (unsigned)p.plugWindowMs, (unsigned)p.minSeqBytes, (unsigned)p.headLbaSlop,
+                  (unsigned)p.cooldownMs, (unsigned)p.prefetchLbaSlop);
 }

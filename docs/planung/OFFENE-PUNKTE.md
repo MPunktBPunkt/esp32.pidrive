@@ -52,6 +52,8 @@
 4. PUMP Live-MP3 + Pi-Client       ✓ 0.4.0–0.4.2 Lab
 4b. Soft-Paging + embedded APIC      ✓ 0.4.3 Lab — 2026-09-18
 5. USB-Host spielt Stick-Datei      ← next (FAT-Patch Feldtest)
-6. G-USB-0 Fahrzeug (pidrive)
+6. G-USB-0 Fahrzeug (pidrive) — **Play-Detection I0 in 0.4.14**; Feld-A/B offen
 7. PiDrive audio_output=usb_gadget
 ```
+
+**2026-09-22:** Problem B Instrumentierung — siehe [PLAY-DETECTION.md](PLAY-DETECTION.md).

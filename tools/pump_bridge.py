@@ -736,6 +736,7 @@ class AudioFwd:
         self.ser.write((line + "\n").encode())
         self.ser.flush()
         print(f"[tx] {line}", flush=True)
+        print(f"[trace] audio_start sent uid={uid} cover={src}", flush=True)
 
         # Persist hint for SoftAP / humans
         try:
@@ -899,11 +900,13 @@ def main() -> int:
     last_audio_log = time.time()
     force_menu = False
     # Never auto-start audio on plug/scan: NBT reports „keine abspielbaren Titel“
-    # while a live stream patches FAT/payload. Demo MP3s (~6.5 KiB) also never
-    # reach play.guess (≥8 KiB) — Webradio-over-USB needs larger stubs / FW change.
+    # while a live stream patches FAT/payload. Demo stubs (~6.5 KiB) need a head
+    # re-read past playMinSeqBytes (FW default 6000) for play.guess — Webradio-over-USB
+    # also benefits from larger virtual files (separate FW change).
     # Live audio: SoftAP lab/play or play_uid only when the user explicitly starts it
     # *after* titles are listed (and expect a re-open of the track).
     resume_at = 0.0
+    play_t0 = None
 
     print(
         f"[bridge] {args.port} @ {args.baud} audio={'off' if args.no_audio else args.bitrate} paging=on",
@@ -945,6 +948,8 @@ def main() -> int:
                         uid = str(msg.get("uid") or "")
                         if not uid:
                             continue
+                        play_t0 = time.time()
+                        print(f"[trace] t=0ms play_uid={uid}", flush=True)
                         # Stub UIDs from demo FAT before/without menu_set → favorite presets
                         if uid in DEMO_UID_TO_FAV:
                             mapped = DEMO_UID_TO_FAV[uid]
@@ -1004,6 +1009,12 @@ def main() -> int:
                             src, media_path = resolve_stream_target(node) if node else (None, None)
                             if src:
                                 time.sleep(0.05)
+                                if play_t0 is not None:
+                                    print(
+                                        f"[trace] t={int((time.time() - play_t0) * 1000)}ms "
+                                        f"audio.start fav {uid}",
+                                        flush=True,
+                                    )
                                 audio.start(uid, src, node, media_path)
                             else:
                                 audio.stop(status_cover=False)
@@ -1034,6 +1045,12 @@ def main() -> int:
                         if src:
                             # brief wait so status/library_file can update for covers
                             time.sleep(0.25)
+                            if play_t0 is not None:
+                                print(
+                                    f"[trace] t={int((time.time() - play_t0) * 1000)}ms "
+                                    f"audio.start {uid}",
+                                    flush=True,
+                                )
                             audio.start(uid, src, node, media_path)
                         else:
                             audio.stop(status_cover=False)

@@ -21,6 +21,18 @@ public:
     /** Try STA via WiFiManager; SoftAP bleibt parallel (Lab + Car) */
     bool enableSta = true;
 
+    // Play-Detection (USB-MSC looksLikePlay) — BMW A/B via SoftAP Config
+    /** Ignore head reads this long after plug (index window). 0 = off. */
+    uint16_t playPlugWindowMs = 2500;
+    /** Minimum sequential file bytes before play.guess. */
+    uint16_t playMinSeqBytes = 6000;
+    /** Accept seq start within this many LBAs after file start. */
+    uint8_t playHeadLbaSlop = 12;
+    /** Suppress further play.guess after first arm. */
+    uint16_t playCooldownMs = 5000;
+    /** Mid-file prefetch if seq start > fileStart + this. */
+    uint8_t playPrefetchLbaSlop = 2;
+
     void begin();
     void load();
     void save();
@@ -30,5 +42,5 @@ public:
     bool fromJson(JsonVariantConst obj);
 
 private:
-    static constexpr uint8_t kConfigVersion = 2;
+    static constexpr uint8_t kConfigVersion = 3;
 };

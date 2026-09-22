@@ -55,6 +55,7 @@ private:
     void handleApiMetrics();
     void handleOtaUpload();
     void handleRestart();
+    void applyPlayDetectFromConfig();
 
     WebServer server_{80};
     unsigned long bootMs_ = 0;

@@ -533,18 +533,63 @@ UsbMscGadget::Region UsbMscGadget::classify(uint32_t lba, const MscFileMap** fil
     return Region::Meta;
 }
 
-bool UsbMscGadget::looksLikePlay(const MscFileMap* f, uint32_t startLba, uint32_t seqBytes) const {
-    if (!f || !f->active || !f->uid[0]) return false;
+UsbMscGadget::PlayEval UsbMscGadget::evaluatePlay(const MscFileMap* f, uint32_t startLba,
+                                                  uint32_t seqBytes) const {
+    if (!f || !f->active || !f->uid[0]) return PlayEval::BadFile;
     // Hosts often 4 KiB-align; first USB read may start a few LBAs after file start.
-    const bool fromHead = startLba <= f->lbaStart + 12;
-    if (!fromHead) return false;
-    // Demo stubs are ~6.5 KiB. BMW indexes the whole stub in the first 1–2 s after
+    if (startLba > f->lbaStart + playDetect_.headLbaSlop) return PlayEval::NotFromHead;
+    // Demo stubs are ~6.5 KiB. BMW indexes the whole stub in the first seconds after
     // plug — that must NOT arm live stream (else NBT: „keine abspielbaren Titel“).
     // Real play usually re-reads from the head after the index window.
-    if (plugMs_ && (millis() - plugMs_) < 2500) return false;
+    if (playDetect_.plugWindowMs > 0 && plugMs_ &&
+        (millis() - plugMs_) < playDetect_.plugWindowMs) {
+        return PlayEval::PlugWindow;
+    }
     // Slightly under stub size so a full re-read of 01ROCK.MP3 (6495 B) counts as play.
-    if (seqBytes < 6000) return false;
-    return true;
+    if (seqBytes < playDetect_.minSeqBytes) return PlayEval::SeqShort;
+    return PlayEval::Ok;
+}
+
+const char* UsbMscGadget::playEvalName(PlayEval e) {
+    switch (e) {
+        case PlayEval::Ok:
+            return "ok";
+        case PlayEval::BadFile:
+            return "bad_file";
+        case PlayEval::NotFromHead:
+            return "not_from_head";
+        case PlayEval::PlugWindow:
+            return "plug_window";
+        case PlayEval::SeqShort:
+            return "seq_short";
+    }
+    return "unknown";
+}
+
+void UsbMscGadget::emitPlayReject(PlayEval eval, const MscFileMap* f, uint32_t startLba,
+                                  uint32_t seqBytes, const char* extra) {
+    playRejectCount_++;
+    const uint8_t code = (uint8_t)eval;
+    // Treat "ok"+extra (cooldown/already) as distinct for rate-limit keying
+    const uint8_t key = extra && extra[0] ? (uint8_t)(0x80 | (extra[0] & 0x7F)) : code;
+    const bool reasonChanged = key != lastRejectEval_;
+    if (!reasonChanged && millis() - lastRejectMs_ < 800) return;
+    lastRejectMs_ = millis();
+    lastRejectEval_ = key;
+
+    const char* uid = (f && f->uid[0]) ? f->uid : "-";
+    uint32_t age = (plugMs_) ? (millis() - plugMs_) : 0;
+    const char* reason = (extra && extra[0] && eval == PlayEval::Ok) ? extra : playEvalName(eval);
+    char d[96];
+    if (extra && extra[0] && eval != PlayEval::Ok) {
+        snprintf(d, sizeof(d), "%s uid=%s from=%u +%luB age=%lums %s", reason, uid,
+                 (unsigned)startLba, (unsigned long)seqBytes, (unsigned long)age, extra);
+    } else {
+        snprintf(d, sizeof(d), "%s uid=%s from=%u +%luB age=%lums", reason, uid, (unsigned)startLba,
+                 (unsigned long)seqBytes, (unsigned long)age);
+    }
+    Serial.printf("[MSC] play.reject %s\n", d);
+    if (events_) events_->push("play.reject", d);
 }
 
 int32_t UsbMscGadget::onWrite(uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_t bufsize) {
@@ -622,43 +667,53 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
     seqLba_ = lba;
     seqBytes_ += bufsize;
 
-    if (seqBytes_ >= 2048 && !looksLikePlay(f, seqStartLba_, seqBytes_)) {
-        // Mid-file prefetch only — from-head reads must keep accumulating so a
-        // phone that reads past the stub after the plug-window can still arm.
-        if (seqStartLba_ > f->lbaStart + 2) {
-            prefetchHits_++;
-            if (events_ && millis() - lastEventMs_ > 800) {
-                lastEventMs_ = millis();
-                events_->push("msc.prefetch", f->uid);
+    PlayEval eval = evaluatePlay(f, seqStartLba_, seqBytes_);
+    if (eval != PlayEval::Ok) {
+        if (seqBytes_ >= 2048) {
+            // Mid-file prefetch only — from-head reads must keep accumulating so a
+            // phone that reads past the stub after the plug-window can still arm.
+            if (seqStartLba_ > f->lbaStart + playDetect_.prefetchLbaSlop) {
+                prefetchHits_++;
+                emitPlayReject(eval, f, seqStartLba_, seqBytes_, "prefetch");
+                if (events_ && millis() - lastEventMs_ > 800) {
+                    lastEventMs_ = millis();
+                    events_->push("msc.prefetch", f->uid);
+                }
+                return;
             }
-            return;
+            emitPlayReject(eval, f, seqStartLba_, seqBytes_);
         }
+        return;
     }
 
-    if (looksLikePlay(f, seqStartLba_, seqBytes_)) {
-        // One live-stream arm per plug window — neighboring stubs are often
-        // touched right after the first play and must not steal the stream.
-        if (playGuessMs_ != 0 && (millis() - playGuessMs_) < 5000) {
-            return;
+    // One live-stream arm per cooldown window — neighboring stubs are often
+    // touched right after the first play and must not steal the stream.
+    if (playGuessMs_ != 0 && (millis() - playGuessMs_) < playDetect_.cooldownMs) {
+        emitPlayReject(PlayEval::Ok, f, seqStartLba_, seqBytes_, "cooldown");
+        return;
+    }
+    bool fresh = !menu_ || strcmp(menu_->playingUid(), f->uid) != 0;
+    if (menu_) menu_->playByUid(f->uid);
+    if (fresh) {
+        if (plugMs_) {
+            playGuessMs_ = millis();
+            msPlugToPlayGuess_ = playGuessMs_ - plugMs_;
+        } else {
+            playGuessMs_ = millis();
         }
-        bool fresh = !menu_ || strcmp(menu_->playingUid(), f->uid) != 0;
-        if (menu_) menu_->playByUid(f->uid);
-        if (fresh) {
-            if (plugMs_) {
-                playGuessMs_ = millis();
-                msPlugToPlayGuess_ = playGuessMs_ - plugMs_;
-            } else {
-                playGuessMs_ = millis();
-            }
-            if (events_ && millis() - lastEventMs_ > 400) {
-                lastEventMs_ = millis();
-                events_->push("play.guess", f->uid);
-                char d[56];
-                snprintf(d, sizeof(d), "from=%u +%luB", (unsigned)seqStartLba_, (unsigned long)seqBytes_);
-                events_->push("msc.stream", d);
-            }
-            if (playHandler_) playHandler_(f->uid);
+        playGuessCount_++;
+        lastRejectEval_ = 0xFF;
+        if (events_ && millis() - lastEventMs_ > 400) {
+            lastEventMs_ = millis();
+            events_->push("play.guess", f->uid);
+            char d[56];
+            snprintf(d, sizeof(d), "from=%u +%luB", (unsigned)seqStartLba_,
+                     (unsigned long)seqBytes_);
+            events_->push("msc.stream", d);
         }
+        if (playHandler_) playHandler_(f->uid);
+    } else {
+        emitPlayReject(PlayEval::Ok, f, seqStartLba_, seqBytes_, "already_playing");
     }
 }
 
@@ -704,6 +759,8 @@ void UsbMscGadget::toJson(JsonObject obj) const {
     obj["bytesMeta"] = bytesMeta_;
     obj["bytesFile"] = bytesFile_;
     obj["prefetchHits"] = prefetchHits_;
+    obj["playRejectCount"] = playRejectCount_;
+    obj["playGuessCount"] = playGuessCount_;
     obj["streamSlot"] = streamSlot_;
     obj["streamBytes"] = streamBytesServed_;
     obj["fatMode"] = "static";
@@ -711,6 +768,14 @@ void UsbMscGadget::toJson(JsonObject obj) const {
     obj["mediaWaitMs"] = (!mediaPresented_ && presentDeadlineMs_)
                              ? (int32_t)(presentDeadlineMs_ - millis())
                              : 0;
+    {
+        JsonObject pd = obj["playDetect"].to<JsonObject>();
+        pd["plugWindowMs"] = playDetect_.plugWindowMs;
+        pd["minSeqBytes"] = playDetect_.minSeqBytes;
+        pd["headLbaSlop"] = playDetect_.headLbaSlop;
+        pd["cooldownMs"] = playDetect_.cooldownMs;
+        pd["prefetchLbaSlop"] = playDetect_.prefetchLbaSlop;
+    }
     if (stream_) {
         JsonObject s = obj["stream"].to<JsonObject>();
         stream_->toJson(s);
@@ -768,7 +833,11 @@ void UsbMscGadget::noteDataRead(uint32_t, uint32_t) {}
 void UsbMscGadget::pushTrace(uint32_t, uint32_t, uint8_t, const char*) {}
 UsbMscGadget::Region UsbMscGadget::classify(uint32_t, const MscFileMap**) const { return Region::Meta; }
 const MscFileMap* UsbMscGadget::fileForLba(uint32_t) const { return nullptr; }
-bool UsbMscGadget::looksLikePlay(const MscFileMap*, uint32_t, uint32_t) const { return false; }
+UsbMscGadget::PlayEval UsbMscGadget::evaluatePlay(const MscFileMap*, uint32_t, uint32_t) const {
+    return PlayEval::BadFile;
+}
+const char* UsbMscGadget::playEvalName(PlayEval) { return "bad_file"; }
+void UsbMscGadget::emitPlayReject(PlayEval, const MscFileMap*, uint32_t, uint32_t, const char*) {}
 void UsbMscGadget::loadDefaultSlots() {}
 void UsbMscGadget::patchDirNames(uint8_t*, uint32_t) const {}
 void UsbMscGadget::patchFatFixed(uint8_t*, uint32_t) const {}

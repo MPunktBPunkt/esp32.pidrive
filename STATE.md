@@ -4,11 +4,11 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 
 | Feld | Wert |
 |------|------|
-| Stand | 2026-09-18 |
-| Phase | **Firmware 0.4.13-dev** — static FAT + deferred mediaPresent (NVS/timeout) |
+| Stand | 2026-09-22 |
+| Phase | **Firmware 0.4.14-dev** — play.reject + parametrierbare Play-Detection |
 | Repo | `MPunktBPunkt/esp32.pidrive` |
 | Build | PlatformIO `env:pidrive-s3` (`pio run`) |
-| Dist | `dist/pidrive.0.4.13-dev.ota.esp32s3.bin` |
+| Dist | `dist/pidrive.0.4.14-dev.ota.esp32s3.bin` (nach Build) |
 | Hub-Depot | `iobroker.esp-hub/firmware/pidrive.0.4.8-dev.*.esp32s3.bin` |
 | Hardware | ESP32-S3-DevKitC-1 (OTG + UART) |
 | Pi-Link | [PUMP.md](docs/planung/PUMP.md) · Bridge `tools/pump_bridge.py` |
@@ -17,17 +17,19 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 | Auto-Link | USB-MSC · 4 Slots + Bridge-Paging · Live-Stream + sticky ID3 |
 | WebUI | **Remote** · Auto-Test · Cover · Live-Audio · Menü · Events · Config · OTA |
 | Lab-Bericht (pidrive) | [USB-MSC-STREAM-LISTING-2026-09-18](https://github.com/MPunktBPunkt/pidrive/blob/main/docs/betrieb/USB-MSC-STREAM-LISTING-2026-09-18.md) |
+| Auftrag (pidrive) | [AUFTRAG-ESP-PLAY-DETECTION](https://github.com/MPunktBPunkt/pidrive/blob/main/docs/auftraege/AUFTRAG-ESP-PLAY-DETECTION.md) |
 
 ## Aktueller Fokus
 
 1. ~~Menü / Activate / Live-MP3 / ID3 / Soft-Paging / Cover / SoftAP-Remote~~
 2. ~~Listing leer während Live-Stream (FAT-Mutation)~~ → **0.4.12 static FAT**
 3. ~~Demo→Menü-Flicker beim Plug~~ → **0.4.13** mediaPresent nach menu_set / NVS / 7s-Timeout
-4. Problem B: BMW Selection-Detector
+4. **Problem B: BMW Selection-Detector** — I0: `play.reject` + Config-Schwellen (**0.4.14**); I1: Feld-A/B
 5. Größere virtuelle Dateien (Dauer-Stream)
 
 ## Letzte Änderung
 
+- 2026-09-22: **0.4.14-dev** `play.reject` Reasons; Play-Detection NVS/SoftAP (`playPlugWindowMs`, `playMinSeqBytes`, …); Bridge `[trace]` Timeline
 - 2026-09-18: **0.4.13-dev** deferred mediaPresent; Menu NVS persist; idempotent slot names; 7s timeout
 - 2026-09-18: **0.4.12-dev** static FAT/Dir/Size/Chains; Stream nur Overlay; USB write-protect
 - 2026-09-18: **0.4.11-dev** längere FAT-Ketten; Stub-Remap; mediaPresent-Remount bei Stream
