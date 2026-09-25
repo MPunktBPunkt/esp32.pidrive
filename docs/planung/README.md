@@ -14,6 +14,7 @@ Planung für `esp32.pidrive` (USB-MSC-Medienpfad für PiDrive).
 | [PIDRIVE-INTEGRATION.md](PIDRIVE-INTEGRATION.md) | Was in `pidrive` additiv gebaut wird |
 | [PHASE-0-LAB.md](PHASE-0-LAB.md) | Lab an Debian/Proxmox vor dem Auto |
 | [CAR-STANDALONE.md](CAR-STANDALONE.md) | **ESP ohne Pi im Auto** — SoftAP, MSC-Demo, Timing |
+| [LAB-WLAN.md](LAB-WLAN.md) | SoftAP/STA Kurzanleitung + Link PiDrive `/menu` |
 | [PUMP.md](PUMP.md) | **PUMP V0.4.3** — Soft-Paging, Live-MP3, sticky ID3 |
 | [COVER-ID3.md](COVER-ID3.md) | **Cover/APIC Spec** — embedded + stations + generiert |
 | [LAB-2026-09-18.md](LAB-2026-09-18.md) | Lab: Paging, Webradio, Library-APIC, Spotify |
