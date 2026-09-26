@@ -9,7 +9,7 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 | Repo | `MPunktBPunkt/esp32.pidrive` |
 | Build | PlatformIO `env:pidrive-s3` (`pio run`) |
 | Dist | `dist/pidrive.0.4.15-dev.ota.esp32s3.bin` (nach Build) |
-| Hub-Depot | `iobroker.esp-hub/firmware/pidrive.0.4.8-dev.*.esp32s3.bin` |
+| Hub-Depot | `iobroker.esp-hub/firmware/pidrive.0.4.15-dev.*.esp32s3.bin` |
 | Hardware | ESP32-S3-DevKitC-1 (OTG + UART) |
 | Pi-Link | [PUMP.md](docs/planung/PUMP.md) · Bridge `tools/pump_bridge.py` `--transport auto\|uart\|tcp` |
 | Cover-Assets | [pidrive/assets/usb-msc-covers](https://github.com/MPunktBPunkt/pidrive/tree/main/assets/usb-msc-covers) · [COVER-ID3.md](docs/planung/COVER-ID3.md) |
