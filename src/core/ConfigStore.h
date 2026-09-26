@@ -20,6 +20,9 @@ public:
     String softApPass = "pidrive12";  // min 8 chars
     /** Try STA via WiFiManager; SoftAP bleibt parallel (Lab + Car) */
     bool enableSta = true;
+    /** PUMP TCP listener (same framing as UART) — SoftAP/STA, default :9090 */
+    bool enablePumpTcp = true;
+    uint16_t pumpTcpPort = 9090;
 
     // Play-Detection (USB-MSC looksLikePlay) — BMW A/B via SoftAP Config
     /** Ignore head reads this long after plug (index window). 0 = off. */
@@ -42,5 +45,5 @@ public:
     bool fromJson(JsonVariantConst obj);
 
 private:
-    static constexpr uint8_t kConfigVersion = 3;
+    static constexpr uint8_t kConfigVersion = 4;
 };

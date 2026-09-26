@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PiDrive ↔ esp32.pidrive PUMP bridge (line-JSON + binary audio over UART).
+"""PiDrive ↔ esp32.pidrive PUMP bridge (line-JSON + binary audio over UART or TCP).
 
 - Syncs /tmp/pidrive_menu.json via menu_set with soft paging (≤4 MSC slots)
 - On play_uid: activate:<uid> + live MP3 (audio_start + ID3/APIC + 0x01 0x55)
@@ -10,8 +10,14 @@
 - Stations (meta.url) and local_play: paths are streamed via ffmpeg
 - Special UIDs: pump:stop · pump:favoriten · pump:page_*
 
+Transport:
+  UART  --transport uart --port /dev/ttyACM0
+  TCP   --transport tcp --host 192.168.4.1 --tcp-port 9090
+  auto  UART if port exists, else TCP to --host (SoftAP/STA)
+
 Usage:
-  python3 tools/pump_bridge.py [--port /dev/ttyACM0] [--baud 115200] [--bitrate 48k]
+  python3 tools/pump_bridge.py [--transport auto|uart|tcp] [--port /dev/ttyACM0]
+  python3 tools/pump_bridge.py --transport tcp --host 192.168.4.1 --bitrate 48k
 """
 from __future__ import annotations
 
@@ -20,16 +26,17 @@ import io
 import json
 import os
 import select
+import socket
 import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Protocol
 
 try:
     import serial
 except ImportError:
-    print("pip/apt install pyserial / python3-serial", file=sys.stderr)
-    sys.exit(1)
+    serial = None  # type: ignore
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -82,6 +89,115 @@ DEMO_UID_TO_FAV = {
 AUDIO_EXTS = {".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wav", ".opus", ".wma"}
 # synthetic preset nodes (uid → node), filled when building root presets page
 _PRESET_BY_UID: dict[str, dict] = {}
+
+
+class PumpIO(Protocol):
+    def write(self, data: bytes) -> int: ...
+    def flush(self) -> None: ...
+    def read(self, size: int = 1) -> bytes: ...
+    def close(self) -> None: ...
+    def reset_input_buffer(self) -> None: ...
+
+
+class TcpPumpIO:
+    """Byte-compatible with pyserial for PUMP framing over WiFi."""
+
+    def __init__(self, host: str, port: int, connect_timeout: float = 8.0):
+        self.host = host
+        self.port = int(port)
+        self._sock = socket.create_connection((host, self.port), timeout=connect_timeout)
+        self._sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self._sock.settimeout(0.05)
+
+    def write(self, data: bytes) -> int:
+        self._sock.sendall(data)
+        return len(data)
+
+    def flush(self) -> None:
+        return None
+
+    def read(self, size: int = 1) -> bytes:
+        try:
+            return self._sock.recv(size) or b""
+        except socket.timeout:
+            return b""
+        except OSError:
+            return b""
+
+    def reset_input_buffer(self) -> None:
+        self._sock.settimeout(0.01)
+        try:
+            while True:
+                chunk = self._sock.recv(4096)
+                if not chunk:
+                    break
+        except (socket.timeout, OSError):
+            pass
+        finally:
+            self._sock.settimeout(0.05)
+
+    def close(self) -> None:
+        try:
+            self._sock.close()
+        except OSError:
+            pass
+
+
+def _load_pidrive_usb_settings() -> dict:
+    candidates = [
+        Path("/home/pidrive/pidrive/pidrive/config/settings.json"),
+        Path("/home/pidrive/pidrive/config/settings.json"),
+        Path.home() / "pidrive" / "pidrive" / "config" / "settings.json",
+        Path("/home/martin/projects/pidrive/pidrive/config/settings.json"),
+    ]
+    for p in candidates:
+        if not p.is_file():
+            continue
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+    return {}
+
+
+def open_pump_link(
+    transport: str,
+    *,
+    port: str,
+    baud: int,
+    host: str,
+    tcp_port: int,
+) -> tuple[PumpIO, str]:
+    """Return (io, label). transport: uart|tcp|auto."""
+    transport = (transport or "auto").strip().lower()
+    if transport == "auto":
+        if port and os.path.exists(port):
+            transport = "uart"
+        elif host:
+            transport = "tcp"
+        else:
+            raise SystemExit("auto: weder UART-Port noch --host")
+
+    if transport == "uart":
+        if serial is None:
+            print("pip/apt install pyserial / python3-serial", file=sys.stderr)
+            raise SystemExit(1)
+        if not os.path.exists(port):
+            raise SystemExit(f"Port fehlt: {port}")
+        ser = serial.Serial(port, baud, timeout=0.05)
+        time.sleep(0.3)
+        ser.reset_input_buffer()
+        return ser, f"uart:{port}@{baud}"
+
+    if transport == "tcp":
+        if not host:
+            raise SystemExit("TCP: --host fehlt (ESP SoftAP 192.168.4.1 oder STA-IP)")
+        link = TcpPumpIO(host, tcp_port)
+        time.sleep(0.15)
+        link.reset_input_buffer()
+        return link, f"tcp:{host}:{tcp_port}"
+
+    raise SystemExit(f"unbekanntes --transport {transport!r}")
 
 
 def inject(cmd: str) -> None:
@@ -598,7 +714,7 @@ def build_id3_tag(title: str, artist: str, album: str, jpeg: bytes) -> bytes:
     return tag
 
 
-def send_bin(ser: serial.Serial, kind: int, payload: bytes) -> None:
+def send_bin(ser: PumpIO, kind: int, payload: bytes) -> None:
     off = 0
     while off < len(payload):
         chunk = payload[off : off + FRAME_MAX]
@@ -609,7 +725,7 @@ def send_bin(ser: serial.Serial, kind: int, payload: bytes) -> None:
 
 
 class AudioFwd:
-    def __init__(self, ser: serial.Serial, bitrate: str):
+    def __init__(self, ser: PumpIO, bitrate: str):
         self.ser = ser
         self.bitrate = bitrate
         self.proc: subprocess.Popen | None = None
@@ -862,21 +978,58 @@ def resolve_stream_target(node: dict) -> tuple[str | None, str | None]:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="PUMP UART bridge PiDrive ↔ esp32.pidrive")
-    ap.add_argument("--port", default="/dev/ttyACM0")
-    ap.add_argument("--baud", type=int, default=115200)
+    cfg = _load_pidrive_usb_settings()
+    ap = argparse.ArgumentParser(description="PUMP bridge PiDrive ↔ esp32.pidrive (UART or TCP)")
+    ap.add_argument(
+        "--transport",
+        choices=("auto", "uart", "tcp"),
+        default=str(cfg.get("usb_pump_transport") or os.environ.get("PUMP_TRANSPORT") or "auto"),
+        help="uart | tcp | auto (UART if port exists, else TCP)",
+    )
+    ap.add_argument("--port", default=str(cfg.get("usb_pump_port") or "/dev/ttyACM0"))
+    ap.add_argument("--baud", type=int, default=int(cfg.get("usb_pump_baud") or 115200))
+    ap.add_argument(
+        "--host",
+        default=str(
+            cfg.get("usb_esp_host")
+            or os.environ.get("PUMP_HOST")
+            or ""
+        ).strip(),
+        help="ESP SoftAP/STA IP for TCP (default from settings usb_esp_host)",
+    )
+    ap.add_argument(
+        "--tcp-port",
+        type=int,
+        default=int(cfg.get("usb_pump_tcp_port") or os.environ.get("PUMP_TCP_PORT") or 9090),
+    )
     ap.add_argument("--interval", type=float, default=0.5, help="menu poll seconds")
     ap.add_argument("--bitrate", default="48k", help="ffmpeg audio bitrate for USB path")
     ap.add_argument("--no-audio", action="store_true", help="menu/activate only")
+    ap.add_argument(
+        "--reconnect",
+        type=float,
+        default=3.0,
+        help="seconds between TCP reconnect attempts (0=exit on drop)",
+    )
     args = ap.parse_args()
 
-    if not os.path.exists(args.port):
-        print(f"Port fehlt: {args.port}", file=sys.stderr)
-        return 1
+    def connect() -> tuple[PumpIO, str]:
+        return open_pump_link(
+            args.transport,
+            port=args.port,
+            baud=args.baud,
+            host=args.host,
+            tcp_port=args.tcp_port,
+        )
 
-    ser = serial.Serial(args.port, args.baud, timeout=0.05)
-    time.sleep(0.3)
-    ser.reset_input_buffer()
+    try:
+        ser, label = connect()
+    except SystemExit as e:
+        print(str(e) or "connect failed", file=sys.stderr)
+        return 1
+    except OSError as e:
+        print(f"connect failed: {e}", file=sys.stderr)
+        return 1
 
     def send(obj: dict) -> None:
         line = json.dumps(obj, separators=(",", ":"))
@@ -909,12 +1062,55 @@ def main() -> int:
     play_t0 = None
 
     print(
-        f"[bridge] {args.port} @ {args.baud} audio={'off' if args.no_audio else args.bitrate} paging=on",
+        f"[bridge] {label} audio={'off' if args.no_audio else args.bitrate} paging=on",
         flush=True,
     )
+
+    def rebind(new_io: PumpIO) -> None:
+        nonlocal ser
+        try:
+            ser.close()
+        except Exception:
+            pass
+        ser = new_io
+        audio.ser = new_io
+
+    def try_reconnect(reason: str) -> bool:
+        nonlocal buf, force_menu, last_sig, label
+        if args.reconnect <= 0:
+            return False
+        if args.transport == "uart":
+            return False
+        if not args.host and args.transport != "auto":
+            return False
+        print(f"[bridge] link lost ({reason}) — reconnect in {args.reconnect}s", flush=True)
+        try:
+            audio.stop(status_cover=False)
+        except Exception:
+            pass
+        time.sleep(args.reconnect)
+        try:
+            new_io, label = connect()
+            rebind(new_io)
+            buf = b""
+            force_menu = True
+            last_sig = ""
+            send({"t": "hello", "ver": 1})
+            send({"t": "audio_stop"})
+            print(f"[bridge] reconnected {label}", flush=True)
+            return True
+        except Exception as e2:
+            print(f"[bridge] reconnect failed: {e2}", flush=True)
+            return True  # keep looping
+
     try:
         while True:
-            chunk = ser.read(512)
+            try:
+                chunk = ser.read(512)
+            except (BrokenPipeError, OSError, ConnectionError) as e:
+                if try_reconnect(str(e)):
+                    continue
+                raise
             if chunk:
                 buf += chunk
                 while b"\n" in buf:
@@ -923,7 +1119,7 @@ def main() -> int:
                     if not text:
                         continue
                     if not text.startswith("{") and not text.startswith("["):
-                        if text.startswith("[") or "EVT" in text or "MSC" in text or "UART" in text:
+                        if text.startswith("[") or "EVT" in text or "MSC" in text or "UART" in text or "PUMP" in text:
                             print(f"[rx] {text}", flush=True)
                         if "usb.otg.up" in text:
                             page = 0
@@ -950,7 +1146,6 @@ def main() -> int:
                             continue
                         play_t0 = time.time()
                         print(f"[trace] t=0ms play_uid={uid}", flush=True)
-                        # Stub UIDs from demo FAT before/without menu_set → favorite presets
                         if uid in DEMO_UID_TO_FAV:
                             mapped = DEMO_UID_TO_FAV[uid]
                             print(f"[map] {uid} → {mapped}", flush=True)
@@ -984,17 +1179,14 @@ def main() -> int:
                             print("[nav] Favoriten", flush=True)
                             continue
 
-                        # Resolve node BEFORE activate — folder leave removes it from menu.json
                         _, _nodes, by_uid = read_menu_nodes()
                         node = by_uid.get(uid) or _PRESET_BY_UID.get(uid) or {}
                         typ = node.get("type") or ""
 
-                        # Statuszeile (IP, BT, SSID) — nur anzeigen, Audio nicht anfassen
                         if typ == "info":
                             print(f"[menu] info {(node.get('label') or uid)[:48]}", flush=True)
                             continue
 
-                        # Root-Favoriten (fav0…) — vor Stale-Fallback, sonst activate:fav0 ohne Stream
                         if uid.startswith("fav"):
                             if not node:
                                 for p in load_preset_stations(limit=6):
@@ -1002,7 +1194,6 @@ def main() -> int:
                                 node = _PRESET_BY_UID.get(uid) or {}
                             if args.no_audio:
                                 continue
-                            # Ignore rapid neighbor-stub play_uids after we just started
                             if audio.uid and uid != audio.uid and (time.time() - last_audio_log) < 4.0:
                                 print(f"[audio] ignore rapid {uid} (have {audio.uid})", flush=True)
                                 continue
@@ -1021,7 +1212,6 @@ def main() -> int:
                                 print(f"[audio] fav without url: {uid}", flush=True)
                             continue
 
-                        # Stale SoftAP UID (Menü schon gewechselt): trotzdem activate versuchen
                         if not node and uid and not uid.startswith("pump:"):
                             inject(f"activate:{uid}")
                             page = 0
@@ -1037,13 +1227,11 @@ def main() -> int:
                             audio.stop(status_cover=False)
                             page = 0
                             force_menu = True
-                            # allow core to rewrite menu.json before next sync
                             time.sleep(0.25)
                             continue
 
                         src, media_path = resolve_stream_target(node)
                         if src:
-                            # brief wait so status/library_file can update for covers
                             time.sleep(0.25)
                             if play_t0 is not None:
                                 print(
@@ -1065,39 +1253,50 @@ def main() -> int:
                         print(f"[audio_ack] {msg}", flush=True)
                     elif t == "hello_ack":
                         print(
-                            f"[hello_ack] ver={msg.get('ver')} slots={msg.get('slots')} page={msg.get('page')}",
+                            f"[hello_ack] ver={msg.get('ver')} slots={msg.get('slots')} "
+                            f"page={msg.get('page')} tcp={msg.get('tcp')}",
                             flush=True,
                         )
 
             now = time.time()
             if force_menu or now - last_menu >= args.interval:
                 last_menu = now
-                rev, nodes, by_uid = read_menu_nodes()
-                # folder identity = path labels + node uids (reset page on navigate)
-                path_ids: list = []
-                path_key = ""
                 try:
-                    raw = json.loads(MENU_PATH.read_text(encoding="utf-8"))
-                    path_ids = list(raw.get("path_ids") or raw.get("path") or [])
-                    path_key = json.dumps(path_ids, separators=(",", ":"))
-                except Exception:
+                    rev, nodes, by_uid = read_menu_nodes()
+                    path_ids: list = []
                     path_key = ""
-                node_uids = ",".join(str(n.get("uid")) for n in nodes)
-                fsig = f"{path_key}|{node_uids}"
-                if fsig != folder_sig:
-                    folder_sig = fsig
-                    page = 0
-                items, page, extra = menu_nodes_for_page(path_ids, nodes, page)
-                if extra:
-                    by_uid.update(extra)
-                sig = json.dumps(items, separators=(",", ":"))
-                if items and (force_menu or rev != last_rev or sig != last_sig):
-                    send({"t": "menu_set", "rev": rev, "page": page, "items": items})
-                    last_rev = rev
-                    last_sig = sig
-                force_menu = False
+                    try:
+                        raw = json.loads(MENU_PATH.read_text(encoding="utf-8"))
+                        path_ids = list(raw.get("path_ids") or raw.get("path") or [])
+                        path_key = json.dumps(path_ids, separators=(",", ":"))
+                    except Exception:
+                        path_key = ""
+                    node_uids = ",".join(str(n.get("uid")) for n in nodes)
+                    fsig = f"{path_key}|{node_uids}"
+                    if fsig != folder_sig:
+                        folder_sig = fsig
+                        page = 0
+                    items, page, extra = menu_nodes_for_page(path_ids, nodes, page)
+                    if extra:
+                        by_uid.update(extra)
+                    sig = json.dumps(items, separators=(",", ":"))
+                    if items and (force_menu or rev != last_rev or sig != last_sig):
+                        send({"t": "menu_set", "rev": rev, "page": page, "items": items})
+                        last_rev = rev
+                        last_sig = sig
+                    force_menu = False
+                except (BrokenPipeError, OSError, ConnectionError) as e:
+                    if try_reconnect(str(e)):
+                        continue
+                    raise
 
-            n = 0 if args.no_audio else audio.pump()
+            try:
+                n = 0 if args.no_audio else audio.pump()
+            except (BrokenPipeError, OSError, ConnectionError) as e:
+                n = 0
+                if try_reconnect(str(e)):
+                    continue
+                raise
             sent_audio += n
             if now - last_audio_log >= 2.0:
                 if sent_audio:
@@ -1110,8 +1309,14 @@ def main() -> int:
     except KeyboardInterrupt:
         print("\n[bridge] stop", flush=True)
     finally:
-        audio.stop()
-        ser.close()
+        try:
+            audio.stop()
+        except Exception:
+            pass
+        try:
+            ser.close()
+        except Exception:
+            pass
     return 0
 
 

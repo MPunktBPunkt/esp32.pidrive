@@ -16,6 +16,8 @@ void ConfigStore::applyDefaults() {
     enableSoftAp = true;
     softApPass = "pidrive12";
     enableSta = true;  // Lab: WLAN wiederfinden nach OTA; SoftAP parallel
+    enablePumpTcp = true;
+    pumpTcpPort = 9090;
     playPlugWindowMs = 2500;
     playMinSeqBytes = 6000;
     playHeadLbaSlop = 12;
@@ -50,6 +52,8 @@ void ConfigStore::load() {
     enableSoftAp = prefs.getBool("softap", enableSoftAp);
     softApPass = prefs.getString("ap_pass", softApPass);
     enableSta = prefs.getBool("en_sta", enableSta);
+    enablePumpTcp = prefs.getBool("en_ptcp", enablePumpTcp);
+    pumpTcpPort = prefs.getUShort("ptcp_port", pumpTcpPort);
     playPlugWindowMs = prefs.getUShort("play_plug", playPlugWindowMs);
     playMinSeqBytes = prefs.getUShort("play_seq", playMinSeqBytes);
     playHeadLbaSlop = prefs.getUChar("play_head", playHeadLbaSlop);
@@ -59,6 +63,7 @@ void ConfigStore::load() {
     if (heartbeatIntervalS < 5) heartbeatIntervalS = 5;
     if (bufferTargetMs < 500) bufferTargetMs = 500;
     if (softApPass.length() < 8) softApPass = "pidrive12";
+    if (pumpTcpPort == 0) pumpTcpPort = 9090;
     if (playMinSeqBytes < 512) playMinSeqBytes = 512;
     if (playHeadLbaSlop > 64) playHeadLbaSlop = 64;
     if (playPrefetchLbaSlop > 32) playPrefetchLbaSlop = 32;
@@ -82,6 +87,8 @@ void ConfigStore::save() {
     prefs.putBool("softap", enableSoftAp);
     prefs.putString("ap_pass", softApPass);
     prefs.putBool("en_sta", enableSta);
+    prefs.putBool("en_ptcp", enablePumpTcp);
+    prefs.putUShort("ptcp_port", pumpTcpPort);
     prefs.putUShort("play_plug", playPlugWindowMs);
     prefs.putUShort("play_seq", playMinSeqBytes);
     prefs.putUChar("play_head", playHeadLbaSlop);
@@ -111,6 +118,8 @@ void ConfigStore::toJson(JsonObject obj) const {
     obj["enableSoftAp"] = enableSoftAp;
     obj["softApPass"] = softApPass;
     obj["enableSta"] = enableSta;
+    obj["enablePumpTcp"] = enablePumpTcp;
+    obj["pumpTcpPort"] = pumpTcpPort;
     obj["playPlugWindowMs"] = playPlugWindowMs;
     obj["playMinSeqBytes"] = playMinSeqBytes;
     obj["playHeadLbaSlop"] = playHeadLbaSlop;
@@ -131,6 +140,8 @@ bool ConfigStore::fromJson(JsonVariantConst obj) {
     if (!obj["enableSoftAp"].isNull()) enableSoftAp = obj["enableSoftAp"].as<bool>();
     if (obj["softApPass"].is<const char*>()) softApPass = obj["softApPass"].as<String>();
     if (!obj["enableSta"].isNull()) enableSta = obj["enableSta"].as<bool>();
+    if (!obj["enablePumpTcp"].isNull()) enablePumpTcp = obj["enablePumpTcp"].as<bool>();
+    if (!obj["pumpTcpPort"].isNull()) pumpTcpPort = obj["pumpTcpPort"].as<uint16_t>();
     if (!obj["playPlugWindowMs"].isNull()) playPlugWindowMs = obj["playPlugWindowMs"].as<uint16_t>();
     if (!obj["playMinSeqBytes"].isNull()) playMinSeqBytes = obj["playMinSeqBytes"].as<uint16_t>();
     if (!obj["playHeadLbaSlop"].isNull()) playHeadLbaSlop = obj["playHeadLbaSlop"].as<uint8_t>();
@@ -141,6 +152,7 @@ bool ConfigStore::fromJson(JsonVariantConst obj) {
     if (heartbeatIntervalS < 5) heartbeatIntervalS = 5;
     if (bufferTargetMs < 500) bufferTargetMs = 500;
     if (softApPass.length() < 8) softApPass = "pidrive12";
+    if (pumpTcpPort == 0) pumpTcpPort = 9090;
     if (playMinSeqBytes < 512) playMinSeqBytes = 512;
     if (playHeadLbaSlop > 64) playHeadLbaSlop = 64;
     if (playPrefetchLbaSlop > 32) playPrefetchLbaSlop = 32;

@@ -13,12 +13,37 @@ void PumpServer::begin(EventLog* events, MenuStore* menu, UsbMscGadget* msc, Uar
     lineLen_ = 0;
     up_ = false;
     binState_ = BinState::Idle;
-    if (events_) events_->push("pump.init", "line-json+bin");
+    active_ = Link::SerialLink;
+    tcpPort_ = 0;
+    if (events_) events_->push("pump.init", "line-json+bin uart/tcp");
+}
+
+void PumpServer::startTcp(uint16_t port) {
+    if (port == 0) {
+        tcpPort_ = 0;
+        if (client_.connected()) client_.stop();
+        Serial.println("[PUMP] TCP off");
+        return;
+    }
+    tcpPort_ = port;
+    server_.begin(port);
+    server_.setNoDelay(true);
+    Serial.printf("[PUMP] TCP :%u (same framing as UART)\n", (unsigned)port);
+    if (events_) {
+        char det[24];
+        snprintf(det, sizeof(det), ":%u", (unsigned)port);
+        events_->push("pump.tcp", det);
+    }
 }
 
 void PumpServer::sendRaw(const char* s) {
     if (!s) return;
-    Serial.println(s);
+    if (active_ == Link::Tcp && client_.connected()) {
+        client_.println(s);
+        client_.flush();
+    } else {
+        Serial.println(s);
+    }
 }
 
 void PumpServer::sendJson(const JsonDocument& doc) {
@@ -29,6 +54,9 @@ void PumpServer::sendJson(const JsonDocument& doc) {
 
 void PumpServer::sendPlayUid(const char* uid) {
     if (!uid || !uid[0]) return;
+    // Prefer live TCP bridge (field), else UART
+    if (client_.connected()) active_ = Link::Tcp;
+    else active_ = Link::SerialLink;
     JsonDocument doc;
     doc["t"] = "event";
     doc["op"] = "play_uid";
@@ -101,12 +129,37 @@ void PumpServer::handleBinaryByte(uint8_t c) {
     }
 }
 
+void PumpServer::feedByte(uint8_t c, Link from) {
+    active_ = from;
+    if (binState_ != BinState::Idle) {
+        handleBinaryByte(c);
+        return;
+    }
+    if (c == 0x01) {
+        handleBinaryByte(c);
+        return;
+    }
+    if (c == '\n' || c == '\r') {
+        if (lineLen_ > 0) {
+            line_[lineLen_] = 0;
+            handleLine(line_);
+            lineLen_ = 0;
+        }
+        return;
+    }
+    if (lineLen_ + 1 < sizeof(line_)) {
+        line_[lineLen_++] = (char)c;
+    } else {
+        lineLen_ = 0;
+    }
+}
+
 void PumpServer::handleLine(char* line) {
     while (*line == ' ' || *line == '\t') line++;
     if (!line[0]) return;
 
     if (!strncmp(line, "PING", 4) || !strncmp(line, "DBG", 3)) {
-        Serial.println("PONG");
+        sendRaw("PONG");
         return;
     }
 
@@ -130,8 +183,10 @@ void PumpServer::handleLine(char* line) {
         ack["page"] = true;  // bridge soft-paging (Mehr… / Seite 1)
         ack["audio"] = true;
         ack["bin"] = true;
+        ack["tcp"] = tcpPort_ != 0;
+        ack["tcpPort"] = (int)tcpPort_;
         sendJson(ack);
-        if (events_) events_->push("pump.hello", "ok");
+        if (events_) events_->push("pump.hello", active_ == Link::Tcp ? "tcp" : "uart");
         return;
     }
 
@@ -206,34 +261,57 @@ void PumpServer::handleLine(char* line) {
     }
 }
 
-void PumpServer::loop() {
+void PumpServer::acceptTcp() {
+    if (tcpPort_ == 0) return;
+    if (client_.connected()) return;
+    WiFiClient incoming = server_.available();
+    if (!incoming) return;
+    if (client_) client_.stop();
+    client_ = incoming;
+    client_.setNoDelay(true);
+    binState_ = BinState::Idle;
+    lineLen_ = 0;
+    active_ = Link::Tcp;
+    Serial.printf("[PUMP] TCP client %s\n", client_.remoteIP().toString().c_str());
+    if (events_) events_->push("pump.tcp.up", client_.remoteIP().toString().c_str());
+}
+
+void PumpServer::drainSerial() {
     while (Serial.available() > 0) {
         int c = Serial.read();
         if (c < 0) break;
         if (uart_) uart_->noteRx(1);
+        feedByte((uint8_t)c, Link::SerialLink);
+    }
+}
 
-        // Binary frame takes priority once magic seen; else line mode.
-        if (binState_ != BinState::Idle) {
-            handleBinaryByte((uint8_t)c);
-            continue;
-        }
-        if (c == 0x01) {
-            handleBinaryByte((uint8_t)c);
-            continue;
-        }
-
-        if (c == '\n' || c == '\r') {
-            if (lineLen_ > 0) {
-                line_[lineLen_] = 0;
-                handleLine(line_);
-                lineLen_ = 0;
+void PumpServer::drainTcp() {
+    if (!client_.connected()) {
+        if (client_) {
+            client_.stop();
+            if (events_) events_->push("pump.tcp.down", "");
+            if (active_ == Link::Tcp) {
+                up_ = false;
+                active_ = Link::SerialLink;
             }
-            continue;
         }
-        if (lineLen_ + 1 < sizeof(line_)) {
-            line_[lineLen_++] = (char)c;
-        } else {
-            lineLen_ = 0;
-        }
+        return;
+    }
+    while (client_.available() > 0) {
+        int c = client_.read();
+        if (c < 0) break;
+        feedByte((uint8_t)c, Link::Tcp);
+    }
+}
+
+void PumpServer::loop() {
+    acceptTcp();
+    // Prefer draining the active link first to keep binary frames contiguous
+    if (active_ == Link::Tcp) {
+        drainTcp();
+        drainSerial();
+    } else {
+        drainSerial();
+        drainTcp();
     }
 }

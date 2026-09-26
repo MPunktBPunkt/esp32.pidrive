@@ -217,6 +217,10 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
       </div>
       <div class="row">
         <div><label>Buffer Ziel (ms)</label><input id="cfg-buf" type="number"></div>
+        <div><label>PUMP TCP (0/1)</label><input id="cfg-ptcp" type="number" min="0" max="1"></div>
+      </div>
+      <div class="row">
+        <div><label>PUMP TCP Port</label><input id="cfg-ptcp-port" type="number" min="1" max="65535"></div>
         <div></div>
       </div>
       <h3>Play-Detection (BMW A/B)</h3>
@@ -234,7 +238,7 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
       </div>
       <button class="btn btn-a" id="btn-save">Speichern</button>
       <button class="btn" id="btn-restart">Neustart</button>
-      <p class="meta">Car-Default: SoftAP an, STA aus. Play-Detection sofort aktiv (kein Reboot). Events: <code>play.reject</code> / <code>play.guess</code>.</p>
+      <p class="meta">Car-Default: SoftAP an. PUMP TCP :9090 = Live-Menü/MP3 ohne UART (Bridge <code>--transport tcp</code>). Play-Detection sofort aktiv. Events: <code>play.reject</code> / <code>play.guess</code>.</p>
     </div>
   </section>
 
@@ -539,6 +543,8 @@ async function loadConfig(){
     $('#cfg-buf').value=c.bufferTargetMs||5000;
     $('#cfg-hub').value=c.enableHub?1:0;
     $('#cfg-lab').value=c.labMode?1:0;
+    $('#cfg-ptcp').value=c.enablePumpTcp!==false?1:0;
+    $('#cfg-ptcp-port').value=c.pumpTcpPort||9090;
     $('#cfg-play-plug').value=c.playPlugWindowMs??2500;
     $('#cfg-play-seq').value=c.playMinSeqBytes??6000;
     $('#cfg-play-head').value=c.playHeadLbaSlop??12;
@@ -557,6 +563,8 @@ async function saveConfig(){
     bufferTargetMs:+$('#cfg-buf').value,
     enableHub:+$('#cfg-hub').value===1,
     labMode:+$('#cfg-lab').value===1,
+    enablePumpTcp:+$('#cfg-ptcp').value===1,
+    pumpTcpPort:+$('#cfg-ptcp-port').value,
     playPlugWindowMs:+$('#cfg-play-plug').value,
     playMinSeqBytes:+$('#cfg-play-seq').value,
     playHeadLbaSlop:+$('#cfg-play-head').value,

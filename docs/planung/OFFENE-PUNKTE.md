@@ -10,7 +10,7 @@
 |----|--------|---------|--------|
 | **Q-USB-1** | USB neben BT? | **neben** | □ Owner-OK |
 | **Q-USB-2** | Encode Pi oder S3? | **Pi → MP3** | □ |
-| **Q-USB-3** | PUMP-Transport V1? | **UART/CDC** | ☑ Lab 0.3.x (WLAN = V1.1) |
+| **Q-USB-3** | PUMP-Transport V1? | **UART/CDC** + **TCP :9090** (0.4.15) | ☑ Lab |
 | **Q-USB-4** | V1 nur flache Stationsliste? | ja · max. 4 Slots + Navigation | ☑ Lab |
 | **Q-USB-5** | Hub-OTA Tag 1? | **ja** (Familie) | □ bestätigt |
 | **Q-USB-6** | Max. Umschaltzeit? | messen | □ |

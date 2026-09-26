@@ -18,7 +18,7 @@ void App::begin() {
     Serial.begin(115200);
     delay(200);
     Serial.printf("\n=== esp32.pidrive v%s ===\n", FW_VERSION);
-    Serial.println("[MODE] TinyUSB OTG MSC + UART Serial (dual-USB board: OTG->car, UART->PC)");
+    Serial.println("[MODE] TinyUSB OTG MSC + UART/TCP PUMP (OTG->car, UART or WLAN->Pi)");
 
     led.begin();
 
@@ -46,6 +46,10 @@ void App::begin() {
     msc.setPlayHandler([](const char* uid) { App::instance().pump.sendPlayUid(uid); });
 
     setupWifi();
+
+    if (config.enablePumpTcp) {
+        pump.startTcp(config.pumpTcpPort);
+    }
 
     if (config.enableMdns) {
         String mdns = "pidrive-" + NetUtil::macNoColon().substring(6);
@@ -174,7 +178,7 @@ void App::loop() {
         led.setMode(StatusLed::Mode::Error);
     } else if (msc.plugged()) {
         led.setMode(StatusLed::Mode::OtgMount);
-    } else if (uart.linkUp() || pump.up()) {
+    } else if (uart.linkUp() || pump.up() || pump.tcpClientUp()) {
         led.setMode(StatusLed::Mode::UartLink);
     } else {
         led.setMode(StatusLed::Mode::Idle);
@@ -235,6 +239,9 @@ void App::buildStatus(JsonDocument& doc) {
     doc["uartState"] = uart.stateName();
     doc["mscReady"] = msc.ready();
     doc["pumpUp"] = pumpUp;
+    doc["pumpTcp"] = pump.tcpListening();
+    doc["pumpTcpPort"] = (int)pump.tcpPort();
+    doc["pumpTcpUp"] = pump.tcpClientUp();
     doc["bufferMs"] = bufferMs;
     doc["bufferTargetMs"] = config.bufferTargetMs;
     doc["playingUid"] = menu.playingUid();
@@ -281,6 +288,13 @@ void App::buildStatus(JsonDocument& doc) {
     pi["msSinceRx"] = uart.msSinceRx();
     pi["rxBytes"] = uart.rxBytes();
     pi["sense"] = "serial-activity";
+    JsonObject tcp = ports["pumpTcp"].to<JsonObject>();
+    tcp["label"] = "PUMP-TCP";
+    tcp["role"] = "wlan-bridge";
+    tcp["port"] = (int)pump.tcpPort();
+    tcp["listening"] = pump.tcpListening();
+    tcp["up"] = pump.tcpClientUp();
+    tcp["sense"] = "tcp-client";
 }
 
 void App::handleRoot() {

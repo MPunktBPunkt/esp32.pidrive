@@ -4,14 +4,14 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 
 | Feld | Wert |
 |------|------|
-| Stand | 2026-09-22 |
-| Phase | **Firmware 0.4.14-dev** — play.reject + parametrierbare Play-Detection |
+| Stand | 2026-09-26 |
+| Phase | **Firmware 0.4.15-dev** — PUMP TCP :9090 (WLAN = UART-Framing) |
 | Repo | `MPunktBPunkt/esp32.pidrive` |
 | Build | PlatformIO `env:pidrive-s3` (`pio run`) |
-| Dist | `dist/pidrive.0.4.14-dev.ota.esp32s3.bin` (nach Build) |
+| Dist | `dist/pidrive.0.4.15-dev.ota.esp32s3.bin` (nach Build) |
 | Hub-Depot | `iobroker.esp-hub/firmware/pidrive.0.4.8-dev.*.esp32s3.bin` |
 | Hardware | ESP32-S3-DevKitC-1 (OTG + UART) |
-| Pi-Link | [PUMP.md](docs/planung/PUMP.md) · Bridge `tools/pump_bridge.py` |
+| Pi-Link | [PUMP.md](docs/planung/PUMP.md) · Bridge `tools/pump_bridge.py` `--transport auto\|uart\|tcp` |
 | Cover-Assets | [pidrive/assets/usb-msc-covers](https://github.com/MPunktBPunkt/pidrive/tree/main/assets/usb-msc-covers) · [COVER-ID3.md](docs/planung/COVER-ID3.md) |
 | Lab | [LAB-2026-09-18.md](docs/planung/LAB-2026-09-18.md) · [Realtime-Gap](docs/planung/LAB-2026-09-18-REALTIME.md) |
 | Auto-Link | USB-MSC · 4 Slots + Bridge-Paging · Live-Stream + sticky ID3 |
@@ -24,11 +24,13 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
 1. ~~Menü / Activate / Live-MP3 / ID3 / Soft-Paging / Cover / SoftAP-Remote~~
 2. ~~Listing leer während Live-Stream (FAT-Mutation)~~ → **0.4.12 static FAT**
 3. ~~Demo→Menü-Flicker beim Plug~~ → **0.4.13** mediaPresent nach menu_set / NVS / 7s-Timeout
-4. **Problem B: BMW Selection-Detector** — I0: `play.reject` + Config-Schwellen (**0.4.14**); I1: Feld-A/B
-5. Größere virtuelle Dateien (Dauer-Stream)
+4. ~~PUMP über WLAN (TCP)~~ → **0.4.15** `:9090` + Bridge `--transport tcp|auto`
+5. **Problem B: BMW Selection-Detector** — I0: `play.reject` + Config-Schwellen (**0.4.14**); I1: Feld-A/B
+6. Größere virtuelle Dateien (Dauer-Stream)
 
 ## Letzte Änderung
 
+- 2026-09-26: **0.4.15-dev** PUMP TCP Server (Config `enablePumpTcp`/`pumpTcpPort`); Bridge UART|TCP|auto; Lab-WLAN Docs
 - 2026-09-22: **0.4.14-dev** `play.reject` Reasons; Play-Detection NVS/SoftAP (`playPlugWindowMs`, `playMinSeqBytes`, …); Bridge `[trace]` Timeline
 - 2026-09-18: **0.4.13-dev** deferred mediaPresent; Menu NVS persist; idempotent slot names; 7s timeout
 - 2026-09-18: **0.4.12-dev** static FAT/Dir/Size/Chains; Stream nur Overlay; USB write-protect
