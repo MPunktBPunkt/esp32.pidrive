@@ -1,45 +1,34 @@
 # STATE — esp32.pidrive
 
-Lebender Projektstand. Kurz halten; Details in `docs/planung/`.
+Lebender Projektstand. Kurz halten; Details in `docs/planung/` und Feldbericht.
 
 | Feld | Wert |
 |------|------|
-| Stand | 2026-09-26 |
-| Phase | **Firmware 0.4.15-dev** — PUMP TCP :9090 (WLAN = UART-Framing) |
+| Stand | 2026-09-28 |
+| Phase | **Firmware 0.4.25-dev** — Serial-Bump auch bei Unplug; Bridge Nav-Grace (Baustelle A) |
 | Repo | `MPunktBPunkt/esp32.pidrive` |
 | Build | PlatformIO `env:pidrive-s3` (`pio run`) |
-| Dist | `dist/pidrive.0.4.15-dev.ota.esp32s3.bin` (nach Build) |
-| Hub-Depot | `iobroker.esp-hub/firmware/pidrive.0.4.15-dev.*.esp32s3.bin` |
+| Dist | `dist/pidrive.0.4.25-dev.ota.esp32s3.bin` (nach Build) |
+| Hub-Depot | `iobroker.esp-hub/firmware/pidrive.0.4.25-dev.*.esp32s3.bin` |
 | Hardware | ESP32-S3-DevKitC-1 (OTG + UART) |
-| Pi-Link | [PUMP.md](docs/planung/PUMP.md) · Bridge `tools/pump_bridge.py` `--transport auto\|uart\|tcp` |
-| Cover-Assets | [pidrive/assets/usb-msc-covers](https://github.com/MPunktBPunkt/pidrive/tree/main/assets/usb-msc-covers) · [COVER-ID3.md](docs/planung/COVER-ID3.md) |
-| Lab | [LAB-2026-09-18.md](docs/planung/LAB-2026-09-18.md) · [Realtime-Gap](docs/planung/LAB-2026-09-18-REALTIME.md) |
-| Auto-Link | USB-MSC · 4 Slots + Bridge-Paging · Live-Stream + sticky ID3 |
-| WebUI | **Remote** · Auto-Test · Cover · Live-Audio · Menü · Events · Config · OTA |
-| Lab-Bericht (pidrive) | [USB-MSC-STREAM-LISTING-2026-09-18](https://github.com/MPunktBPunkt/pidrive/blob/main/docs/betrieb/USB-MSC-STREAM-LISTING-2026-09-18.md) |
-| Auftrag (pidrive) | [AUFTRAG-ESP-PLAY-DETECTION](https://github.com/MPunktBPunkt/pidrive/blob/main/docs/auftraege/AUFTRAG-ESP-PLAY-DETECTION.md) |
+| Pi-Link | [PUMP.md](docs/planung/PUMP.md) · Bridge `tools/pump_bridge.py` |
+| Feldbericht | [FELDTEST-ESP-MSC-BMW-2026-09-28](https://github.com/MPunktBPunkt/pidrive/blob/main/docs/betrieb/FELDTEST-ESP-MSC-BMW-2026-09-28.md) |
+| Auftrag | [AUFTRAG-ESP-PLAY-DETECTION](https://github.com/MPunktBPunkt/pidrive/blob/main/docs/auftraege/AUFTRAG-ESP-PLAY-DETECTION.md) |
 
 ## Aktueller Fokus
 
-1. ~~Menü / Activate / Live-MP3 / ID3 / Soft-Paging / Cover / SoftAP-Remote~~
-2. ~~Listing leer während Live-Stream (FAT-Mutation)~~ → **0.4.12 static FAT**
-3. ~~Demo→Menü-Flicker beim Plug~~ → **0.4.13** mediaPresent nach menu_set / NVS / 7s-Timeout
-4. ~~PUMP über WLAN (TCP)~~ → **0.4.15** `:9090` + Bridge `--transport tcp|auto`
-5. **Problem B: BMW Selection-Detector** — I0: `play.reject` + Config-Schwellen (**0.4.14**); I1: Feld-A/B
-6. Größere virtuelle Dateien (Dauer-Stream)
+1. **P0 Baustelle A (umgesetzt im Bridge-Code):** UID-Grace + Snapshot-Resync nach TCP-Reconnect — Feldtest ausstehend
+2. **P0 Baustelle B:** Live-Audio vs. HU-Cache (Silence+Xing, Pacing, Pulse-Messung)
+3. Feld: SoftAP-direkt/UART bevorzugen bei schlechtem STA-RSSI
 
 ## Letzte Änderung
 
-- 2026-09-26: **0.4.15-dev** PUMP TCP Server (Config `enablePumpTcp`/`pumpTcpPort`); Bridge UART|TCP|auto; Lab-WLAN Docs
-- 2026-09-22: **0.4.14-dev** `play.reject` Reasons; Play-Detection NVS/SoftAP (`playPlugWindowMs`, `playMinSeqBytes`, …); Bridge `[trace]` Timeline
-- 2026-09-18: **0.4.13-dev** deferred mediaPresent; Menu NVS persist; idempotent slot names; 7s timeout
-- 2026-09-18: **0.4.12-dev** static FAT/Dir/Size/Chains; Stream nur Overlay; USB write-protect
-- 2026-09-18: **0.4.11-dev** längere FAT-Ketten; Stub-Remap; mediaPresent-Remount bei Stream
-- 2026-09-18: **0.4.10-dev** STATIONS/SETTINGS LFN aus Menü-Namen
-- 2026-09-18: **0.4.9-dev** DIR-Size 4MiB; play.guess nach Index-Fenster; Debounce; Bridge demo→fav
-- 2026-09-18: **0.4.8-dev** Root wieder normales Menü; SoftAP kein 404; Favoriten aus stations.json ★
-- 2026-09-18: **0.4.7-dev** info-Nodes (IP/SSID/BT) als MSC-Slots; Hotspot-IP-Erkennung
-- 2026-09-18: **0.4.6-dev** SoftAP Remote-Tab, `/api/lab/stop`, Status-Cover, Root-Favoriten-Presets
-- 2026-09-18: **0.4.5-dev** SoftAP Cover (`GET /api/lab/cover` + UI)
-- 2026-09-18: Realtime-Gap-Analyse; MSC-Host am Pi
-- 2026-09-18: **0.4.3-dev** Soft-Paging; APIC aus lokaler MP3
+- 2026-09-28: **0.4.25-dev** `applyUsbIdentity()` auch bei Unplug (nächster Attach ≠ `PD0001`); Bridge: UID-Grace 180 s + menu snapshot resent
+- 2026-09-28: **0.4.24-dev** Remount: USB `serialNumber` `PDnnnn` + Volume-Label + 600 ms Hide; `POST /api/lab/remount`; Skip Remount während Stream
+- 2026-09-28: **0.4.23-dev** Index: Stub-Head nur ~1 KiB
+- 2026-09-28: **0.4.22-dev** `indexSettled_` nach `msc.quiet`
+- 2026-09-28: **0.4.21-dev** virt 2 MiB / Slots 512 KiB
+- 2026-09-28: **0.4.20-dev** Remount bei Menu-Namenswechsel
+- 2026-09-28: **0.4.19-dev** FAT-Patch zerstört Root nicht mehr
+- 2026-09-28: **0.4.18-dev** FAT-safe Namen
+- 2026-09-28: **0.4.17-dev** Host-SCSI / phase / quiet / diag→Pi

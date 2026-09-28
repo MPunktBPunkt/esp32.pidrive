@@ -1,5 +1,6 @@
 #include "UsbMscGadget.h"
 #include "DemoFatImage.h"
+#include "HostScsiProbe.h"
 #include "USB.h"
 #include "USBMSC.h"
 #include <cstring>
@@ -16,7 +17,25 @@ extern "C" bool tud_msc_is_writable_cb(uint8_t lun) {
 }
 
 static bool isDirLba(uint32_t lba) {
-    return lba >= 35 && lba <= 42;
+    // Root 17-48; STATIONS/SETTINGS clusters 49-56.
+    if (lba >= UsbMscGadget::kRootLba0 &&
+        lba < UsbMscGadget::kRootLba0 + UsbMscGadget::kRootSectors)
+        return true;
+    return (lba >= UsbMscGadget::kStationsLba && lba < UsbMscGadget::kStationsLba + UsbMscGadget::kSpc) ||
+           (lba >= UsbMscGadget::kSettingsLba && lba < UsbMscGadget::kSettingsLba + UsbMscGadget::kSpc);
+}
+
+/** Virtual FAT12: boot@0, FAT0@1-8, FAT1@9-16, ROOT@17-48, DATA@49. */
+static const char* metaTag(uint32_t lba) {
+    if (lba == 0) return "BOOT";
+    if (lba >= UsbMscGadget::kFat0Lba && lba < UsbMscGadget::kFat0Lba + UsbMscGadget::kFatSpf)
+        return "FAT0";
+    if (lba >= UsbMscGadget::kFat1Lba && lba < UsbMscGadget::kFat1Lba + UsbMscGadget::kFatSpf)
+        return "FAT1";
+    if (lba >= UsbMscGadget::kRootLba0 &&
+        lba < UsbMscGadget::kRootLba0 + UsbMscGadget::kRootSectors)
+        return "ROOT";
+    return "META";
 }
 
 static int32_t pidrive_msc_read(uint32_t lba, uint32_t offset, void* buffer, uint32_t bufsize) {
@@ -30,8 +49,7 @@ static int32_t pidrive_msc_write(uint32_t lba, uint32_t offset, uint8_t* buffer,
 }
 
 static bool pidrive_msc_start_stop(uint8_t power_condition, bool start, bool load_eject) {
-    (void)power_condition;
-    if (g_msc) g_msc->onHostStartStop(start, load_eject);
+    if (g_msc) g_msc->onHostStartStop(power_condition, start, load_eject);
     return true;
 }
 
@@ -54,8 +72,8 @@ void UsbMscGadget::loadDefaultSlots() {
     const char* uids[] = {"demo:rock_fm", "demo:antenne", "demo:swr3", "action:about"};
     const char* paths[] = {
         "STATIONS/01ROCK.MP3", "STATIONS/02ANTENN.MP3", "STATIONS/03SWR3.MP3", "SETTINGS/ABOUT.MP3"};
-    // ~64 KiB each station (stub + pad for play.guess); settings short
-    const uint32_t ranges[][2] = {{43, 170}, {171, 298}, {299, 426}, {427, 438}};
+    uint32_t ranges[kSlots][2];
+    slotRanges(ranges);
     for (size_t i = 0; i < kSlots; i++) {
         slots_[i].lbaStart = ranges[i][0];
         slots_[i].lbaEnd = ranges[i][1];
@@ -68,7 +86,8 @@ void UsbMscGadget::loadDefaultSlots() {
 
 void UsbMscGadget::applyMenuSlots(const MenuStore& menu) {
     // Preserve geometry; only refresh uid/name when content actually differs.
-    const uint32_t ranges[][2] = {{43, 170}, {171, 298}, {299, 426}, {427, 438}};
+    uint32_t ranges[kSlots][2];
+    slotRanges(ranges);
     size_t n = menu.count();
     if (n > kSlots) n = kSlots;
 
@@ -113,20 +132,68 @@ void UsbMscGadget::applyMenuSlots(const MenuStore& menu) {
             events_->push("msc.slots", d);
         }
         Serial.printf("[MSC] applyMenuSlots n=%u (static FAT)\n", (unsigned)n);
+        // Names live only in patched DIR sectors — host must re-read. Without remount
+        // BMW/NBT keeps the first listing (often demo 01ROCK.* / stale NVS).
+        if (mediaPresented_ && !(stream_ && stream_->active())) {
+            remountMedia("menu");
+        }
     }
 
     // Re-resolve stream slot index if uid still present (geometry unchanged).
     if (stream_ && stream_->active() && stream_->uid()[0]) {
         startStream(stream_->uid());
     }
-    // mediaPresent is NOT toggled here — see presentMedia() (menu_set / NVS / timeout).
+    // mediaPresent is NOT toggled here — see presentMedia() / remountMedia().
+}
+
+void UsbMscGadget::applyUsbIdentity() {
+    remountGen_++;
+    char ser[12];
+    snprintf(ser, sizeof(ser), "PD%04u", (unsigned)(remountGen_ % 10000));
+    USB.serialNumber(ser);
+    char rev[5];
+    snprintf(rev, sizeof(rev), "%02u%02u", (unsigned)((remountGen_ / 100) % 100),
+             (unsigned)(remountGen_ % 100));
+    MSC.productRevision(rev);
+}
+
+void UsbMscGadget::remountMedia(const char* reason) {
+    if (!ready_) return;
+    // Never yank the medium while live overlay is armed — kills TCP + host reads.
+    if (stream_ && stream_->active()) {
+        if (events_) events_->push("msc.remount_skip", "streaming");
+        return;
+    }
+    // New USB identity so NBT MediaStore treats this as a different stick.
+    applyUsbIdentity();
+    char ser[12];
+    snprintf(ser, sizeof(ser), "PD%04u", (unsigned)(remountGen_ % 10000));
+    MSC.mediaPresent(false);
+    mediaPresented_ = false;
+    indexSettled_ = false;
+    quietEmitted_ = false;
+    // Longer not-ready: BMW needs time to drop the auto-play queue / DIR cache.
+    remountHoldUntilMs_ = millis() + 600;
+    presentDeadlineMs_ = remountHoldUntilMs_;
+    if (events_) {
+        char d[40];
+        snprintf(d, sizeof(d), "%s ser=%s", reason ? reason : "", ser);
+        events_->push("msc.remount", d);
+    }
+    Serial.printf("[MSC] remount scheduled (%s) ser=%s\n", reason ? reason : "", ser);
 }
 
 void UsbMscGadget::presentMedia(const char* reason) {
     if (mediaPresented_) return;
+    if (remountHoldUntilMs_ && (int32_t)(millis() - remountHoldUntilMs_) < 0) {
+        // Still in hide window (e.g. menu_set called presentMedia immediately).
+        presentDeadlineMs_ = remountHoldUntilMs_;
+        return;
+    }
     MSC.mediaPresent(true);
     mediaPresented_ = true;
     presentDeadlineMs_ = 0;
+    remountHoldUntilMs_ = 0;
     if (events_) events_->push("msc.media_on", reason ? reason : "");
     Serial.printf("[MSC] mediaPresent=true (%s)\n", reason ? reason : "");
 }
@@ -167,15 +234,19 @@ static void fat12Set(uint8_t* fat, uint16_t cl, uint16_t val) {
 
 void UsbMscGadget::patchFatChain(uint8_t* sector, uint32_t lba, uint16_t cl0, uint16_t cl1) const {
     if (cl0 < 2 || cl1 < cl0) return;
-    // Demo FAT: reserved=1, fats=2, fatz=2 → FAT0 at LBA 1-2, FAT1 at LBA 3-4
-    if (lba != 1 && lba != 2 && lba != 3 && lba != 4) return;
-
-    uint32_t fatIndex = (lba == 1 || lba == 3) ? 0 : 1;
-    uint32_t fatBase = fatIndex * 512;
+    uint32_t fatBase;
+    if (lba >= kFat0Lba && lba < kFat0Lba + kFatSpf) {
+        fatBase = (lba - kFat0Lba) * 512u;
+    } else if (lba >= kFat1Lba && lba < kFat1Lba + kFatSpf) {
+        fatBase = (lba - kFat1Lba) * 512u;
+    } else {
+        return;
+    }
 
     for (uint16_t cl = cl0; cl <= cl1; cl++) {
         uint16_t next = (cl < cl1) ? (uint16_t)(cl + 1) : 0xFFF;
         size_t byteIndex = cl + (cl / 2);
+        if (byteIndex < fatBase) continue;
         size_t local = byteIndex - fatBase;
         if (local < 511) {
             uint8_t pair[2] = {sector[local], sector[local + 1]};
@@ -200,13 +271,64 @@ void UsbMscGadget::patchFatChain(uint8_t* sector, uint32_t lba, uint16_t cl0, ui
 }
 
 void UsbMscGadget::patchFatFixed(uint8_t* sector, uint32_t lba) const {
-    // Always the same chains — independent of stream overlay.
+    // Directory clusters + slot chains — independent of stream overlay.
+    patchFatChain(sector, lba, 2, 2);  // STATIONS
+    patchFatChain(sector, lba, 3, 3);  // SETTINGS
     for (size_t i = 0; i < kSlots; i++) {
         if (!slots_[i].active) continue;
         uint16_t cl0 = lbaToCluster(slots_[i].lbaStart);
         uint16_t cl1 = lbaToCluster(slots_[i].lbaEnd);
         patchFatChain(sector, lba, cl0, cl1);
     }
+}
+
+void UsbMscGadget::patchBoot(uint8_t* sector) const {
+    // Start from demo boot, then override BPB for virtual 2MiB / spf=8 geometry.
+    memcpy(sector, DEMO_FAT_IMAGE, 512);
+    sector[13] = kSpc;
+    sector[14] = 1;
+    sector[15] = 0;  // reserved = 1
+    sector[16] = 2;  // FATs
+    sector[17] = (uint8_t)(512 & 0xFF);
+    sector[18] = (uint8_t)(512 >> 8);  // root entries
+    sector[19] = (uint8_t)(kVirtSectorCount & 0xFF);
+    sector[20] = (uint8_t)((kVirtSectorCount >> 8) & 0xFF);
+    sector[22] = kFatSpf;
+    sector[23] = 0;
+    // total32 (unused when total16 != 0) clear
+    sector[32] = 0;
+    sector[33] = 0;
+    sector[34] = 0;
+    sector[35] = 0;
+}
+
+void UsbMscGadget::patchRootDir(uint8_t* sector, uint32_t lba) const {
+    memset(sector, 0, 512);
+    if (lba != kRootLba0) return;
+    // Volume label — include remount gen so HU cache key changes (PIDRIVE / PD0001 …).
+    memset(sector, ' ', 11);
+    char vol[12];
+    if (remountGen_ == 0) {
+        snprintf(vol, sizeof(vol), "PIDRIVE");
+    } else {
+        snprintf(vol, sizeof(vol), "PD%04u", (unsigned)(remountGen_ % 10000));
+    }
+    size_t vl = strlen(vol);
+    if (vl > 11) vl = 11;
+    memcpy(sector, vol, vl);
+    sector[11] = 0x08;
+    // STATIONS
+    memset(sector + 32, ' ', 11);
+    memcpy(sector + 32, "STATIONS", 8);
+    sector[32 + 11] = 0x10;
+    sector[32 + 26] = 2;
+    sector[32 + 27] = 0;
+    // SETTINGS
+    memset(sector + 64, ' ', 11);
+    memcpy(sector + 64, "SETTINGS", 8);
+    sector[64 + 11] = 0x10;
+    sector[64 + 26] = 3;
+    sector[64 + 27] = 0;
 }
 
 static uint8_t fat83Checksum(const uint8_t name83[11]) {
@@ -217,26 +339,78 @@ static uint8_t fat83Checksum(const uint8_t name83[11]) {
     return sum;
 }
 
+/** Strip chars illegal in FAT LFN/8.3: " * / : < > ? \ | and controls. */
+static void sanitizeFatLabel(const char* in, char* out, size_t outSz) {
+    if (!out || outSz == 0) return;
+    out[0] = 0;
+    if (!in) return;
+    size_t n = 0;
+    // Skip favorite markers / leading junk from PiDrive labels ("* Antenne…")
+    while (*in == '*' || *in == (char)0xE2 /* utf8 lead of ★ often */ || *in == ' ' || *in == '\t') {
+        // UTF-8 ★ = E2 98 85 — skip full sequence when present
+        if ((unsigned char)in[0] == 0xE2 && (unsigned char)in[1] == 0x98 &&
+            ((unsigned char)in[2] == 0x85 || (unsigned char)in[2] == 0x86)) {
+            in += 3;
+            continue;
+        }
+        if (*in == '*' || *in == ' ' || *in == '\t') {
+            in++;
+            continue;
+        }
+        break;
+    }
+    for (const unsigned char* p = (const unsigned char*)in; *p && n + 1 < outSz; ++p) {
+        unsigned char c = *p;
+        if (c < 0x20 || c == 0x7F) continue;
+        if (c == '"' || c == '*' || c == '/' || c == ':' || c == '<' || c == '>' || c == '?' ||
+            c == '\\' || c == '|') {
+            continue;
+        }
+        // Replace fancy ellipsis … (E2 80 A6) with ASCII dots
+        if (c == 0xE2 && p[1] == 0x80 && p[2] == 0xA6) {
+            if (n + 3 < outSz) {
+                out[n++] = '.';
+                out[n++] = '.';
+                out[n++] = '.';
+            }
+            p += 2;
+            continue;
+        }
+        out[n++] = (char)c;
+    }
+    while (n > 0 && (out[n - 1] == ' ' || out[n - 1] == '.')) n--;
+    out[n] = 0;
+    if (n == 0) {
+        strncpy(out, "Track", outSz - 1);
+        out[outSz - 1] = 0;
+    }
+}
+
 /** Map label to FAT 8.3 (name + "MP3"), uppercase ASCII. */
 static void labelTo83(const char* label, uint8_t out[11]) {
+    char clean[48];
+    sanitizeFatLabel(label, clean, sizeof(clean));
     memset(out, ' ', 11);
     out[8] = 'M';
     out[9] = 'P';
     out[10] = '3';
-    if (!label) label = "TRACK";
     int n = 0;
-    for (const char* p = label; *p && n < 8; ++p) {
+    for (const char* p = clean; *p && n < 8; ++p) {
         unsigned char c = (unsigned char)*p;
         if (c >= 'a' && c <= 'z') c = (unsigned char)(c - 'a' + 'A');
-        // fold a few common non-ASCII
         if (c == 0xC3) continue;  // UTF-8 lead — skip, next byte handled loosely
         if (c & 0x80) {
-            // rough: ü/ä/ö → U/A/O if we see latin1-ish
             if (c == 0xFC || c == 0xDC) c = 'U';
             else if (c == 0xE4 || c == 0xC4) c = 'A';
             else if (c == 0xF6 || c == 0xD6) c = 'O';
-            else if (c == 0xDF) { /* ß */ if (n < 7) { out[n++] = 'S'; out[n++] = 'S'; } continue; }
-            else continue;
+            else if (c == 0xDF) { /* ß */
+                if (n < 7) {
+                    out[n++] = 'S';
+                    out[n++] = 'S';
+                }
+                continue;
+            } else
+                continue;
         }
         if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
             out[n++] = c;
@@ -271,9 +445,10 @@ static void writeLfnEntry(uint8_t* ent, uint8_t ord, bool last, const uint16_t* 
 }
 
 static int labelToUtf16(const char* label, uint16_t* out, int maxOut) {
-    if (!label) label = "Track";
+    char clean[64];
+    sanitizeFatLabel(label, clean, sizeof(clean));
     int n = 0;
-    const unsigned char* p = (const unsigned char*)label;
+    const unsigned char* p = (const unsigned char*)clean;
     while (*p && n < maxOut) {
         unsigned char c = *p++;
         if (c < 0x80) {
@@ -288,6 +463,10 @@ static int labelToUtf16(const char* label, uint16_t* out, int maxOut) {
         } else {
             out[n++] = '?';
         }
+    }
+    if (n == 0 && maxOut > 0) {
+        const char* fb = "Track";
+        while (*fb && n < maxOut) out[n++] = (uint16_t)*fb++;
     }
     return n;
 }
@@ -320,9 +499,9 @@ static void writeDotDirs(uint8_t* sector, uint16_t selfCl) {
 }
 
 void UsbMscGadget::patchDirNames(uint8_t* sector, uint32_t lba) const {
-    // STATIONS = cluster 2 → LBA 35; SETTINGS = cluster 3 → LBA 39
-    const bool stations = (lba == 35);
-    const bool settings = (lba == 39);
+    // STATIONS = cluster 2 → kStationsLba; SETTINGS = cluster 3 → kSettingsLba
+    const bool stations = (lba == kStationsLba);
+    const bool settings = (lba == kSettingsLba);
     if (!stations && !settings) return;
 
     if (stations) {
@@ -382,24 +561,48 @@ void UsbMscGadget::patchDirNames(uint8_t* sector, uint32_t lba) const {
 }
 
 int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32_t bufsize) {
-    if (lba >= DEMO_FAT_SECTOR_COUNT) return -1;
-    uint32_t pos = lba * DEMO_FAT_SECTOR_SIZE + offset;
-    if (pos >= DEMO_FAT_SIZE) return -1;
-    uint32_t avail = DEMO_FAT_SIZE - pos;
-    if (bufsize > avail) bufsize = avail;
-    memcpy(buffer, DEMO_FAT_IMAGE + pos, bufsize);
-
+    if (lba >= kVirtSectorCount) return -1;
     uint8_t* out = (uint8_t*)buffer;
-    // Static view: names + fixed FAT chains (identical whether streaming or not).
+    if (bufsize > 4096) bufsize = 4096;  // TinyUSB practical cap
+    // Base: demo image for low LBAs (stub MP3 payloads), else zeros.
+    if (lba < DEMO_FAT_SECTOR_COUNT && offset < DEMO_FAT_SECTOR_SIZE) {
+        uint32_t pos = lba * DEMO_FAT_SECTOR_SIZE + offset;
+        uint32_t avail = DEMO_FAT_SIZE - pos;
+        uint32_t n = bufsize;
+        if (n > avail) n = avail;
+        memcpy(out, DEMO_FAT_IMAGE + pos, n);
+        if (n < bufsize) memset(out + n, 0, bufsize - n);
+    } else {
+        memset(out, 0, bufsize);
+    }
+
+    // Static view: BPB / FAT / ROOT / DIR / chains (identical whether streaming or not).
     if (offset == 0 && bufsize >= 512) {
         for (uint32_t off = 0; off + 512 <= bufsize; off += 512) {
             uint32_t sec = lba + off / 512;
-            patchDirNames(out + off, sec);
-            patchFatFixed(out + off, sec);
+            uint8_t* s = out + off;
+            if (sec == 0) {
+                patchBoot(s);
+            } else if ((sec >= kFat0Lba && sec < kFat0Lba + kFatSpf) ||
+                       (sec >= kFat1Lba && sec < kFat1Lba + kFatSpf)) {
+                memset(s, 0, 512);
+                if (sec == kFat0Lba || sec == kFat1Lba) {
+                    s[0] = 0xF8;
+                    s[1] = 0xFF;
+                    s[2] = 0xFF;  // FAT12 media + EOC
+                }
+                patchFatFixed(s, sec);
+            } else if (sec >= kRootLba0 && sec < kRootLba0 + kRootSectors) {
+                patchRootDir(s, sec);
+            } else {
+                patchDirNames(s, sec);
+                patchFatFixed(s, sec);  // no-op outside FAT LBAs
+            }
         }
     }
 
     // File payload: live ringbuffer for active stream slot, else stub/pad.
+    // Stub MP3 samples still live at legacy demo LBAs 43/59/75 inside demo_fat.bin.
     static const uint32_t kStubLba[3] = {43, 59, 75};
     const MscFileMap* f = fileForLba(lba);
     if (f) {
@@ -411,7 +614,11 @@ int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32
         } else if (f >= &slots_[0] && f <= &slots_[2]) {
             size_t i = (size_t)(f - &slots_[0]);
             uint32_t rel = lba - f->lbaStart;
-            if (rel < 16) {
+            // During index: only ~1 KiB real stub — prevents HU caching a complete
+            // demo song and playing it without further USB reads (no play.guess).
+            // After msc.quiet, serve normal stub head until live overlay arms.
+            const uint32_t stubSectors = indexSettled_ ? 16u : 2u;
+            if (rel < stubSectors) {
                 uint32_t src = kStubLba[i] + rel;
                 uint32_t spos = src * DEMO_FAT_SECTOR_SIZE + offset;
                 if (spos + bufsize <= DEMO_FAT_SIZE) {
@@ -443,7 +650,8 @@ bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
     USB.onEvent(usb_event_cb);
     MSC.vendorID("PIDRIVE");
     MSC.productID("USB_MEDIA");
-    MSC.productRevision("0.4");
+    MSC.productRevision("0.23");
+    USB.serialNumber("PD0000");
     MSC.onStartStop(pidrive_msc_start_stop);
     MSC.onRead(pidrive_msc_read);
     MSC.onWrite(pidrive_msc_write);
@@ -451,15 +659,16 @@ bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
     mediaPresented_ = false;
     presentDeadlineMs_ = millis() + kMediaPresentTimeoutMs;
     MSC.mediaPresent(false);
-    if (!MSC.begin(DEMO_FAT_SECTOR_COUNT, DEMO_FAT_SECTOR_SIZE)) {
+    if (!MSC.begin(kVirtSectorCount, DEMO_FAT_SECTOR_SIZE)) {
         if (events_) events_->push("msc.fail", "begin");
         return false;
     }
     USB.begin();
     ready_ = true;
-    if (events_) events_->push("msc.ready", "FAT12 static wait-menu");
-    Serial.printf("[MSC] ready sectors=%u media=held timeout=%ums\n", DEMO_FAT_SECTOR_COUNT,
-                  (unsigned)kMediaPresentTimeoutMs);
+    HostScsiProbe::instance().begin(events_);
+    if (events_) events_->push("msc.ready", "FAT12 virt 512k slots");
+    Serial.printf("[MSC] ready virt_sectors=%u image=%u media=held timeout=%ums\n", kVirtSectorCount,
+                  DEMO_FAT_SECTOR_COUNT, (unsigned)kMediaPresentTimeoutMs);
     return true;
 }
 
@@ -479,18 +688,42 @@ void UsbMscGadget::onUsbPlugged(bool on) {
         bytesRead_ = 0;
         bytesMeta_ = 0;
         bytesFile_ = 0;
+        bytesBoot_ = 0;
+        bytesFat_ = 0;
+        bytesDir_ = 0;
         seqBytes_ = 0;
         seqFile_ = nullptr;
         prefetchHits_ = 0;
+        playRejectCount_ = 0;
+        playGuessCount_ = 0;
+        lastReadMs_ = 0;
+        lastFileReadMs_ = 0;
+        quietEmitted_ = false;
+        indexSettled_ = false;
+        phase_ = Phase::Idle;
+        xfer512_ = xfer2k_ = xfer4k_ = xfer8kPlus_ = 0;
+        memset(slotStats_, 0, sizeof(slotStats_));
         traceHead_ = 0;
         traceCount_ = 0;
         streamBytesServed_ = 0;
         plugCount_++;
+        HostScsiProbe::instance().onPlug(plugMs_);
         if (events_) events_->push("usb.otg.up", "car-host");
+        setPhase(Phase::Scan, "plug");
     } else {
         unplugCount_++;
-        if (events_) events_->push("usb.otg.down", "car-host");
+        // Bump serial for the *next* attach so HU MediaStore cannot reuse PD0001 cache.
+        applyUsbIdentity();
+        char ser[12];
+        snprintf(ser, sizeof(ser), "PD%04u", (unsigned)(remountGen_ % 10000));
+        if (events_) {
+            char d[24];
+            snprintf(d, sizeof(d), "next=%s", ser);
+            events_->push("usb.otg.down", d);
+        }
         if (menu_) menu_->clearPlaying();
+        setPhase(Phase::Idle, "unplug");
+        Serial.printf("[MSC] unplug — next serial %s\n", ser);
     }
 }
 
@@ -500,31 +733,75 @@ void UsbMscGadget::onUsbSuspend(bool on) {
     if (events_) events_->push(on ? "usb.otg.suspend" : "usb.otg.resume", "car-host");
 }
 
-void UsbMscGadget::onHostStartStop(bool start, bool loadEject) {
-    char det[40];
-    snprintf(det, sizeof(det), "start=%u eject=%u", start ? 1 : 0, loadEject ? 1 : 0);
-    if (events_ && millis() - lastEventMs_ > 200) {
-        lastEventMs_ = millis();
-        events_->push(start ? "msc.host.start" : "msc.host.stop", det);
+void UsbMscGadget::onHostStartStop(uint8_t powerCondition, bool start, bool loadEject) {
+    HostScsiProbe::instance().noteStartStop(powerCondition, start, loadEject);
+}
+
+void UsbMscGadget::noteXferSize(uint32_t bufsize) {
+    if (bufsize <= 512)
+        xfer512_++;
+    else if (bufsize <= 2048)
+        xfer2k_++;
+    else if (bufsize <= 4096)
+        xfer4k_++;
+    else
+        xfer8kPlus_++;
+}
+
+const char* UsbMscGadget::phaseName(Phase p) {
+    switch (p) {
+        case Phase::Scan:
+            return "scan";
+        case Phase::Index:
+            return "index";
+        case Phase::Play:
+            return "play";
+        case Phase::Quiet:
+            return "quiet";
+        default:
+            return "idle";
     }
+}
+
+void UsbMscGadget::setPhase(Phase p, const char* detail) {
+    if (phase_ == p) return;
+    phase_ = p;
+    char d[48];
+    snprintf(d, sizeof(d), "%s%s%s", phaseName(p), (detail && detail[0]) ? " " : "",
+             detail ? detail : "");
+    if (events_) events_->push("msc.phase", d);
+    emitDiag("msc.phase", d);
+}
+
+void UsbMscGadget::emitDiag(const char* code, const char* detail) {
+    if (diagHandler_) diagHandler_(code, detail ? detail : "");
 }
 
 void UsbMscGadget::pushTrace(uint32_t lba, uint32_t bufsize, uint8_t kind, const char* tag) {
     MscReadSample& s = trace_[traceHead_];
-    s.ms = millis();
+    const uint32_t now = millis();
+    s.ms = now;
     s.lba = lba;
     s.bytes = (uint16_t)(bufsize > 65535 ? 65535 : bufsize);
+    s.gapMs = (lastReadMs_ && now >= lastReadMs_)
+                  ? (uint16_t)((now - lastReadMs_) > 65535 ? 65535 : (now - lastReadMs_))
+                  : 0;
     s.kind = kind;
     strncpy(s.tag, tag ? tag : "", sizeof(s.tag) - 1);
     s.tag[sizeof(s.tag) - 1] = 0;
+    lastReadMs_ = now;
     traceHead_ = (traceHead_ + 1) % kTraceSize;
     if (traceCount_ < kTraceSize) traceCount_++;
 }
 
 UsbMscGadget::Region UsbMscGadget::classify(uint32_t lba, const MscFileMap** fileOut) const {
     if (fileOut) *fileOut = nullptr;
-    if (lba < kDataStartLba) return Region::Meta;
+    if (lba == 0) return Region::Boot;
+    if ((lba >= kFat0Lba && lba < kFat0Lba + kFatSpf) ||
+        (lba >= kFat1Lba && lba < kFat1Lba + kFatSpf))
+        return Region::Fat;
     if (isDirLba(lba)) return Region::Dir;
+    if (lba < kDataStartLba) return Region::Meta;
     const MscFileMap* f = fileForLba(lba);
     if (f && f->active) {
         if (fileOut) *fileOut = f;
@@ -533,19 +810,26 @@ UsbMscGadget::Region UsbMscGadget::classify(uint32_t lba, const MscFileMap** fil
     return Region::Meta;
 }
 
+int UsbMscGadget::slotIndex(const MscFileMap* f) const {
+    if (!f) return -1;
+    for (size_t i = 0; i < kSlots; i++) {
+        if (&slots_[i] == f) return (int)i;
+    }
+    return -1;
+}
+
 UsbMscGadget::PlayEval UsbMscGadget::evaluatePlay(const MscFileMap* f, uint32_t startLba,
                                                   uint32_t seqBytes) const {
     if (!f || !f->active || !f->uid[0]) return PlayEval::BadFile;
     // Hosts often 4 KiB-align; first USB read may start a few LBAs after file start.
     if (startLba > f->lbaStart + playDetect_.headLbaSlop) return PlayEval::NotFromHead;
-    // Demo stubs are ~6.5 KiB. BMW indexes the whole stub in the first seconds after
-    // plug — that must NOT arm live stream (else NBT: „keine abspielbaren Titel“).
-    // Real play usually re-reads from the head after the index window.
+    // 512KiB slots: HU deep-indexes from head long after plugWindow — must not arm live
+    // until the first quiet gap (index settled). Real play re-reads after that.
+    if (!indexSettled_) return PlayEval::PlugWindow;
     if (playDetect_.plugWindowMs > 0 && plugMs_ &&
         (millis() - plugMs_) < playDetect_.plugWindowMs) {
         return PlayEval::PlugWindow;
     }
-    // Slightly under stub size so a full re-read of 01ROCK.MP3 (6495 B) counts as play.
     if (seqBytes < playDetect_.minSeqBytes) return PlayEval::SeqShort;
     return PlayEval::Ok;
 }
@@ -590,6 +874,7 @@ void UsbMscGadget::emitPlayReject(PlayEval eval, const MscFileMap* f, uint32_t s
     }
     Serial.printf("[MSC] play.reject %s\n", d);
     if (events_) events_->push("play.reject", d);
+    emitDiag("play.reject", d);
 }
 
 int32_t UsbMscGadget::onWrite(uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_t bufsize) {
@@ -620,20 +905,52 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
     readCount_++;
     lastReadLba_ = lba;
     bytesRead_ += bufsize;
+    noteXferSize(bufsize);
 
     const MscFileMap* f = nullptr;
     Region reg = classify(lba, &f);
     const char* tag = "META";
     uint8_t kind = 0;
-    if (reg == Region::Dir) {
-        tag = "DIR";
-        kind = 1;
+    if (reg == Region::Boot) {
+        tag = "BOOT";
+        kind = 4;
+        bytesBoot_ += bufsize;
         bytesMeta_ += bufsize;
+        if (phase_ == Phase::Idle || phase_ == Phase::Quiet) setPhase(Phase::Scan, "boot");
+    } else if (reg == Region::Fat) {
+        tag = metaTag(lba);
+        kind = 5;
+        bytesFat_ += bufsize;
+        bytesMeta_ += bufsize;
+        if (phase_ == Phase::Idle || phase_ == Phase::Quiet) setPhase(Phase::Scan, "fat");
+    } else if (reg == Region::Dir) {
+        tag = (lba < kDataStartLba) ? "ROOT" : "DIR";
+        kind = 1;
+        bytesDir_ += bufsize;
+        bytesMeta_ += bufsize;
+        if (phase_ != Phase::Play && phase_ != Phase::Index) setPhase(Phase::Scan, "dir");
     } else if (reg == Region::File && f) {
         tag = f->name;
         kind = 2;
         bytesFile_ += bufsize;
+        lastFileReadMs_ = millis();
+        quietEmitted_ = false;
+        const int si = slotIndex(f);
+        if (si >= 0) {
+            slotStats_[si].bytes += bufsize;
+            slotStats_[si].lastReadMs = lastFileReadMs_;
+            if (lba <= f->lbaStart + playDetect_.headLbaSlop)
+                slotStats_[si].fromHeadHits++;
+            else
+                slotStats_[si].midFileHits++;
+        }
+        // During plug window, file reads are indexing (not arming live).
+        if (playDetect_.plugWindowMs > 0 && plugMs_ &&
+            (millis() - plugMs_) < playDetect_.plugWindowMs) {
+            if (phase_ != Phase::Play) setPhase(Phase::Index, f->name);
+        }
     } else {
+        tag = metaTag(lba);
         bytesMeta_ += bufsize;
     }
     pushTrace(lba, bufsize, kind, tag);
@@ -650,6 +967,7 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
             char d[40];
             snprintf(d, sizeof(d), "%lu ms", (unsigned long)msPlugToFirstRead_);
             events_->push("msc.first_read", d);
+            emitDiag("msc.first_read", d);
         }
     }
 
@@ -666,6 +984,11 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
     }
     seqLba_ = lba;
     seqBytes_ += bufsize;
+    {
+        const int si = slotIndex(f);
+        if (si >= 0 && seqBytes_ > slotStats_[si].maxSeqBytes)
+            slotStats_[si].maxSeqBytes = seqBytes_;
+    }
 
     PlayEval eval = evaluatePlay(f, seqStartLba_, seqBytes_);
     if (eval != PlayEval::Ok) {
@@ -703,6 +1026,7 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
         }
         playGuessCount_++;
         lastRejectEval_ = 0xFF;
+        setPhase(Phase::Play, f->name);
         if (events_ && millis() - lastEventMs_ > 400) {
             lastEventMs_ = millis();
             events_->push("play.guess", f->uid);
@@ -719,7 +1043,22 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
 
 void UsbMscGadget::loop() {
     if (!mediaPresented_ && presentDeadlineMs_ && (int32_t)(millis() - presentDeadlineMs_) >= 0) {
-        presentMedia("timeout");
+        presentMedia(remountHoldUntilMs_ ? "remount" : "timeout");
+    }
+    // Host finished indexing/reading stubs then went quiet → likely cached playback.
+    // Critical BMW signal: Demo audible but no further MSC reads / no play.guess.
+    if (plugged_ && !quietEmitted_ && lastFileReadMs_ && bytesFile_ >= 2048 &&
+        phase_ != Phase::Play && (millis() - lastFileReadMs_) >= kQuietAfterFileMs) {
+        quietEmitted_ = true;
+        indexSettled_ = true;
+        setPhase(Phase::Quiet, "cache?");
+        if (events_) {
+            char d[56];
+            snprintf(d, sizeof(d), "file=%luB age=%lums", (unsigned long)bytesFile_,
+                     (unsigned long)(millis() - lastFileReadMs_));
+            events_->push("msc.quiet", d);
+            emitDiag("msc.quiet", d);
+        }
     }
 }
 
@@ -740,9 +1079,21 @@ void UsbMscGadget::traceToJson(JsonArray arr) const {
         const MscReadSample& s = trace_[(start + i) % kTraceSize];
         JsonObject o = arr.add<JsonObject>();
         o["ms"] = s.ms;
+        o["gap"] = s.gapMs;
         o["lba"] = s.lba;
         o["n"] = s.bytes;
-        o["kind"] = s.kind == 3 ? "wr" : (s.kind == 2 ? "file" : (s.kind == 1 ? "dir" : "meta"));
+        const char* kind = "meta";
+        if (s.kind == 1)
+            kind = "dir";
+        else if (s.kind == 2)
+            kind = "file";
+        else if (s.kind == 3)
+            kind = "wr";
+        else if (s.kind == 4)
+            kind = "boot";
+        else if (s.kind == 5)
+            kind = "fat";
+        o["kind"] = kind;
         o["tag"] = s.tag;
     }
 }
@@ -757,6 +1108,9 @@ void UsbMscGadget::toJson(JsonObject obj) const {
     obj["lastReadLba"] = lastReadLba_;
     obj["bytesRead"] = bytesRead_;
     obj["bytesMeta"] = bytesMeta_;
+    obj["bytesBoot"] = bytesBoot_;
+    obj["bytesFat"] = bytesFat_;
+    obj["bytesDir"] = bytesDir_;
     obj["bytesFile"] = bytesFile_;
     obj["prefetchHits"] = prefetchHits_;
     obj["playRejectCount"] = playRejectCount_;
@@ -764,6 +1118,7 @@ void UsbMscGadget::toJson(JsonObject obj) const {
     obj["streamSlot"] = streamSlot_;
     obj["streamBytes"] = streamBytesServed_;
     obj["fatMode"] = "static";
+    obj["phase"] = phaseName(phase_);
     obj["mediaPresented"] = mediaPresented_;
     obj["mediaWaitMs"] = (!mediaPresented_ && presentDeadlineMs_)
                              ? (int32_t)(presentDeadlineMs_ - millis())
@@ -776,6 +1131,17 @@ void UsbMscGadget::toJson(JsonObject obj) const {
         pd["cooldownMs"] = playDetect_.cooldownMs;
         pd["prefetchLbaSlop"] = playDetect_.prefetchLbaSlop;
     }
+    {
+        JsonObject x = obj["xfer"].to<JsonObject>();
+        x["n512"] = xfer512_;
+        x["n2k"] = xfer2k_;
+        x["n4k"] = xfer4k_;
+        x["n8kPlus"] = xfer8kPlus_;
+    }
+    {
+        JsonObject host = obj["host"].to<JsonObject>();
+        HostScsiProbe::instance().toJson(host);
+    }
     if (stream_) {
         JsonObject s = obj["stream"].to<JsonObject>();
         stream_->toJson(s);
@@ -786,7 +1152,7 @@ void UsbMscGadget::toJson(JsonObject obj) const {
     obj["msPlugToPlayGuess"] = msPlugToPlayGuess_;
     obj["plugCount"] = plugCount_;
     obj["unplugCount"] = unplugCount_;
-    obj["sectorCount"] = DEMO_FAT_SECTOR_COUNT;
+    obj["sectorCount"] = kVirtSectorCount;
     obj["imageBytes"] = DEMO_FAT_SIZE;
     obj["dataStartLba"] = kDataStartLba;
     obj["slots"] = (int)kSlots;
@@ -801,6 +1167,12 @@ void UsbMscGadget::toJson(JsonObject obj) const {
         o["lba0"] = slots_[i].lbaStart;
         o["lba1"] = slots_[i].lbaEnd;
         o["active"] = slots_[i].active;
+        o["bytes"] = slotStats_[i].bytes;
+        o["fromHead"] = slotStats_[i].fromHeadHits;
+        o["midFile"] = slotStats_[i].midFileHits;
+        o["maxSeq"] = slotStats_[i].maxSeqBytes;
+        o["lastAgeMs"] =
+            slotStats_[i].lastReadMs ? (millis() - slotStats_[i].lastReadMs) : 0;
     }
 }
 
@@ -815,11 +1187,13 @@ bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
 void UsbMscGadget::loop() {}
 void UsbMscGadget::applyMenuSlots(const MenuStore&) {}
 void UsbMscGadget::presentMedia(const char*) {}
+void UsbMscGadget::remountMedia(const char*) {}
+void UsbMscGadget::applyUsbIdentity() {}
 void UsbMscGadget::startStream(const char*) {}
 void UsbMscGadget::stopStream() {}
 void UsbMscGadget::onUsbPlugged(bool) {}
 void UsbMscGadget::onUsbSuspend(bool) {}
-void UsbMscGadget::onHostStartStop(bool, bool) {}
+void UsbMscGadget::onHostStartStop(uint8_t, bool, bool) {}
 int32_t UsbMscGadget::onRead(uint32_t, uint32_t, void*, uint32_t) { return -1; }
 int32_t UsbMscGadget::onWrite(uint32_t, uint32_t, uint8_t*, uint32_t) { return -1; }
 uint32_t UsbMscGadget::msSincePlug() const { return 0; }
@@ -831,14 +1205,21 @@ void UsbMscGadget::toJson(JsonObject obj) const {
 void UsbMscGadget::traceToJson(JsonArray) const {}
 void UsbMscGadget::noteDataRead(uint32_t, uint32_t) {}
 void UsbMscGadget::pushTrace(uint32_t, uint32_t, uint8_t, const char*) {}
+void UsbMscGadget::noteXferSize(uint32_t) {}
+void UsbMscGadget::setPhase(Phase, const char*) {}
+void UsbMscGadget::emitDiag(const char*, const char*) {}
+const char* UsbMscGadget::phaseName(Phase) { return "idle"; }
 UsbMscGadget::Region UsbMscGadget::classify(uint32_t, const MscFileMap**) const { return Region::Meta; }
 const MscFileMap* UsbMscGadget::fileForLba(uint32_t) const { return nullptr; }
+int UsbMscGadget::slotIndex(const MscFileMap*) const { return -1; }
 UsbMscGadget::PlayEval UsbMscGadget::evaluatePlay(const MscFileMap*, uint32_t, uint32_t) const {
     return PlayEval::BadFile;
 }
 const char* UsbMscGadget::playEvalName(PlayEval) { return "bad_file"; }
 void UsbMscGadget::emitPlayReject(PlayEval, const MscFileMap*, uint32_t, uint32_t, const char*) {}
 void UsbMscGadget::loadDefaultSlots() {}
+void UsbMscGadget::patchBoot(uint8_t*) const {}
+void UsbMscGadget::patchRootDir(uint8_t*, uint32_t) const {}
 void UsbMscGadget::patchDirNames(uint8_t*, uint32_t) const {}
 void UsbMscGadget::patchFatFixed(uint8_t*, uint32_t) const {}
 void UsbMscGadget::patchFatChain(uint8_t*, uint32_t, uint16_t, uint16_t) const {}

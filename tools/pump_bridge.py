@@ -8,6 +8,7 @@
 - Root presets: favorite webradio stations as first MSC page (≤3 + Mehr…)
 - audio_start carries cSrc/cPath/cTry for SoftAP cover-hint UI
 - Stations (meta.url) and local_play: paths are streamed via ffmpeg
+- DAB/FM/ohne URL: Pulse/PipeWire Default-Sink.monitor → ffmpeg → ESP
 - Special UIDs: pump:stop · pump:favoriten · pump:page_*
 
 Transport:
@@ -73,8 +74,13 @@ FAVORITES_JSON_PATHS = [
 DEFAULT_COVER_REL = "default.jpg"  # immer, wenn kein Station-/APIC-Cover
 MAX_SLOTS = 4
 PAGE_CONTENT = 3  # when paging: 3 items + Mehr/Seite1
-FRAME_MAX = 480
-ID3_BUDGET = 12 * 1024
+FRAME_MAX = 256
+ID3_BUDGET = 8 * 1024
+# SoftAP listen needs ≥ realtime fill for 48k MP3 (~6 KB/s). Stay a bit above.
+AUDIO_TARGET_BPS = 9000
+PULSE_SERVER = "unix:/var/run/pulse/native"
+# ffmpeg input marker for Pulse/PipeWire monitor (DAB/FM ohne meta.url)
+PULSE_PREFIX = "pulse:"
 PAGE_NEXT_UID = "pump:page_next"
 PAGE_HOME_UID = "pump:page_home"
 STOP_UID = "pump:stop"
@@ -89,6 +95,61 @@ DEMO_UID_TO_FAV = {
 AUDIO_EXTS = {".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wav", ".opus", ".wma"}
 # synthetic preset nodes (uid → node), filled when building root presets page
 _PRESET_BY_UID: dict[str, dict] = {}
+# UIDs from previous menu pages stay resolvable after drill-down / TCP reconnect
+# (BMW may re-fire play_uid for a folder that is no longer on the current page).
+UID_GRACE_S = 180.0
+
+
+def remember_uid_nodes(
+    cache: dict[str, tuple[float, dict]],
+    nodes: dict[str, dict] | list | None,
+) -> None:
+    """Merge nodes into uid→(ts, node) grace cache."""
+    if not nodes:
+        return
+    now = time.time()
+    if isinstance(nodes, dict):
+        iterable = nodes.items()
+    else:
+        iterable = ((str(n.get("uid")), n) for n in nodes if n and n.get("uid") is not None)
+    for uid, node in iterable:
+        if not uid or not isinstance(node, dict):
+            continue
+        cache[str(uid)] = (now, node)
+
+
+def remember_menu_items(cache: dict[str, tuple[float, dict]], items: list | None) -> None:
+    """Remember MSC slot items from a menu_set payload (kind → type)."""
+    if not items:
+        return
+    now = time.time()
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        uid = str(it.get("uid") or "")
+        if not uid or uid.startswith("pump:"):
+            continue
+        cache[uid] = (
+            now,
+            {
+                "uid": uid,
+                "type": it.get("kind") or it.get("type") or "station",
+                "label": it.get("name") or it.get("label") or uid,
+                "action": it.get("action"),
+            },
+        )
+
+
+def grace_lookup(cache: dict[str, tuple[float, dict]], uid: str) -> dict | None:
+    """Return a remembered node if still within UID_GRACE_S; purge expired."""
+    if not uid:
+        return None
+    now = time.time()
+    expired = [k for k, (ts, _) in cache.items() if now - ts > UID_GRACE_S]
+    for k in expired:
+        del cache[k]
+    hit = cache.get(uid)
+    return hit[1] if hit else None
 
 
 class PumpIO(Protocol):
@@ -230,6 +291,29 @@ def collect_audio_files(path: str) -> list[str]:
     return out
 
 
+def fat_safe_name(label: str, limit: int = 36) -> str:
+    """FAT-safe MSC slot name: strip favorite '*' and illegal LFN chars.
+
+    BMW/NBT often shows an empty USB list if directory entries contain '*'.
+    """
+    s = (label or "").strip()
+    while s[:1] in ("*", "★", "☆", "\u2605", "\u2606"):
+        s = s[1:].lstrip()
+    out: list[str] = []
+    for ch in s:
+        o = ord(ch)
+        if o < 0x20 or ch in '"*/:<>?\\|':
+            continue
+        if ch == "…":
+            out.append("...")
+            continue
+        out.append(ch)
+    cleaned = "".join(out).strip(" .")
+    if not cleaned:
+        cleaned = "Track"
+    return cleaned[:limit]
+
+
 def read_menu_nodes() -> tuple[int, list[dict], dict[str, dict]]:
     """Return (rev, visible nodes in folder order, by_uid).
 
@@ -259,7 +343,7 @@ def page_items(nodes: list[dict], page: int) -> tuple[list[dict], int]:
         items = [
             {
                 "uid": str(n["uid"]),
-                "name": (n.get("label") or n.get("id") or "?")[:36],
+                "name": fat_safe_name(n.get("label") or n.get("id") or "?"),
                 "kind": n.get("type") or "info",
             }
             for n in nodes[:MAX_SLOTS]
@@ -273,7 +357,7 @@ def page_items(nodes: list[dict], page: int) -> tuple[list[dict], int]:
     items = [
         {
             "uid": str(n["uid"]),
-            "name": (n.get("label") or n.get("id") or "?")[:36],
+            "name": fat_safe_name(n.get("label") or n.get("id") or "?"),
             "kind": n.get("type") or "info",
         }
         for n in chunk
@@ -283,7 +367,7 @@ def page_items(nodes: list[dict], page: int) -> tuple[list[dict], int]:
         items.append(
             {
                 "uid": PAGE_NEXT_UID,
-                "name": f"Mehr… (+{left})"[:36],
+                "name": fat_safe_name(f"Mehr... (+{left})"),
                 "kind": "action",
             }
         )
@@ -413,7 +497,7 @@ def menu_nodes_for_page(path_ids: list | None, nodes: list[dict], page: int) -> 
                 items = [
                     {
                         "uid": str(n["uid"]),
-                        "name": (n.get("label") or n.get("id") or "?")[:36],
+                        "name": fat_safe_name(n.get("label") or n.get("id") or "?"),
                         "kind": "station",
                     }
                     for n in chunk
@@ -421,7 +505,7 @@ def menu_nodes_for_page(path_ids: list | None, nodes: list[dict], page: int) -> 
                 items.append(
                     {
                         "uid": PAGE_NEXT_UID,
-                        "name": "Menü…"[:36],
+                        "name": fat_safe_name("Menue..."),
                         "kind": "action",
                     }
                 )
@@ -606,7 +690,7 @@ def load_cover(
     return jpeg, "generated", meta
 
 
-def resize_jpeg(data: bytes, max_side: int = 320, max_bytes: int = 8000) -> bytes:
+def resize_jpeg(data: bytes, max_side: int = 240, max_bytes: int = 2500) -> bytes:
     if Image is None:
         return data[:max_bytes] if len(data) > max_bytes else data
     try:
@@ -617,13 +701,22 @@ def resize_jpeg(data: bytes, max_side: int = 320, max_bytes: int = 8000) -> byte
     scale = min(1.0, max_side / max(w, h))
     if scale < 1.0:
         img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.Resampling.LANCZOS)
-    for q in (70, 60, 50, 40, 30):
+    out = b""
+    for q in (70, 60, 50, 40, 30, 25, 20):
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=q, optimize=True)
         out = buf.getvalue()
         if len(out) <= max_bytes:
             return out
-    return out  # type: ignore[name-defined]
+    # last resort: shrink pixels until under budget
+    side = max_side
+    while side >= 96 and len(out) > max_bytes:
+        side = int(side * 0.75)
+        img2 = img.resize((side, side), Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        img2.save(buf, format="JPEG", quality=20, optimize=True)
+        out = buf.getvalue()
+    return out if len(out) <= max_bytes else out[:max_bytes]
 
 
 def extract_apic_from_file(path: str | None) -> bytes | None:
@@ -714,13 +807,31 @@ def build_id3_tag(title: str, artist: str, album: str, jpeg: bytes) -> bytes:
     return tag
 
 
-def send_bin(ser: PumpIO, kind: int, payload: bytes) -> None:
+def send_bin(ser: PumpIO, kind: int, payload: bytes, *, gap_s: float | None = None) -> None:
+    """Send framed binary; batch frames per TCP write.
+
+    ID3 (0x56) stays slow — large sticky headers used to reset WiFiClient.
+    Audio (0x55) uses a short gap so SoftAP listen can fill near realtime.
+    """
+    if gap_s is None:
+        gap_s = 0.05 if kind == 0x56 else 0.004
+    batch_frames = 2 if kind == 0x56 else 6
     off = 0
+    batch = bytearray()
+    frames_in_batch = 0
     while off < len(payload):
         chunk = payload[off : off + FRAME_MAX]
         hdr = bytes((0x01, kind, len(chunk) & 0xFF, (len(chunk) >> 8) & 0xFF))
-        ser.write(hdr + chunk)
+        batch.extend(hdr)
+        batch.extend(chunk)
         off += len(chunk)
+        frames_in_batch += 1
+        if frames_in_batch >= batch_frames or off >= len(payload):
+            ser.write(bytes(batch))
+            batch.clear()
+            frames_in_batch = 0
+            if gap_s > 0:
+                time.sleep(gap_s)
     ser.flush()
 
 
@@ -730,6 +841,9 @@ class AudioFwd:
         self.bitrate = bitrate
         self.proc: subprocess.Popen | None = None
         self.uid = ""
+        self.last_start_msg: dict | None = None
+        self.last_id3: bytes = b""
+        self.hold_menu_until: float = 0.0
 
     def stop(self, status_cover: bool = False) -> None:
         """Stop ffmpeg + ESP stream.
@@ -750,8 +864,49 @@ class AudioFwd:
             self.ser.flush()
             print(f"[tx] {line}", flush=True)
         self.uid = ""
+        self.last_start_msg = None
+        self.last_id3 = b""
         if status_cover:
             print("[id3] status cover skipped (MSC-safe)", flush=True)
+
+    def reannounce(self) -> None:
+        """Disabled for TCP: blasting ID3+audio after every drop resets the ESP link
+        and blocks menu_set (SoftAP stuck on stale favorites)."""
+        print("[id3] reannounce skipped (TCP stability — play again to restore stream)", flush=True)
+
+    def stop_forward_only(self) -> None:
+        """Stop ffmpeg→ESP forwarder without touching Pi playback / without audio_stop storm.
+
+        Keep last_start_msg / _last_* so soft_resume can restart the SoftAP stream.
+        """
+        if self.proc and self.proc.poll() is None:
+            try:
+                self.proc.terminate()
+                self.proc.wait(timeout=2)
+            except Exception:
+                try:
+                    self.proc.kill()
+                except Exception:
+                    pass
+        self.proc = None
+        # keep uid / last_start_msg / last_id3 / _last_* for soft_resume
+        self.hold_menu_until = 0.0
+
+    def soft_resume(self) -> bool:
+        """Disabled: ID3+audio right after reconnect resets ESP TCP (pump.tcp.down storm).
+
+        Play again from SoftAP/BMW once the link is stable.
+        """
+        if self.last_start_msg or getattr(self, "_last_src", None):
+            print(
+                "[bridge] soft_resume skipped (TCP stability — play again for SoftAP stream)",
+                flush=True,
+            )
+        self.uid = ""
+        self.last_start_msg = None
+        self.last_id3 = b""
+        self._last_src = None
+        return False
 
     def push_status(self, kind: str | None = None) -> None:
         """Sticky ID3+APIC with status/*.jpg so SoftAP still shows a cover when idle."""
@@ -853,6 +1008,10 @@ class AudioFwd:
         self.ser.flush()
         print(f"[tx] {line}", flush=True)
         print(f"[trace] audio_start sent uid={uid} cover={src}", flush=True)
+        self.last_start_msg = dict(start_msg)
+        self.hold_menu_until = time.time() + 3.0  # MSC presentMedia kills TCP mid-stream
+        # Let ESP finish audio_start / audio_ack before binary ID3
+        time.sleep(0.2)
 
         # Persist hint for SoftAP / humans
         try:
@@ -899,43 +1058,36 @@ class AudioFwd:
                     jpeg = make_cover_jpeg(str(station)[:40], str(title)[:48], "cover too large")
                     src = "generated"
                 tag = build_id3_tag(str(title)[:60], str(artist)[:40], str(album)[:40], jpeg)
-            send_bin(self.ser, 0x56, tag[:ID3_BUDGET])
+            tag = tag[:ID3_BUDGET]
+            send_bin(self.ser, 0x56, tag)
+            self.last_id3 = tag
+            # refresh cSrc if shrunk
+            self.last_start_msg["cSrc"] = src[:12]
             print(
-                f"[id3] sent {min(len(tag), ID3_BUDGET)} B jpeg={len(jpeg)} src={src} "
+                f"[id3] sent {len(tag)} B jpeg={len(jpeg)} src={src} "
                 f"rel={c_rel!r} → {PROBE_PATH}",
                 flush=True,
             )
         except Exception as e:
             print(f"[id3] skip: {e}", flush=True)
+            self.last_id3 = b""
 
+        time.sleep(0.5)  # ESP digest sticky ID3 + audio_ack before MP3 flood
+        self._last_src = url
+        self._last_node = node
+        self._last_media = media_path
+        cmd, env = _ffmpeg_cmd_for_source(url, self.bitrate)
         print(f"[audio] ffmpeg {url} @ {self.bitrate}", flush=True)
         self.proc = subprocess.Popen(
-            [
-                "ffmpeg",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-reconnect",
-                "1",
-                "-reconnect_streamed",
-                "1",
-                "-i",
-                url,
-                "-vn",
-                "-ac",
-                "1",
-                "-ar",
-                "22050",
-                "-b:a",
-                self.bitrate,
-                "-f",
-                "mp3",
-                "pipe:1",
-            ],
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            env=env,
             bufsize=0,
         )
+        self._next_pump_ts = time.time() + 0.2
+        self._audio_bytes_window = 0
+        self._audio_window_t0 = time.time()
 
     def pump(self) -> int:
         if not self.proc or not self.proc.stdout:
@@ -944,18 +1096,118 @@ class AudioFwd:
             print(f"[audio] ffmpeg exit {self.proc.returncode}", flush=True)
             self.proc = None
             return 0
+        now = time.time()
+        if now < getattr(self, "_next_pump_ts", 0):
+            return 0
+        # Token-bucket toward AUDIO_TARGET_BPS so SoftAP fills near realtime
+        # without the old blast that reset ESP TCP.
+        t0 = getattr(self, "_audio_window_t0", now)
+        sent = getattr(self, "_audio_bytes_window", 0)
+        if now - t0 >= 1.0:
+            self._audio_window_t0 = now
+            self._audio_bytes_window = 0
+            t0, sent = now, 0
+        if sent >= AUDIO_TARGET_BPS:
+            self._next_pump_ts = t0 + 1.0
+            return 0
         r, _, _ = select.select([self.proc.stdout], [], [], 0)
         if not r:
             return 0
-        data = self.proc.stdout.read(FRAME_MAX)
+        # Up to ~1 KiB per tick; bucket caps sustained rate
+        want = min(FRAME_MAX * 4, AUDIO_TARGET_BPS - sent)
+        data = self.proc.stdout.read(want)
         if not data:
             return 0
         send_bin(self.ser, 0x55, data)
+        self._audio_bytes_window = sent + len(data)
+        self._next_pump_ts = now + 0.012
         return len(data)
 
 
+def resolve_pulse_monitor() -> str | None:
+    """Default-Sink.monitor for live capture (DAB/FM after activate on Pi)."""
+    env = {**os.environ, "PULSE_SERVER": PULSE_SERVER}
+    try:
+        r = subprocess.run(
+            ["pactl", "get-default-sink"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            env=env,
+        )
+        sink = (r.stdout or "").strip()
+    except Exception as e:
+        print(f"[audio] pactl default-sink: {e}", flush=True)
+        return None
+    if not sink:
+        print("[audio] kein Default-Sink (Pulse/PipeWire)", flush=True)
+        return None
+    mon = sink if sink.endswith(".monitor") else f"{sink}.monitor"
+    return mon
+
+
+def _ffmpeg_cmd_for_source(src: str, bitrate: str) -> tuple[list[str], dict]:
+    """Build ffmpeg argv + env. pulse:<name> → Pulse input; else URL/file."""
+    env = {**os.environ, "PULSE_SERVER": PULSE_SERVER}
+    if src.startswith(PULSE_PREFIX):
+        mon = src[len(PULSE_PREFIX) :]
+        cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-fflags",
+            "nobuffer",
+            "-flags",
+            "low_delay",
+            "-f",
+            "pulse",
+            "-i",
+            mon,
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "22050",
+            "-b:a",
+            bitrate,
+            "-f",
+            "mp3",
+            "pipe:1",
+        ]
+        return cmd, env
+    # HTTP / file / pipe path
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-reconnect",
+        "1",
+        "-reconnect_streamed",
+        "1",
+        "-i",
+        src,
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "22050",
+        "-b:a",
+        bitrate,
+        "-f",
+        "mp3",
+        "pipe:1",
+    ]
+    return cmd, env
+
+
 def resolve_stream_target(node: dict) -> tuple[str | None, str | None]:
-    """Return (ffmpeg_input, media_path_for_cover)."""
+    """Return (ffmpeg_input, media_path_for_cover).
+
+    Prefer meta.url / local_play; otherwise Pulse Default-Sink.monitor
+    (DAB/FM after activate — Pi plays locally, Bridge forwards to ESP).
+    """
     typ = node.get("type") or ""
     meta = node.get("meta") or {}
     url = meta.get("url") if isinstance(meta, dict) else None
@@ -974,6 +1226,13 @@ def resolve_stream_target(node: dict) -> tuple[str | None, str | None]:
         mp3s = [f for f in files if f.lower().endswith(".mp3")]
         chosen = mp3s[0] if mp3s else files[0]
         return chosen, chosen
+
+    # DAB / FM / Scanner / unbekanntes UID nach activate → Pi spielt lokal,
+    # Bridge greift Default-Sink.monitor ab (auch wenn node leer / nicht in aktueller Seite).
+    mon = resolve_pulse_monitor()
+    if mon:
+        print(f"[audio] pulse monitor → {mon}", flush=True)
+        return f"{PULSE_PREFIX}{mon}", None
     return None, None
 
 
@@ -1039,6 +1298,35 @@ def main() -> int:
 
     audio = AudioFwd(ser, args.bitrate)
     send({"t": "hello", "ver": 1})
+    # Wait briefly for hello_ack so menu_set is not raced before the session is up.
+    hello_deadline = time.time() + 2.5
+    got_hello = False
+    boot_buf = b""
+    while time.time() < hello_deadline and not got_hello:
+        chunk = ser.read(512)
+        if chunk:
+            boot_buf += chunk
+            while b"\n" in boot_buf:
+                line, boot_buf = boot_buf.split(b"\n", 1)
+                text = line.decode("utf-8", errors="replace").strip()
+                if not text:
+                    continue
+                print(f"[rx] {text}", flush=True)
+                try:
+                    msg = json.loads(text)
+                except json.JSONDecodeError:
+                    continue
+                if msg.get("t") == "hello_ack":
+                    got_hello = True
+                    print(
+                        f"[hello_ack] ver={msg.get('ver')} slots={msg.get('slots')} "
+                        f"page={msg.get('page')} tcp={msg.get('tcp')}",
+                        flush=True,
+                    )
+        else:
+            time.sleep(0.02)
+    if not got_hello:
+        print("[bridge] warn: no hello_ack yet — continuing", flush=True)
     # Always clear any leftover live stream so BMW can index the demo FAT MP3s.
     send({"t": "audio_stop"})
     audio.uid = ""
@@ -1046,9 +1334,16 @@ def main() -> int:
     last_sig = ""
     page = 0
     folder_sig = ""
-    buf = b""
+    buf = boot_buf  # keep any bytes already read while waiting for hello_ack
     last_menu = 0.0
+    last_ping = 0.0
+    last_menu_tx = 0.0
+    menu_hold_until = 0.0
+    hello_ok_until = 0.0  # require fresh hello_ack before menu_set after reconnect
+    pending_menu: dict | None = None  # set on tx, cleared on menu_ack
     by_uid: dict[str, dict] = {}
+    uid_grace: dict[str, tuple[float, dict]] = {}
+    last_menu_snapshot: dict | None = None  # last menu_set payload (for reconnect resync)
     sent_audio = 0
     last_audio_log = time.time()
     force_menu = False
@@ -1075,8 +1370,40 @@ def main() -> int:
         ser = new_io
         audio.ser = new_io
 
+    def wait_hello_ack(timeout: float = 2.5) -> bool:
+        """Drain until hello_ack so menu_set is not raced on a half-open session."""
+        nonlocal buf
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                chunk = ser.read(512)
+            except Exception:
+                return False
+            if chunk:
+                buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                text = line.decode("utf-8", errors="replace").strip()
+                if not text.startswith("{"):
+                    continue
+                try:
+                    msg = json.loads(text)
+                except json.JSONDecodeError:
+                    continue
+                print(f"[rx] {text}", flush=True)
+                if msg.get("t") == "hello_ack":
+                    print(
+                        f"[hello_ack] ver={msg.get('ver')} slots={msg.get('slots')} "
+                        f"page={msg.get('page')} tcp={msg.get('tcp')}",
+                        flush=True,
+                    )
+                    return True
+            time.sleep(0.05)
+        return False
+
     def try_reconnect(reason: str) -> bool:
-        nonlocal buf, force_menu, last_sig, label
+        nonlocal buf, force_menu, last_sig, last_rev, label, menu_hold_until, hello_ok_until
+        nonlocal pending_menu, last_menu_tx, last_menu_snapshot
         if args.reconnect <= 0:
             return False
         if args.transport == "uart":
@@ -1084,8 +1411,10 @@ def main() -> int:
         if not args.host and args.transport != "auto":
             return False
         print(f"[bridge] link lost ({reason}) — reconnect in {args.reconnect}s", flush=True)
+        # Stop ESP audio forwarder on drop — reannounce storms reset TCP and freeze menu.
+        # Pi radio (welle/mpv) keeps playing locally.
         try:
-            audio.stop(status_cover=False)
+            audio.stop_forward_only()
         except Exception:
             pass
         time.sleep(args.reconnect)
@@ -1093,11 +1422,49 @@ def main() -> int:
             new_io, label = connect()
             rebind(new_io)
             buf = b""
-            force_menu = True
-            last_sig = ""
             send({"t": "hello", "ver": 1})
-            send({"t": "audio_stop"})
-            print(f"[bridge] reconnected {label}", flush=True)
+            ok = wait_hello_ack()
+            # Keep uid_grace + last_menu_snapshot — wiping them caused stale/unknown
+            # when BMW re-fired play_uid for a folder no longer on the current page.
+            hello_ok_until = time.time() + 60.0 if ok else 0.0
+            menu_hold_until = time.time() + 0.35
+            pending_menu = None
+            snap = last_menu_snapshot
+            if ok and snap and isinstance(snap, dict) and snap.get("items"):
+                try:
+                    send(snap)
+                    pending_menu = {
+                        "rev": int(snap.get("rev") or last_rev or 0),
+                        "sig": last_sig or json.dumps(snap.get("items"), separators=(",", ":")),
+                        "msg": snap,
+                    }
+                    last_menu_tx = time.time()
+                    remember_menu_items(uid_grace, snap.get("items") or [])
+                    force_menu = False
+                    print(
+                        f"[bridge] reconnected {label} hello_ack=ok "
+                        f"(menu snapshot resent rev={snap.get('rev')} "
+                        f"grace={len(uid_grace)})",
+                        flush=True,
+                    )
+                except Exception as e_snap:
+                    force_menu = True
+                    last_sig = ""
+                    last_rev = -1
+                    print(
+                        f"[bridge] reconnected {label} hello_ack=ok "
+                        f"(snapshot resend failed: {e_snap}; menu sync pending)",
+                        flush=True,
+                    )
+            else:
+                force_menu = True
+                last_sig = ""
+                last_rev = -1
+                print(
+                    f"[bridge] reconnected {label} hello_ack={'ok' if ok else 'missing'} "
+                    f"(menu sync pending, grace={len(uid_grace)})",
+                    flush=True,
+                )
             return True
         except Exception as e2:
             print(f"[bridge] reconnect failed: {e2}", flush=True)
@@ -1140,6 +1507,27 @@ def main() -> int:
                     except json.JSONDecodeError:
                         continue
                     t = msg.get("t")
+                    if t == "event" and msg.get("op") == "diag":
+                        code = str(msg.get("code") or "")
+                        detail = str(msg.get("detail") or "")
+                        line = f"[msc] {code} {detail}".rstrip()
+                        print(line, flush=True)
+                        try:
+                            with open("/tmp/pidrive_msc_diag.jsonl", "a", encoding="utf-8") as df:
+                                df.write(
+                                    json.dumps(
+                                        {
+                                            "ts": time.time(),
+                                            "code": code,
+                                            "detail": detail,
+                                        },
+                                        separators=(",", ":"),
+                                    )
+                                    + "\n"
+                                )
+                        except OSError:
+                            pass
+                        continue
                     if t == "event" and msg.get("op") == "play_uid":
                         uid = str(msg.get("uid") or "")
                         if not uid:
@@ -1180,8 +1568,20 @@ def main() -> int:
                             continue
 
                         _, _nodes, by_uid = read_menu_nodes()
-                        node = by_uid.get(uid) or _PRESET_BY_UID.get(uid) or {}
+                        remember_uid_nodes(uid_grace, by_uid)
+                        node = (
+                            by_uid.get(uid)
+                            or _PRESET_BY_UID.get(uid)
+                            or grace_lookup(uid_grace, uid)
+                            or {}
+                        )
                         typ = node.get("type") or ""
+                        if node and uid not in by_uid and uid not in _PRESET_BY_UID:
+                            print(
+                                f"[nav] grace hit uid={uid} type={typ or '-'} "
+                                f"label={(node.get('label') or '')[:40]}",
+                                flush=True,
+                            )
 
                         if typ == "info":
                             print(f"[menu] info {(node.get('label') or uid)[:48]}", flush=True)
@@ -1213,21 +1613,49 @@ def main() -> int:
                             continue
 
                         if not node and uid and not uid.startswith("pump:"):
+                            # Unknown to current page AND grace cache. Still activate so
+                            # Pi can navigate, but do NOT start Pulse audio blindly —
+                            # folder UIDs after drill-down looked "stale" and wrongly
+                            # armed a stream (field 2026-09-28).
                             inject(f"activate:{uid}")
                             page = 0
                             force_menu = True
                             time.sleep(0.35)
-                            print(f"[nav] stale/unknown uid activate:{uid}", flush=True)
+                            print(
+                                f"[nav] unknown uid activate:{uid} (no grace — no auto audio)",
+                                flush=True,
+                            )
+                            continue
+
+                        if typ == "folder" or typ == "action":
+                            # Navigation only — never start SoftAP stream on Zurueck/folders.
+                            # Stopping the forwarder keeps Pi radio playing locally.
+                            try:
+                                audio.stop_forward_only()
+                            except Exception:
+                                pass
+                            # Clean ESP stream state without ID3 blast
+                            try:
+                                line = json.dumps({"t": "audio_stop"}, separators=(",", ":"))
+                                ser.write((line + "\n").encode())
+                                ser.flush()
+                                print(f"[tx] {line}", flush=True)
+                            except Exception as e:
+                                print(f"[tx] audio_stop skip: {e}", flush=True)
+                            remember_uid_nodes(uid_grace, {uid: node})
+                            inject(f"activate:{uid}")
+                            page = 0
+                            force_menu = True
+                            # Let Pi rewrite menu.json; pause audio_stop settle before menu_set
+                            time.sleep(1.0)
+                            print(
+                                f"[nav] {typ}/{node.get('action') or '-'} → activate:{uid}",
+                                flush=True,
+                            )
                             continue
 
                         inject(f"activate:{uid}")
                         if args.no_audio:
-                            continue
-                        if typ == "folder":
-                            audio.stop(status_cover=False)
-                            page = 0
-                            force_menu = True
-                            time.sleep(0.25)
                             continue
 
                         src, media_path = resolve_stream_target(node)
@@ -1248,7 +1676,14 @@ def main() -> int:
                                 flush=True,
                             )
                     elif t == "menu_ack":
-                        print(f"[menu_ack] ok={msg.get('ok')} n={msg.get('n')}", flush=True)
+                        print(f"[menu_ack] ok={msg.get('ok')} n={msg.get('n')} rev={msg.get('rev')}", flush=True)
+                        if pending_menu and msg.get("ok"):
+                            last_rev = int(pending_menu.get("rev") or msg.get("rev") or last_rev)
+                            last_sig = str(pending_menu.get("sig") or last_sig)
+                            pending_menu = None
+                        elif pending_menu and msg.get("ok") is False:
+                            force_menu = True
+                            pending_menu = None
                     elif t == "audio_ack":
                         print(f"[audio_ack] {msg}", flush=True)
                     elif t == "hello_ack":
@@ -1259,10 +1694,22 @@ def main() -> int:
                         )
 
             now = time.time()
+            # Keep TCP alive when idle. While streaming, binary frames are enough —
+            # ping JSON mid-0x55 has triggered WiFiClient resets on SoftAP+STA.
+            if now - last_ping >= 2.0:
+                last_ping = now
+                if not audio.proc:
+                    try:
+                        send({"t": "ping"})
+                    except (BrokenPipeError, OSError, ConnectionError) as e:
+                        if try_reconnect(str(e)):
+                            continue
+                        raise
             if force_menu or now - last_menu >= args.interval:
                 last_menu = now
                 try:
                     rev, nodes, by_uid = read_menu_nodes()
+                    remember_uid_nodes(uid_grace, by_uid)
                     path_ids: list = []
                     path_key = ""
                     try:
@@ -1279,12 +1726,34 @@ def main() -> int:
                     items, page, extra = menu_nodes_for_page(path_ids, nodes, page)
                     if extra:
                         by_uid.update(extra)
+                        remember_uid_nodes(uid_grace, extra)
                     sig = json.dumps(items, separators=(",", ":"))
-                    if items and (force_menu or rev != last_rev or sig != last_sig):
-                        send({"t": "menu_set", "rev": rev, "page": page, "items": items})
-                        last_rev = rev
-                        last_sig = sig
-                    force_menu = False
+                    if items and (force_menu or rev != last_rev or sig != last_sig or pending_menu):
+                        # menu_set → MSC slot update on ESP; interleaving with 0x55/0x56
+                        # or blasting after every TCP replace freezes SoftAP navigation.
+                        streaming = bool(audio.proc) or time.time() < getattr(
+                            audio, "hold_menu_until", 0
+                        )
+                        held = time.time() < menu_hold_until
+                        session_ok = hello_ok_until == 0.0 or time.time() <= hello_ok_until
+                        rate_ok = (time.time() - last_menu_tx) >= 1.5
+                        # Wait for menu_ack before retrying the same payload
+                        if pending_menu and (time.time() - last_menu_tx) < 3.0:
+                            pass
+                        elif (streaming and not force_menu) or held or not session_ok or not rate_ok:
+                            pass  # keep force_menu / dirty sig for next tick
+                        else:
+                            msg = {"t": "menu_set", "rev": rev, "page": page, "items": items}
+                            send(msg)
+                            pending_menu = {"rev": rev, "sig": sig, "msg": msg}
+                            last_menu_snapshot = dict(msg)
+                            remember_menu_items(uid_grace, items)
+                            last_menu_tx = time.time()
+                            force_menu = False
+                            # Settle — ESP applyMenuSlots while SoftAP+STA is fragile
+                            menu_hold_until = time.time() + 1.2
+                    elif not (force_menu or rev != last_rev or sig != last_sig or pending_menu):
+                        force_menu = False
                 except (BrokenPipeError, OSError, ConnectionError) as e:
                     if try_reconnect(str(e)):
                         continue
