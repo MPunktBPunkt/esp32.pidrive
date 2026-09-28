@@ -44,6 +44,8 @@ void App::begin() {
     uart.begin(&events);
     pump.begin(&events, &menu, &msc, &uart, &stream);
     msc.setPlayHandler([](const char* uid) { App::instance().pump.sendPlayUid(uid); });
+    msc.setDiagHandler(
+        [](const char* code, const char* detail) { App::instance().pump.sendDiag(code, detail); });
 
     setupWifi();
 
@@ -141,6 +143,7 @@ void App::setupWeb() {
     server_.on("/api/config", HTTP_POST, [this]() { handleApiConfigPost(); });
     server_.on("/api/lab/play", HTTP_POST, [this]() { handleApiLabPlay(); });
     server_.on("/api/lab/stop", HTTP_POST, [this]() { handleApiLabStop(); });
+    server_.on("/api/lab/remount", HTTP_POST, [this]() { handleApiLabRemount(); });
     server_.on("/api/lab/stream", HTTP_GET, [this]() { handleApiLabStream(); });
     server_.on("/api/lab/listen", HTTP_GET, [this]() { handleApiLabListen(); });
     server_.on("/api/lab/cover", HTTP_GET, [this]() { handleApiLabCover(); });
@@ -242,6 +245,7 @@ void App::buildStatus(JsonDocument& doc) {
     doc["pumpTcp"] = pump.tcpListening();
     doc["pumpTcpPort"] = (int)pump.tcpPort();
     doc["pumpTcpUp"] = pump.tcpClientUp();
+    doc["pumpTcpPeer"] = pump.tcpClientIp();
     doc["bufferMs"] = bufferMs;
     doc["bufferTargetMs"] = config.bufferTargetMs;
     doc["playingUid"] = menu.playingUid();
@@ -294,6 +298,7 @@ void App::buildStatus(JsonDocument& doc) {
     tcp["port"] = (int)pump.tcpPort();
     tcp["listening"] = pump.tcpListening();
     tcp["up"] = pump.tcpClientUp();
+    tcp["peer"] = pump.tcpClientIp();
     tcp["sense"] = "tcp-client";
 }
 
@@ -400,6 +405,19 @@ void App::handleApiLabStop() {
     JsonDocument doc;
     doc["ok"] = true;
     doc["pumpUp"] = pump.up();
+    NetUtil::sendJson(server_, 200, doc);
+}
+
+void App::handleApiLabRemount() {
+    if (!config.labMode) {
+        NetUtil::sendError(server_, 403, "labMode aus");
+        return;
+    }
+    msc.remountMedia("lab");
+    events.push("lab.remount", "softap");
+    JsonDocument doc;
+    doc["ok"] = true;
+    doc["otg"] = msc.plugged();
     NetUtil::sendJson(server_, 200, doc);
 }
 

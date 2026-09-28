@@ -18,7 +18,7 @@ void ConfigStore::applyDefaults() {
     enableSta = true;  // Lab: WLAN wiederfinden nach OTA; SoftAP parallel
     enablePumpTcp = true;
     pumpTcpPort = 9090;
-    playPlugWindowMs = 2500;
+    playPlugWindowMs = 500;
     playMinSeqBytes = 6000;
     playHeadLbaSlop = 12;
     playCooldownMs = 5000;

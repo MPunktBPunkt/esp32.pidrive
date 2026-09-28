@@ -49,6 +49,7 @@ private:
     void handleApiConfigPost();
     void handleApiLabPlay();
     void handleApiLabStop();
+    void handleApiLabRemount();
     void handleApiLabStream();
     void handleApiLabListen();
     void handleApiLabCover();

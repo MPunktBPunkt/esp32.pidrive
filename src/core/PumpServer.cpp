@@ -22,6 +22,8 @@ void PumpServer::startTcp(uint16_t port) {
     if (port == 0) {
         tcpPort_ = 0;
         if (client_.connected()) client_.stop();
+        clientIp_[0] = 0;
+        tcpLinked_ = false;
         Serial.println("[PUMP] TCP off");
         return;
     }
@@ -36,11 +38,27 @@ void PumpServer::startTcp(uint16_t port) {
     }
 }
 
+String PumpServer::tcpClientIp() {
+    // Do not trust WiFiClient.connected() here — it clears the peer IP in the UI.
+    if (!tcpLinked_) {
+        return String();
+    }
+    if (!clientIp_[0]) {
+        String ip = client_.remoteIP().toString();
+        strncpy(clientIp_, ip.c_str(), sizeof(clientIp_) - 1);
+        clientIp_[sizeof(clientIp_) - 1] = 0;
+    }
+    return String(clientIp_);
+}
+
 void PumpServer::sendRaw(const char* s) {
     if (!s) return;
-    if (active_ == Link::Tcp && client_.connected()) {
-        client_.println(s);
+    // Always prefer the sticky TCP peer when linked. Using active_==Tcp alone
+    // dropped menu_ack/audio_ack onto Serial after SoftAP nav (menu looked frozen).
+    if (tcpLinked_) {
+        size_t n = client_.println(s);
         client_.flush();
+        if (n > 0) tcpDownSinceMs_ = 0;
     } else {
         Serial.println(s);
     }
@@ -55,7 +73,7 @@ void PumpServer::sendJson(const JsonDocument& doc) {
 void PumpServer::sendPlayUid(const char* uid) {
     if (!uid || !uid[0]) return;
     // Prefer live TCP bridge (field), else UART
-    if (client_.connected()) active_ = Link::Tcp;
+    if (tcpLinked_) active_ = Link::Tcp;
     else active_ = Link::SerialLink;
     JsonDocument doc;
     doc["t"] = "event";
@@ -63,6 +81,20 @@ void PumpServer::sendPlayUid(const char* uid) {
     doc["uid"] = uid;
     sendJson(doc);
     if (events_) events_->push("pump.event", uid);
+}
+
+void PumpServer::sendDiag(const char* code, const char* detail) {
+    if (!code || !code[0]) return;
+    // Only when a PUMP peer is actually linked (avoid Serial spam without bridge)
+    if (!tcpLinked_ && !up_) return;
+    if (tcpLinked_) active_ = Link::Tcp;
+    else active_ = Link::SerialLink;
+    JsonDocument doc;
+    doc["t"] = "event";
+    doc["op"] = "diag";
+    doc["code"] = code;
+    if (detail && detail[0]) doc["detail"] = detail;
+    sendJson(doc);
 }
 
 void PumpServer::setCoverMeta(const char* src, const char* path, const char* tryList) {
@@ -191,6 +223,7 @@ void PumpServer::handleLine(char* line) {
     }
 
     if (!strcmp(t, "menu_set")) {
+        binState_ = BinState::Idle;  // don't eat JSON if a prior bin frame was truncated
         JsonArrayConst items = doc["items"].as<JsonArrayConst>();
         uint32_t rev = doc["rev"] | 0;
         if (!menu_ || items.isNull()) {
@@ -263,17 +296,76 @@ void PumpServer::handleLine(char* line) {
 
 void PumpServer::acceptTcp() {
     if (tcpPort_ == 0) return;
-    if (client_.connected()) return;
     WiFiClient incoming = server_.available();
     if (!incoming) return;
-    if (client_) client_.stop();
+
+    // Sticky link: keep a healthy client. Replace only when the old one has been
+    // !connected() for a bit — instant replace on WiFiClient flaps killed the
+    // live Pi session and froze SoftAP menu sync in a reconnect loop.
+    if (tcpLinked_) {
+        if (client_ && client_.connected()) {
+            incoming.stop();
+            return;
+        }
+        uint32_t now = millis();
+        if (tcpDownSinceMs_ == 0) tcpDownSinceMs_ = now;
+        if (now - tcpDownSinceMs_ < 2000) {
+            incoming.stop();
+            return;
+        }
+        if (client_) client_.stop();
+        tcpLinked_ = false;
+        if (events_) events_->push("pump.tcp.replace", clientIp_);
+    }
+
     client_ = incoming;
     client_.setNoDelay(true);
     binState_ = BinState::Idle;
     lineLen_ = 0;
     active_ = Link::Tcp;
-    Serial.printf("[PUMP] TCP client %s\n", client_.remoteIP().toString().c_str());
-    if (events_) events_->push("pump.tcp.up", client_.remoteIP().toString().c_str());
+    tcpDownSinceMs_ = 0;
+    {
+        String ip = client_.remoteIP().toString();
+        strncpy(clientIp_, ip.c_str(), sizeof(clientIp_) - 1);
+        clientIp_[sizeof(clientIp_) - 1] = 0;
+    }
+    Serial.printf("[PUMP] TCP client %s\n", clientIp_);
+    tcpLinked_ = true;
+    if (events_) events_->push("pump.tcp.up", clientIp_);
+}
+
+void PumpServer::drainTcp() {
+    if (!tcpLinked_) return;
+
+    while (client_.available() > 0) {
+        int c = client_.read();
+        if (c < 0) break;
+        feedByte((uint8_t)c, Link::Tcp);
+        tcpDownSinceMs_ = 0;
+    }
+
+    // WiFiClient.connected() flaps on ESP32 — only drop after sustained idle+down.
+    if (client_.connected()) {
+        tcpDownSinceMs_ = 0;
+        return;
+    }
+
+    uint32_t now = millis();
+    if (tcpDownSinceMs_ == 0) tcpDownSinceMs_ = now;
+    // 20s debounce: SoftAP+STA + binary ID3/MP3 often reports !connected()
+    // for several seconds while the socket is still alive.
+    if (now - tcpDownSinceMs_ < 20000) return;
+
+    client_.stop();
+    clientIp_[0] = 0;
+    tcpLinked_ = false;
+    tcpDownSinceMs_ = 0;
+    Serial.println("[PUMP] TCP client down");
+    if (events_) events_->push("pump.tcp.down", "");
+    if (active_ == Link::Tcp) {
+        up_ = false;
+        active_ = Link::SerialLink;
+    }
 }
 
 void PumpServer::drainSerial() {
@@ -282,25 +374,6 @@ void PumpServer::drainSerial() {
         if (c < 0) break;
         if (uart_) uart_->noteRx(1);
         feedByte((uint8_t)c, Link::SerialLink);
-    }
-}
-
-void PumpServer::drainTcp() {
-    if (!client_.connected()) {
-        if (client_) {
-            client_.stop();
-            if (events_) events_->push("pump.tcp.down", "");
-            if (active_ == Link::Tcp) {
-                up_ = false;
-                active_ = Link::SerialLink;
-            }
-        }
-        return;
-    }
-    while (client_.available() > 0) {
-        int c = client_.read();
-        if (c < 0) break;
-        feedByte((uint8_t)c, Link::Tcp);
     }
 }
 

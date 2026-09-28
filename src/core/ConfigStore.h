@@ -26,7 +26,7 @@ public:
 
     // Play-Detection (USB-MSC looksLikePlay) — BMW A/B via SoftAP Config
     /** Ignore head reads this long after plug (index window). 0 = off. */
-    uint16_t playPlugWindowMs = 2500;
+    uint16_t playPlugWindowMs = 500;
     /** Minimum sequential file bytes before play.guess. */
     uint16_t playMinSeqBytes = 6000;
     /** Accept seq start within this many LBAs after file start. */

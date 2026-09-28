@@ -23,9 +23,13 @@ public:
     void loop();
     bool up() const { return up_; }
     bool tcpListening() const { return tcpPort_ != 0; }
-    bool tcpClientUp() { return client_.connected(); }
+    bool tcpClientUp() const { return tcpLinked_; }
     uint16_t tcpPort() const { return tcpPort_; }
+    /** Peer IP of active PUMP-TCP client, or empty. */
+    String tcpClientIp();
     void sendPlayUid(const char* uid);
+    /** Field diagnostics → Pi bridge log (play.reject / msc.quiet / msc.phase / …). */
+    void sendDiag(const char* code, const char* detail = "");
     void sendJson(const JsonDocument& doc);
     StreamBuffer* stream() { return stream_; }
 
@@ -51,7 +55,7 @@ private:
     UartLinkMonitor* uart_ = nullptr;
     StreamBuffer* stream_ = nullptr;
     bool up_ = false;
-    char line_[384];
+    char line_[1536];
     size_t lineLen_ = 0;
     char coverSrc_[16] = {0};
     char coverPath_[80] = {0};
@@ -61,6 +65,9 @@ private:
     WiFiServer server_;
     WiFiClient client_;
     uint16_t tcpPort_ = 0;
+    char clientIp_[16] = {0};
+    bool tcpLinked_ = false;
+    uint32_t tcpDownSinceMs_ = 0;
 
     // Binary: 0x01 0x55 = audio, 0x01 0x56 = sticky ID3 append
     enum class BinState : uint8_t { Idle, GotMagic1, GotMagic2, GotLenLo, Payload };

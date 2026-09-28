@@ -85,6 +85,7 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
     <span class="chip" id="c-ver">v-</span>
     <span class="chip off" id="c-otg">AUTO</span>
     <span class="chip off" id="c-uart">PI</span>
+    <span class="chip off" id="c-ptcp">WLAN</span>
     <span class="chip off" id="c-msc">MSC</span>
     <span class="chip" id="c-play">PLAY -</span>
     <span class="chip off" id="c-pump">PUMP</span>
@@ -140,8 +141,14 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
         <div class="port" id="port-uart">
           <div class="topline"><span class="dot"></span><div><div class="plabel">UART · Pi / PC</div><div class="pname">Serial Bridge</div></div></div>
           <div class="pstate" id="uart-state">—</div>
-          <div class="phint">Kein Plug-Sensor. <b>AKTIV</b>=Traffic · <b>STILL</b>=hatte RX, Kabel ok · <b>KEIN TRAFFIC</b>=noch nie. Später PUMP-Hello.</div>
+          <div class="phint"><b>AKTIV</b>=Traffic · <b>STILL</b>=Kabel ok · <b>KEIN TRAFFIC</b>=noch nie.</div>
           <div class="pmeta" id="uart-meta"></div>
+        </div>
+        <div class="port" id="port-ptcp">
+          <div class="topline"><span class="dot"></span><div><div class="plabel">WLAN · Pi PUMP</div><div class="pname">TCP Bridge</div></div></div>
+          <div class="pstate" id="ptcp-state">—</div>
+          <div class="phint">PUMP über TCP (Default :9090). <b>VERBUNDEN</b>=Pi-Bridge online · zeigt Peer-IP.</div>
+          <div class="pmeta" id="ptcp-meta"></div>
         </div>
       </div>
       <h3>SoftAP Zugang</h3>
@@ -171,10 +178,15 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
       <p class="meta">Hört den PUMP-MP3-Puffer im Browser (`/api/lab/listen`). Station zuerst per Play aktivieren · PUMP ●.</p>
       <h3>MSC Timing / Metriken</h3>
       <div id="metrics"></div>
+      <h3>Host SCSI / Phase</h3>
+      <div id="host-metrics"></div>
+      <h3>Slot-Zugriff</h3>
+      <table><thead><tr><th>#</th><th>Name</th><th>Bytes</th><th>Head</th><th>Mid</th><th>MaxSeq</th><th>Age</th></tr></thead>
+      <tbody id="slot-stats-body"></tbody></table>
       <h3>LBA Read-Trace (Host)</h3>
-      <table><thead><tr><th>ms</th><th>LBA</th><th>n</th><th>kind</th><th>tag</th></tr></thead>
+      <table><thead><tr><th>ms</th><th>gap</th><th>LBA</th><th>n</th><th>kind</th><th>tag</th></tr></thead>
       <tbody id="trace-body"></tbody></table>
-      <p class="meta">PC-Test: Prefetch ≠ Play. Play braucht Start nah am Dateianfang + genug sequentielle Bytes (Config <code>playMinSeqBytes</code>, Default 6000). Events: <code>msc.prefetch</code>, <code>play.reject</code>, <code>play.guess</code>, <code>msc.write</code>.</p>
+      <p class="meta">PC-Test: Prefetch ≠ Play. Play braucht Start nah am Dateianfang + genug sequentielle Bytes (Config <code>playMinSeqBytes</code>, Default 6000). Events: <code>msc.phase</code>, <code>msc.quiet</code> (Cache?), <code>msc.scsi.*</code>, <code>play.reject</code>, <code>play.guess</code>.</p>
     </div>
   </section>
 
@@ -183,7 +195,7 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
       <h3>PiDrive-Menü <span id="menu-meta"></span></h3>
       <table><thead><tr><th>Pfad</th><th>Name</th><th>UID</th><th></th></tr></thead>
       <tbody id="menu-body"><tr><td colspan="4">lädt…</td></tr></tbody></table>
-      <div class="meta" id="menu-hint">Lebt über UART-PUMP. Folder = Öffnen · Station/Action = Play. Max. 4 FAT-Slots.</div>
+      <div class="meta" id="menu-hint">Lebt über UART- oder WLAN-PUMP (TCP). Folder = Öffnen · Station/Action = Play. Max. 4 FAT-Slots.</div>
       <button class="btn" id="btn-refresh">Refresh</button>
     </div>
   </section>
@@ -448,8 +460,16 @@ async function refreshStatus(){
     if(cO){ cO.textContent='AUTO '+(otgUp?(otgSus?'◐':'●'):'○'); chip(cO, otgUp, otgUp&&otgSus); }
     const cU=$('#c-uart');
     if(cU){
-      cU.textContent='PI '+(uartState==='up'?'●':(uartState==='quiet'?'◐':'○'));
+      cU.textContent='UART '+(uartState==='up'?'●':(uartState==='quiet'?'◐':'○'));
       chip(cU, uartState==='up', uartState==='quiet');
+    }
+    const tcpUp=!!s.pumpTcpUp;
+    const tcpListen=!!s.pumpTcp;
+    const tcpPeer=s.pumpTcpPeer||((s.ports&&s.ports.pumpTcp&&s.ports.pumpTcp.peer)||'');
+    const cT=$('#c-ptcp');
+    if(cT){
+      cT.textContent='WLAN '+(tcpUp?'●':(tcpListen?'◐':'○'));
+      chip(cT, tcpUp, !tcpUp && tcpListen);
     }
     const m=$('#c-msc'); if(m){ m.textContent='MSC '+(s.mscReady?'●':'○'); chip(m,s.mscReady); }
     const cPlay=$('#c-play'); if(cPlay) cPlay.innerHTML='PLAY <b>'+(s.playingName||'-')+'</b>';
@@ -485,17 +505,32 @@ async function refreshStatus(){
       ' · seit '+fmtAgo(uart.msSinceChange)+
       ' · lastRx '+fmtAgo((s.uart&&s.uart.msSinceRx)||0)+
       ' · rx '+(uart.rxBytes||(s.uart&&s.uart.rxBytes)||0)+' B';
+    const ptcp=(s.ports&&s.ports.pumpTcp)||{};
+    const ptcpUi=tcpUp?'up':(tcpListen?'quiet':'down');
+    setPort($('#port-ptcp'), ptcpUi, '#ptcp-state');
+    const pts=$('#ptcp-state');
+    if(pts) pts.textContent=tcpUp?'VERBUNDEN':(tcpListen?'WARTET :'+(s.pumpTcpPort||9090):'AUS');
+    const ptm=$('#ptcp-meta');
+    if(ptm) ptm.textContent=
+      (tcpUp?('Peer '+ (tcpPeer||ptcp.peer||'?')+' · '):'')+
+      'listen '+(tcpListen?'yes':'no')+
+      ' · port '+(s.pumpTcpPort||ptcp.port||9090)+
+      (s.pumpUp?' · PUMP hello ok':' · kein Hello');
     const mm=s.msc||{};
     const metrics=$('#metrics');
     if(metrics) metrics.innerHTML=[
       ['OTG (Auto)', otgUp?(otgSus?'suspend':'up'):'down'],
       ['UART (Pi)', uartState],
-      ['PUMP', s.pumpUp?'up':'down'],
+      ['WLAN PUMP-TCP', tcpUp?('up · '+(tcpPeer||'?')):(tcpListen?('listen :'+(s.pumpTcpPort||9090)):'off')],
+      ['PUMP session', s.pumpUp?'up':'down'],
       ['MSC ready', s.mscReady?'yes':'no'],
+      ['Phase', mm.phase||'-'],
       ['Reads / Writes', (mm.readCount||0)+' / '+(mm.writeCount||0)],
-      ['Bytes R (meta/file)', (mm.bytesRead||0)+' ('+(mm.bytesMeta||0)+'/'+(mm.bytesFile||0)+')'],
+      ['Bytes R (boot/fat/dir/file)', (mm.bytesBoot||0)+'/'+(mm.bytesFat||0)+'/'+(mm.bytesDir||0)+'/'+(mm.bytesFile||0)],
+      ['Reject / Guess', (mm.playRejectCount||0)+' / '+(mm.playGuessCount||0)],
       ['Last LBA', mm.lastReadLba||0],
       ['Prefetch hits', mm.prefetchHits||0],
+      ['Xfer 512/2k/4k/8k+', ((mm.xfer&&mm.xfer.n512)||0)+'/'+((mm.xfer&&mm.xfer.n2k)||0)+'/'+((mm.xfer&&mm.xfer.n4k)||0)+'/'+((mm.xfer&&mm.xfer.n8kPlus)||0)],
       ['Plug → first read', fmtMs(mm.msPlugToFirstRead)],
       ['Plug → play guess', fmtMs(mm.msPlugToPlayGuess)],
       ['Playing', (s.playingName||'-')+' ('+(s.playingUid||'-')+')'],
@@ -504,12 +539,32 @@ async function refreshStatus(){
       ['Uptime', s.uptime],
       ['LED', s.led||'-']
     ].map(([k,v])=>`<div class="metric"><span>${k}</span><b>${v}</b></div>`).join('');
+    const hm=$('#host-metrics');
+    if(hm){
+      const h=mm.host||{};
+      hm.innerHTML=[
+        ['Hint', h.hint||'-'],
+        ['INQUIRY', (h.inquiry||0)+' · t='+(h.msToInquiry||0)+'ms'],
+        ['CAPACITY', (h.capacity||0)+' · t='+(h.msToCapacity||0)+'ms'],
+        ['TUR (not-ready)', (h.tur||0)+' ('+(h.turNotReady||0)+')'],
+        ['PREVENT', h.prevent||0],
+        ['Other SCSI', (h.otherScsi||0)+' last=0x'+((h.lastOpcode||0).toString(16))],
+        ['START/STOP', h.startStop||0]
+      ].map(([k,v])=>`<div class="metric"><span>${k}</span><b>${v}</b></div>`).join('');
+    }
+    const sb=$('#slot-stats-body');
+    if(sb){
+      const slots=Array.isArray(mm.slotMap)?mm.slotMap:[];
+      sb.innerHTML=slots.map(r=>
+        `<tr><td>${r.i}</td><td>${r.name||''}</td><td>${r.bytes||0}</td><td>${r.fromHead||0}</td><td>${r.midFile||0}</td><td>${r.maxSeq||0}</td><td>${r.lastAgeMs||0}</td></tr>`
+      ).join('')||'<tr><td colspan="7">—</td></tr>';
+    }
     const tb=$('#trace-body');
     if(tb){
       const tr=Array.isArray(s.mscTrace)?s.mscTrace:[];
-      tb.innerHTML=tr.slice().reverse().slice(0,24).map(r=>
-        `<tr><td>${r.ms}</td><td>${r.lba}</td><td>${r.n}</td><td>${r.kind}</td><td>${r.tag||''}</td></tr>`
-      ).join('')||'<tr><td colspan="5">noch keine Reads</td></tr>';
+      tb.innerHTML=tr.slice().reverse().slice(0,48).map(r=>
+        `<tr><td>${r.ms}</td><td>${r.gap||0}</td><td>${r.lba}</td><td>${r.n}</td><td>${r.kind}</td><td>${r.tag||''}</td></tr>`
+      ).join('')||'<tr><td colspan="6">noch keine Reads</td></tr>';
     }
     const rev=s.menuRev!=null?s.menuRev:lastMenuRev;
     if(rev!==lastMenuRev) await refreshMenu(true);
