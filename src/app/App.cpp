@@ -538,11 +538,12 @@ void App::applyPlayDetectFromConfig() {
     PlayDetectParams p;
     p.plugWindowMs = config.playPlugWindowMs;
     p.minSeqBytes = config.playMinSeqBytes;
+    p.navMinSeqBytes = config.playNavMinSeqBytes;
     p.headLbaSlop = config.playHeadLbaSlop;
     p.cooldownMs = config.playCooldownMs;
     p.prefetchLbaSlop = config.playPrefetchLbaSlop;
     msc.setPlayDetectParams(p);
-    Serial.printf("[MSC] playDetect plug=%ums seq=%u head=%u cd=%ums pf=%u\n",
-                  (unsigned)p.plugWindowMs, (unsigned)p.minSeqBytes, (unsigned)p.headLbaSlop,
-                  (unsigned)p.cooldownMs, (unsigned)p.prefetchLbaSlop);
+    Serial.printf("[MSC] playDetect plug=%ums seq=%u nav=%u head=%u cd=%ums pf=%u\n",
+                  (unsigned)p.plugWindowMs, (unsigned)p.minSeqBytes, (unsigned)p.navMinSeqBytes,
+                  (unsigned)p.headLbaSlop, (unsigned)p.cooldownMs, (unsigned)p.prefetchLbaSlop);
 }

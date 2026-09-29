@@ -70,6 +70,7 @@ void UsbMscGadget::loadDefaultSlots() {
     // Fixed disjoint geometry — never mutated by startStream/stopStream.
     const char* names[] = {"ROCK FM", "Antenne 1", "SWR3", "About"};
     const char* uids[] = {"demo:rock_fm", "demo:antenne", "demo:swr3", "action:about"};
+    const char* kinds[] = {"station", "station", "station", "action"};
     const char* paths[] = {
         "STATIONS/01ROCK.MP3", "STATIONS/02ANTENN.MP3", "STATIONS/03SWR3.MP3", "SETTINGS/ABOUT.MP3"};
     uint32_t ranges[kSlots][2];
@@ -80,6 +81,7 @@ void UsbMscGadget::loadDefaultSlots() {
         strncpy(slots_[i].name, names[i], sizeof(slots_[i].name) - 1);
         strncpy(slots_[i].uid, uids[i], sizeof(slots_[i].uid) - 1);
         strncpy(slots_[i].path, paths[i], sizeof(slots_[i].path) - 1);
+        strncpy(slots_[i].kind, kinds[i], sizeof(slots_[i].kind) - 1);
         slots_[i].active = true;
     }
 }
@@ -119,11 +121,14 @@ void UsbMscGadget::applyMenuSlots(const MenuStore& menu) {
                 slots_[i].uid[sizeof(slots_[i].uid) - 1] = 0;
                 strncpy(slots_[i].name, it->name, sizeof(slots_[i].name) - 1);
                 slots_[i].name[sizeof(slots_[i].name) - 1] = 0;
+                strncpy(slots_[i].kind, it->kind, sizeof(slots_[i].kind) - 1);
+                slots_[i].kind[sizeof(slots_[i].kind) - 1] = 0;
                 slots_[i].active = true;
             } else {
                 slots_[i].active = false;
                 slots_[i].uid[0] = 0;
                 slots_[i].name[0] = 0;
+                slots_[i].kind[0] = 0;
             }
         }
         if (events_) {
@@ -830,8 +835,29 @@ UsbMscGadget::PlayEval UsbMscGadget::evaluatePlay(const MscFileMap* f, uint32_t 
         (millis() - plugMs_) < playDetect_.plugWindowMs) {
         return PlayEval::PlugWindow;
     }
-    if (seqBytes < playDetect_.minSeqBytes) return PlayEval::SeqShort;
+    if (seqBytes < minSeqFor(f)) return PlayEval::SeqShort;
     return PlayEval::Ok;
+}
+
+bool UsbMscGadget::isNavSlot(const MscFileMap* f) {
+    if (!f || !f->active) return false;
+    if (strncmp(f->uid, "pump:", 5) == 0) return true;
+    if (strcmp(f->kind, "action") == 0 || strcmp(f->kind, "folder") == 0) return true;
+    return false;
+}
+
+uint32_t UsbMscGadget::minSeqFor(const MscFileMap* f) const {
+    uint32_t need = playDetect_.minSeqBytes;
+    if (indexSettled_ && isNavSlot(f)) {
+        need = playDetect_.navMinSeqBytes;
+    }
+    // Short page slot (~6 KiB): never demand more bytes than the file roughly holds.
+    const uint32_t fbytes = slotBytes(*f);
+    if (fbytes > 0 && fbytes < need + 1024u) {
+        uint32_t shortNeed = (fbytes > 2048u) ? 2048u : fbytes;
+        if (shortNeed < need) need = shortNeed;
+    }
+    return need;
 }
 
 const char* UsbMscGadget::playEvalName(PlayEval e) {
@@ -1009,9 +1035,11 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
         return;
     }
 
-    // One live-stream arm per cooldown window — neighboring stubs are often
+    // One live-stream arm per cooldown window — neighboring *station* stubs are often
     // touched right after the first play and must not steal the stream.
-    if (playGuessMs_ != 0 && (millis() - playGuessMs_) < playDetect_.cooldownMs) {
+    // Navigation (Zurueck / folder / Mehr) must still fire after auto-play (Feld 2026-09-29).
+    if (playGuessMs_ != 0 && (millis() - playGuessMs_) < playDetect_.cooldownMs &&
+        !isNavSlot(f)) {
         emitPlayReject(PlayEval::Ok, f, seqStartLba_, seqBytes_, "cooldown");
         return;
     }
@@ -1127,6 +1155,7 @@ void UsbMscGadget::toJson(JsonObject obj) const {
         JsonObject pd = obj["playDetect"].to<JsonObject>();
         pd["plugWindowMs"] = playDetect_.plugWindowMs;
         pd["minSeqBytes"] = playDetect_.minSeqBytes;
+        pd["navMinSeqBytes"] = playDetect_.navMinSeqBytes;
         pd["headLbaSlop"] = playDetect_.headLbaSlop;
         pd["cooldownMs"] = playDetect_.cooldownMs;
         pd["prefetchLbaSlop"] = playDetect_.prefetchLbaSlop;
@@ -1164,6 +1193,7 @@ void UsbMscGadget::toJson(JsonObject obj) const {
         o["i"] = (int)i;
         o["uid"] = slots_[i].uid;
         o["name"] = slots_[i].name;
+        o["kind"] = slots_[i].kind;
         o["lba0"] = slots_[i].lbaStart;
         o["lba1"] = slots_[i].lbaEnd;
         o["active"] = slots_[i].active;
@@ -1215,6 +1245,8 @@ int UsbMscGadget::slotIndex(const MscFileMap*) const { return -1; }
 UsbMscGadget::PlayEval UsbMscGadget::evaluatePlay(const MscFileMap*, uint32_t, uint32_t) const {
     return PlayEval::BadFile;
 }
+bool UsbMscGadget::isNavSlot(const MscFileMap*) { return false; }
+uint32_t UsbMscGadget::minSeqFor(const MscFileMap*) const { return 6000; }
 const char* UsbMscGadget::playEvalName(PlayEval) { return "bad_file"; }
 void UsbMscGadget::emitPlayReject(PlayEval, const MscFileMap*, uint32_t, uint32_t, const char*) {}
 void UsbMscGadget::loadDefaultSlots() {}

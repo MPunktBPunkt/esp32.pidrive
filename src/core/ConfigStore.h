@@ -29,6 +29,8 @@ public:
     uint16_t playPlugWindowMs = 500;
     /** Minimum sequential file bytes before play.guess. */
     uint16_t playMinSeqBytes = 6000;
+    /** After indexSettled: action/folder/pump:* (BMW often one 4 KiB head read). */
+    uint16_t playNavMinSeqBytes = 4096;
     /** Accept seq start within this many LBAs after file start. */
     uint8_t playHeadLbaSlop = 12;
     /** Suppress further play.guess after first arm. */

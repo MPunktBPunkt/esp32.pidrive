@@ -20,6 +20,7 @@ void ConfigStore::applyDefaults() {
     pumpTcpPort = 9090;
     playPlugWindowMs = 500;
     playMinSeqBytes = 6000;
+    playNavMinSeqBytes = 4096;
     playHeadLbaSlop = 12;
     playCooldownMs = 5000;
     playPrefetchLbaSlop = 2;
@@ -56,6 +57,7 @@ void ConfigStore::load() {
     pumpTcpPort = prefs.getUShort("ptcp_port", pumpTcpPort);
     playPlugWindowMs = prefs.getUShort("play_plug", playPlugWindowMs);
     playMinSeqBytes = prefs.getUShort("play_seq", playMinSeqBytes);
+    playNavMinSeqBytes = prefs.getUShort("play_nav", playNavMinSeqBytes);
     playHeadLbaSlop = prefs.getUChar("play_head", playHeadLbaSlop);
     playCooldownMs = prefs.getUShort("play_cd", playCooldownMs);
     playPrefetchLbaSlop = prefs.getUChar("play_pf", playPrefetchLbaSlop);
@@ -65,6 +67,7 @@ void ConfigStore::load() {
     if (softApPass.length() < 8) softApPass = "pidrive12";
     if (pumpTcpPort == 0) pumpTcpPort = 9090;
     if (playMinSeqBytes < 512) playMinSeqBytes = 512;
+    if (playNavMinSeqBytes < 512) playNavMinSeqBytes = 512;
     if (playHeadLbaSlop > 64) playHeadLbaSlop = 64;
     if (playPrefetchLbaSlop > 32) playPrefetchLbaSlop = 32;
 }
@@ -91,6 +94,7 @@ void ConfigStore::save() {
     prefs.putUShort("ptcp_port", pumpTcpPort);
     prefs.putUShort("play_plug", playPlugWindowMs);
     prefs.putUShort("play_seq", playMinSeqBytes);
+    prefs.putUShort("play_nav", playNavMinSeqBytes);
     prefs.putUChar("play_head", playHeadLbaSlop);
     prefs.putUShort("play_cd", playCooldownMs);
     prefs.putUChar("play_pf", playPrefetchLbaSlop);
@@ -122,6 +126,7 @@ void ConfigStore::toJson(JsonObject obj) const {
     obj["pumpTcpPort"] = pumpTcpPort;
     obj["playPlugWindowMs"] = playPlugWindowMs;
     obj["playMinSeqBytes"] = playMinSeqBytes;
+    obj["playNavMinSeqBytes"] = playNavMinSeqBytes;
     obj["playHeadLbaSlop"] = playHeadLbaSlop;
     obj["playCooldownMs"] = playCooldownMs;
     obj["playPrefetchLbaSlop"] = playPrefetchLbaSlop;
@@ -144,6 +149,7 @@ bool ConfigStore::fromJson(JsonVariantConst obj) {
     if (!obj["pumpTcpPort"].isNull()) pumpTcpPort = obj["pumpTcpPort"].as<uint16_t>();
     if (!obj["playPlugWindowMs"].isNull()) playPlugWindowMs = obj["playPlugWindowMs"].as<uint16_t>();
     if (!obj["playMinSeqBytes"].isNull()) playMinSeqBytes = obj["playMinSeqBytes"].as<uint16_t>();
+    if (!obj["playNavMinSeqBytes"].isNull()) playNavMinSeqBytes = obj["playNavMinSeqBytes"].as<uint16_t>();
     if (!obj["playHeadLbaSlop"].isNull()) playHeadLbaSlop = obj["playHeadLbaSlop"].as<uint8_t>();
     if (!obj["playCooldownMs"].isNull()) playCooldownMs = obj["playCooldownMs"].as<uint16_t>();
     if (!obj["playPrefetchLbaSlop"].isNull()) playPrefetchLbaSlop = obj["playPrefetchLbaSlop"].as<uint8_t>();
@@ -154,6 +160,7 @@ bool ConfigStore::fromJson(JsonVariantConst obj) {
     if (softApPass.length() < 8) softApPass = "pidrive12";
     if (pumpTcpPort == 0) pumpTcpPort = 9090;
     if (playMinSeqBytes < 512) playMinSeqBytes = 512;
+    if (playNavMinSeqBytes < 512) playNavMinSeqBytes = 512;
     if (playHeadLbaSlop > 64) playHeadLbaSlop = 64;
     if (playPrefetchLbaSlop > 32) playPrefetchLbaSlop = 32;
     return true;

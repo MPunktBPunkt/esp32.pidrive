@@ -13,6 +13,7 @@ struct MscFileMap {
     char uid[24] = {0};
     char name[40] = {0};
     char path[48] = {0};
+    char kind[12] = {0};  // station | action | folder | info (from menu_set)
     bool active = false;
 };
 
@@ -36,7 +37,9 @@ struct MscSlotStats {
 /** Tunable looksLikePlay thresholds (from ConfigStore / SoftAP). */
 struct PlayDetectParams {
     uint16_t plugWindowMs = 500;   // was 2500 — index window; BMW still needs large slots
-    uint16_t minSeqBytes = 6000;
+    uint16_t minSeqBytes = 6000;   // stations (live overlay)
+    /** After indexSettled: action/folder/pump:* — BMW often only issues one 4 KiB head read. */
+    uint16_t navMinSeqBytes = 4096;
     uint8_t headLbaSlop = 12;
     uint16_t cooldownMs = 5000;
     uint8_t prefetchLbaSlop = 2;
@@ -129,6 +132,9 @@ private:
     const MscFileMap* fileForLba(uint32_t lba) const;
     int slotIndex(const MscFileMap* f) const;
     PlayEval evaluatePlay(const MscFileMap* f, uint32_t startLba, uint32_t seqBytes) const;
+    /** action/folder/pump:* — menu navigation, not live audio. */
+    static bool isNavSlot(const MscFileMap* f);
+    uint32_t minSeqFor(const MscFileMap* f) const;
     static const char* playEvalName(PlayEval e);
     void emitPlayReject(PlayEval eval, const MscFileMap* f, uint32_t startLba, uint32_t seqBytes,
                         const char* extra = nullptr);

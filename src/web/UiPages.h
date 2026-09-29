@@ -241,12 +241,12 @@ input{width:100%;background:#0c1016;border:1px solid var(--line);color:var(--ink
         <div><label>Min. Seq-Bytes</label><input id="cfg-play-seq" type="number" min="512" step="512"></div>
       </div>
       <div class="row">
+        <div><label>Nav Seq-Bytes</label><input id="cfg-play-nav" type="number" min="512" step="512"></div>
         <div><label>Head-LBA-Slop</label><input id="cfg-play-head" type="number" min="0" max="64"></div>
-        <div><label>Cooldown (ms)</label><input id="cfg-play-cd" type="number" min="0" step="100"></div>
       </div>
       <div class="row">
+        <div><label>Cooldown (ms)</label><input id="cfg-play-cd" type="number" min="0" step="100"></div>
         <div><label>Prefetch-LBA-Slop</label><input id="cfg-play-pf" type="number" min="0" max="32"></div>
-        <div></div>
       </div>
       <button class="btn btn-a" id="btn-save">Speichern</button>
       <button class="btn" id="btn-restart">Neustart</button>
@@ -602,6 +602,7 @@ async function loadConfig(){
     $('#cfg-ptcp-port').value=c.pumpTcpPort||9090;
     $('#cfg-play-plug').value=c.playPlugWindowMs??2500;
     $('#cfg-play-seq').value=c.playMinSeqBytes??6000;
+    $('#cfg-play-nav').value=c.playNavMinSeqBytes??4096;
     $('#cfg-play-head').value=c.playHeadLbaSlop??12;
     $('#cfg-play-cd').value=c.playCooldownMs??5000;
     $('#cfg-play-pf').value=c.playPrefetchLbaSlop??2;
@@ -622,6 +623,7 @@ async function saveConfig(){
     pumpTcpPort:+$('#cfg-ptcp-port').value,
     playPlugWindowMs:+$('#cfg-play-plug').value,
     playMinSeqBytes:+$('#cfg-play-seq').value,
+    playNavMinSeqBytes:+$('#cfg-play-nav').value,
     playHeadLbaSlop:+$('#cfg-play-head').value,
     playCooldownMs:+$('#cfg-play-cd').value,
     playPrefetchLbaSlop:+$('#cfg-play-pf').value
