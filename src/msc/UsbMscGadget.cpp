@@ -3,6 +3,7 @@
 #include "HostScsiProbe.h"
 #include "USB.h"
 #include "USBMSC.h"
+#include <Preferences.h>
 #include <cstring>
 
 #if !ARDUINO_USB_MODE
@@ -151,15 +152,40 @@ void UsbMscGadget::applyMenuSlots(const MenuStore& menu) {
     // mediaPresent is NOT toggled here — see presentMedia() / remountMedia().
 }
 
+void UsbMscGadget::formatPdSerial(uint16_t gen, char* ser, size_t n) {
+    if (gen == 0) {
+        snprintf(ser, n, "PD0000");
+    } else {
+        snprintf(ser, n, "PD%04u", (unsigned)(gen % 10000));
+    }
+}
+
+void UsbMscGadget::loadRemountGenNvs() {
+    Preferences prefs;
+    if (!prefs.begin("pidrive", true)) return;
+    remountGen_ = prefs.getUShort("rm_gen", 0);
+    prefs.end();
+}
+
+void UsbMscGadget::saveRemountGenNvs() const {
+    Preferences prefs;
+    if (!prefs.begin("pidrive", false)) return;
+    prefs.putUShort("rm_gen", remountGen_);
+    prefs.end();
+}
+
 void UsbMscGadget::applyUsbIdentity() {
     remountGen_++;
+    // Avoid wrapping back to 0 (volume label "PIDRIVE" / first-boot identity).
+    if (remountGen_ == 0) remountGen_ = 1;
     char ser[12];
-    snprintf(ser, sizeof(ser), "PD%04u", (unsigned)(remountGen_ % 10000));
+    formatPdSerial(remountGen_, ser, sizeof(ser));
     USB.serialNumber(ser);
     char rev[5];
     snprintf(rev, sizeof(rev), "%02u%02u", (unsigned)((remountGen_ / 100) % 100),
              (unsigned)(remountGen_ % 100));
     MSC.productRevision(rev);
+    saveRemountGenNvs();
 }
 
 void UsbMscGadget::remountMedia(const char* reason) {
@@ -172,7 +198,7 @@ void UsbMscGadget::remountMedia(const char* reason) {
     // New USB identity so NBT MediaStore treats this as a different stick.
     applyUsbIdentity();
     char ser[12];
-    snprintf(ser, sizeof(ser), "PD%04u", (unsigned)(remountGen_ % 10000));
+    formatPdSerial(remountGen_, ser, sizeof(ser));
     MSC.mediaPresent(false);
     mediaPresented_ = false;
     indexSettled_ = false;
@@ -655,8 +681,23 @@ bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
     USB.onEvent(usb_event_cb);
     MSC.vendorID("PIDRIVE");
     MSC.productID("USB_MEDIA");
-    MSC.productRevision("0.23");
-    USB.serialNumber("PD0000");
+    // Restore sticky MediaStore identity across OTG power-loss reboots (field 2026-09-30).
+    loadRemountGenNvs();
+    {
+        char ser[12];
+        formatPdSerial(remountGen_, ser, sizeof(ser));
+        USB.serialNumber(ser);
+        char rev[5];
+        snprintf(rev, sizeof(rev), "%02u%02u", (unsigned)((remountGen_ / 100) % 100),
+                 (unsigned)(remountGen_ % 100));
+        MSC.productRevision(rev);
+        if (events_) {
+            char d[24];
+            snprintf(d, sizeof(d), "nvs=%s", ser);
+            events_->push("msc.identity", d);
+        }
+        Serial.printf("[MSC] identity from NVS gen=%u ser=%s\n", (unsigned)remountGen_, ser);
+    }
     MSC.onStartStop(pidrive_msc_start_stop);
     MSC.onRead(pidrive_msc_read);
     MSC.onWrite(pidrive_msc_write);
@@ -718,9 +759,10 @@ void UsbMscGadget::onUsbPlugged(bool on) {
     } else {
         unplugCount_++;
         // Bump serial for the *next* attach so HU MediaStore cannot reuse PD0001 cache.
+        // Persisted in NVS — survives ESP reboot when OTG unplug cuts board power.
         applyUsbIdentity();
         char ser[12];
-        snprintf(ser, sizeof(ser), "PD%04u", (unsigned)(remountGen_ % 10000));
+        formatPdSerial(remountGen_, ser, sizeof(ser));
         if (events_) {
             char d[24];
             snprintf(d, sizeof(d), "next=%s", ser);
@@ -1148,6 +1190,12 @@ void UsbMscGadget::toJson(JsonObject obj) const {
     obj["fatMode"] = "static";
     obj["phase"] = phaseName(phase_);
     obj["mediaPresented"] = mediaPresented_;
+    obj["remountGen"] = remountGen_;
+    {
+        char ser[12];
+        formatPdSerial(remountGen_, ser, sizeof(ser));
+        obj["usbSerial"] = ser;
+    }
     obj["mediaWaitMs"] = (!mediaPresented_ && presentDeadlineMs_)
                              ? (int32_t)(presentDeadlineMs_ - millis())
                              : 0;
@@ -1219,6 +1267,13 @@ void UsbMscGadget::applyMenuSlots(const MenuStore&) {}
 void UsbMscGadget::presentMedia(const char*) {}
 void UsbMscGadget::remountMedia(const char*) {}
 void UsbMscGadget::applyUsbIdentity() {}
+void UsbMscGadget::loadRemountGenNvs() {}
+void UsbMscGadget::saveRemountGenNvs() const {}
+void UsbMscGadget::formatPdSerial(uint16_t, char* ser, size_t n) {
+    if (ser && n) {
+        ser[0] = '\0';
+    }
+}
 void UsbMscGadget::startStream(const char*) {}
 void UsbMscGadget::stopStream() {}
 void UsbMscGadget::onUsbPlugged(bool) {}

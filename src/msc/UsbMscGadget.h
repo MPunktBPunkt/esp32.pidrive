@@ -141,6 +141,9 @@ private:
     void loadDefaultSlots();
     /** Bump USB serialNumber + productRevision (HU MediaStore cache key). */
     void applyUsbIdentity();
+    void loadRemountGenNvs();
+    void saveRemountGenNvs() const;
+    static void formatPdSerial(uint16_t gen, char* ser, size_t n);
     /** Patch boot BPB to virtual geometry; synthesize root; STATIONS/SETTINGS LFNs. */
     void patchBoot(uint8_t* sector) const;
     void patchRootDir(uint8_t* sector, uint32_t lba) const;
