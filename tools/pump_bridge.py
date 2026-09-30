@@ -1339,7 +1339,10 @@ def main() -> int:
     last_ping = 0.0
     last_menu_tx = 0.0
     menu_hold_until = 0.0
-    hello_ok_until = 0.0  # require fresh hello_ack before menu_set after reconnect
+    # 0 = session ready (steady state); <0 = block menu_set until good hello_ack.
+    # Do NOT use now+N deadlines here — that permanently blocked menu_set after N
+    # seconds (field 2026-09-30: Pi menu moved, ESP slots stuck).
+    hello_ok_until = 0.0
     pending_menu: dict | None = None  # set on tx, cleared on menu_ack
     by_uid: dict[str, dict] = {}
     uid_grace: dict[str, tuple[float, dict]] = {}
@@ -1426,7 +1429,7 @@ def main() -> int:
             ok = wait_hello_ack()
             # Keep uid_grace + last_menu_snapshot — wiping them caused stale/unknown
             # when BMW re-fired play_uid for a folder no longer on the current page.
-            hello_ok_until = time.time() + 60.0 if ok else 0.0
+            hello_ok_until = 0.0 if ok else -1.0
             menu_hold_until = time.time() + 0.35
             pending_menu = None
             snap = last_menu_snapshot
@@ -1735,7 +1738,7 @@ def main() -> int:
                             audio, "hold_menu_until", 0
                         )
                         held = time.time() < menu_hold_until
-                        session_ok = hello_ok_until == 0.0 or time.time() <= hello_ok_until
+                        session_ok = hello_ok_until == 0.0
                         rate_ok = (time.time() - last_menu_tx) >= 1.5
                         # Wait for menu_ack before retrying the same payload
                         if pending_menu and (time.time() - last_menu_tx) < 3.0:
