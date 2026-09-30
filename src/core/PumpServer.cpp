@@ -154,6 +154,7 @@ void PumpServer::handleBinaryByte(uint8_t c) {
                     } else {
                         stream_->push(binBuf_, binLen_);
                     }
+                    armOverlayIfWarm();
                 }
                 binState_ = BinState::Idle;
             }
@@ -261,7 +262,13 @@ void PumpServer::handleLine(char* line) {
             stream_->start(uid);
             stream_->clearId3();
         }
-        if (msc_) msc_->startStream(uid);
+        // B5: arm MSC overlay only after ring warmup (host keeps reading B2 silence).
+        pendingOverlayUid_[0] = 0;
+        if (uid && uid[0]) {
+            strncpy(pendingOverlayUid_, uid, sizeof(pendingOverlayUid_) - 1);
+            pendingOverlayUid_[sizeof(pendingOverlayUid_) - 1] = 0;
+        }
+        if (msc_) msc_->stopStream();
         up_ = true;
         JsonDocument ack;
         ack["t"] = "audio_ack";
@@ -269,12 +276,14 @@ void PumpServer::handleLine(char* line) {
         ack["op"] = "start";
         ack["uid"] = uid;
         ack["id3"] = true;
+        ack["warmup"] = (int)kOverlayWarmupBytes;
         sendJson(ack);
         if (events_) events_->push("audio.start", uid);
         return;
     }
 
     if (!strcmp(t, "audio_stop")) {
+        pendingOverlayUid_[0] = 0;
         if (stream_) stream_->stop();
         if (msc_) msc_->stopStream();
         clearCoverMeta();
@@ -377,6 +386,22 @@ void PumpServer::drainSerial() {
     }
 }
 
+void PumpServer::armOverlayIfWarm() {
+    if (!pendingOverlayUid_[0] || !stream_ || !msc_) return;
+    if (!stream_->active()) {
+        pendingOverlayUid_[0] = 0;
+        return;
+    }
+    if (stream_->size() < kOverlayWarmupBytes) return;
+    msc_->startStream(pendingOverlayUid_);
+    if (events_) {
+        char d[32];
+        snprintf(d, sizeof(d), "warm=%u", (unsigned)stream_->size());
+        events_->push("msc.overlay_warm", d);
+    }
+    pendingOverlayUid_[0] = 0;
+}
+
 void PumpServer::loop() {
     acceptTcp();
     // Prefer draining the active link first to keep binary frames contiguous
@@ -387,4 +412,5 @@ void PumpServer::loop() {
         drainSerial();
         drainTcp();
     }
+    armOverlayIfWarm();
 }

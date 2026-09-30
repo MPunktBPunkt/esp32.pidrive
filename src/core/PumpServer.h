@@ -48,6 +48,7 @@ private:
     void acceptTcp();
     void setCoverMeta(const char* src, const char* path, const char* tryList);
     void clearCoverMeta();
+    void armOverlayIfWarm();
 
     EventLog* events_ = nullptr;
     MenuStore* menu_ = nullptr;
@@ -61,6 +62,9 @@ private:
     char coverPath_[80] = {0};
     char coverTry_[120] = {0};
     Link active_ = Link::SerialLink;
+    /** B5: delay msc_->startStream until ring has warmup bytes. */
+    char pendingOverlayUid_[24] = {0};
+    static constexpr size_t kOverlayWarmupBytes = 8192;
 
     WiFiServer server_;
     WiFiClient client_;

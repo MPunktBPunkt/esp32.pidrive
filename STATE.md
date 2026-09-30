@@ -5,11 +5,11 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/` und Feldbericht.
 | Feld | Wert |
 |------|------|
 | Stand | 2026-09-30 |
-| Phase | **Firmware 0.4.28-dev** — B2 Silence+Xing volle Slot-Länge |
+| Phase | **Firmware 0.4.29-dev** — B3 underrun-silence + B5 overlay-warmup |
 | Repo | `MPunktBPunkt/esp32.pidrive` |
 | Build | PlatformIO `env:pidrive-s3` (`pio run`) |
-| Dist | `dist/pidrive.0.4.28-dev.ota.esp32s3.bin` (nach Build) |
-| Hub-Depot | `iobroker.esp-hub/firmware/pidrive.0.4.28-dev.*.esp32s3.bin` |
+| Dist | `dist/pidrive.0.4.29-dev.ota.esp32s3.bin` (nach Build) |
+| Hub-Depot | `iobroker.esp-hub/firmware/pidrive.0.4.29-dev.*.esp32s3.bin` |
 | Hardware | ESP32-S3-DevKitC-1 (OTG + UART) |
 | Pi-Link | [PUMP.md](docs/planung/PUMP.md) · Bridge `tools/pump_bridge.py` |
 | Feldbericht | [FELDTEST-ESP-MSC-BMW-2026-09-28](https://github.com/MPunktBPunkt/pidrive/blob/main/docs/betrieb/FELDTEST-ESP-MSC-BMW-2026-09-28.md) |
@@ -17,12 +17,13 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/` und Feldbericht.
 
 ## Aktueller Fokus
 
-1. **0.4.28:** B2 Silence+Xing — Lab `.88` + Feld Auto-Play
-2. **Baustelle B:** B3→B5 (Pacing, Cursor/ID3, Warmup)
+1. **0.4.29:** B3/B5 Lab `.88` — Feld Auto morgen
+2. **Baustelle B:** B4 Cursor/ID3; Geometrie-Messung
 3. Link: SoftAP/UART bei schlechtem STA-RSSI
 
 ## Letzte Änderung
 
+- 2026-09-30: **0.4.29-dev** Underrun→Silence-Frames; MSC-Overlay erst ab 8 KiB Ring (B5)
 - 2026-09-30: **0.4.28-dev** Station-Slots: CBR-Silence + Info/Xing über volle 512 KiB (kein 0xFF-Pad)
 - 2026-09-30: **0.4.27-dev** `remountGen_` load/save NVS (`pidrive`/`rm_gen`); Identity beim Boot aus NVS; Status `remountGen`/`usbSerial`
 - 2026-09-30: Bridge `hello_ok_until`-Fix (kein 60‑s-Dauerblock von `menu_set`)
