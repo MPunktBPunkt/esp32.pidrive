@@ -1,6 +1,7 @@
 #include "UsbMscGadget.h"
 #include "DemoFatImage.h"
 #include "HostScsiProbe.h"
+#include "Mp3Silence.h"
 #include "USB.h"
 #include "USBMSC.h"
 #include <Preferences.h>
@@ -632,9 +633,7 @@ int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32
         }
     }
 
-    // File payload: live ringbuffer for active stream slot, else stub/pad.
-    // Stub MP3 samples still live at legacy demo LBAs 43/59/75 inside demo_fat.bin.
-    static const uint32_t kStubLba[3] = {43, 59, 75};
+    // File payload: live ringbuffer for active stream slot, else silence+Xing (B2).
     const MscFileMap* f = fileForLba(lba);
     if (f) {
         const bool live = stream_ && stream_->active() && streamSlot_ >= 0 && f == &slots_[streamSlot_];
@@ -643,21 +642,10 @@ int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32
             stream_->readAt(fileOff, out, bufsize);
             streamBytesServed_ += bufsize;
         } else if (f >= &slots_[0] && f <= &slots_[2]) {
-            size_t i = (size_t)(f - &slots_[0]);
-            uint32_t rel = lba - f->lbaStart;
-            // During index: only ~1 KiB real stub — prevents HU caching a complete
-            // demo song and playing it without further USB reads (no play.guess).
-            // After msc.quiet, serve normal stub head until live overlay arms.
-            const uint32_t stubSectors = indexSettled_ ? 16u : 2u;
-            if (rel < stubSectors) {
-                uint32_t src = kStubLba[i] + rel;
-                uint32_t spos = src * DEMO_FAT_SECTOR_SIZE + offset;
-                if (spos + bufsize <= DEMO_FAT_SIZE) {
-                    memcpy(out, DEMO_FAT_IMAGE + spos, bufsize);
-                }
-            } else {
-                memset(out, 0xFF, bufsize);
-            }
+            // Full-slot CBR silence + Info/Xing — HU keeps the track instead of
+            // skipping through 0xFF junk after a short demo stub (field 2026-09-28).
+            uint32_t fileOff = (lba - f->lbaStart) * DEMO_FAT_SECTOR_SIZE + offset;
+            Mp3Silence::fill(out, bufsize, fileOff, slotBytes(*f));
         }
     }
 

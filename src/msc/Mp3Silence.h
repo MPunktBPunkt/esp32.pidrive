@@ -1,0 +1,101 @@
+#pragma once
+
+#include <Arduino.h>
+#include <cstring>
+
+/**
+ * CBR MP3 silence filler for MSC station stubs (Baustelle B2).
+ * Tiles a fixed 48 kbit/s MPEG-1 Layer III stereo frame so HU decoders
+ * hold the track for the full slot size instead of skipping on 0xFF padding.
+ */
+namespace Mp3Silence {
+
+/** One MPEG-1 L3 stereo 48 kb/s frame @ 44.1 kHz (pad=0), length 156. */
+static constexpr uint16_t kFrameLen = 156;
+
+// clang-format off
+static const uint8_t kFrame[kFrameLen] = {
+    0xff, 0xfb, 0x30, 0x64, 0x00, 0x0f, 0xf0, 0x00, 0x00, 0x69, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00,
+    0x0d, 0x20, 0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0xa4, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x34,
+    0x80, 0x00, 0x00, 0x04, 0x4c, 0x41, 0x4d, 0x45, 0x33, 0x2e, 0x31, 0x30, 0x30, 0x55, 0x55, 0x55,
+    0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+    0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+    0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+    0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+    0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+    0x4c, 0x41, 0x4d, 0x45, 0x33, 0x2e, 0x31, 0x30, 0x30, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+    0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+};
+// clang-format on
+
+/** Minimal ID3v2.4 + LAME Info frame (208 B audio header @ 64 kb/s) with patchable size. */
+static constexpr uint16_t kHeadLen = 252;  // 44 ID3 + 208 Info frame
+
+inline void writeBe32(uint8_t* p, uint32_t v) {
+    p[0] = (uint8_t)(v >> 24);
+    p[1] = (uint8_t)(v >> 16);
+    p[2] = (uint8_t)(v >> 8);
+    p[3] = (uint8_t)v;
+}
+
+/** Build ID3 + Info/Xing head for fileSize; frames = payload frames after head. */
+inline void writeHead(uint8_t* dest, uint32_t fileSize) {
+    // ID3v2.3 header, size=34 (synchsafe) → total ID3 = 44
+    static const uint8_t kId3[44] = {
+        0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x22, 0x54, 0x53, 0x53, 0x45, 0x00, 0x00,
+        0x00, 0x0e, 0x00, 0x00, 0x03, 0x4c, 0x61, 0x76, 0x66, 0x36, 0x31, 0x2e, 0x37, 0x2e, 0x31, 0x30,
+        0x33, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+    memcpy(dest, kId3, 44);
+
+    // First audio frame: reuse structure from lame Info @ 64 kb/s (208 B), patch tag fields.
+    memset(dest + 44, 0, 208);
+    dest[44] = 0xff;
+    dest[45] = 0xfb;
+    dest[46] = 0x50;  // 64 kb/s, 44.1 kHz, pad=0
+    dest[47] = 0x00;
+    // Side info skipped (zeros ok enough for Info-only frame); place "Info" at +36 like LAME.
+    const uint32_t tagOff = 44 + 36;
+    dest[tagOff + 0] = 'I';
+    dest[tagOff + 1] = 'n';
+    dest[tagOff + 2] = 'f';
+    dest[tagOff + 3] = 'o';
+    writeBe32(dest + tagOff + 4, 0x3);  // frames + bytes
+    uint32_t payload = fileSize > kHeadLen ? (fileSize - kHeadLen) : 0;
+    uint32_t nFrames = payload / kFrameLen;
+    writeBe32(dest + tagOff + 8, nFrames);
+    writeBe32(dest + tagOff + 12, fileSize);
+}
+
+/** Fill read buffer as MP3 silence for absolute file offset. */
+inline void fill(uint8_t* out, uint32_t outLen, uint32_t fileOff, uint32_t fileSize) {
+    uint32_t o = 0;
+    while (o < outLen) {
+        uint32_t abs = fileOff + o;
+        if (abs >= fileSize) {
+            memset(out + o, 0, outLen - o);
+            break;
+        }
+        uint32_t n = outLen - o;
+        if (abs + n > fileSize) n = fileSize - abs;
+
+        if (abs < kHeadLen) {
+            uint8_t head[kHeadLen];
+            writeHead(head, fileSize);
+            uint32_t take = kHeadLen - abs;
+            if (take > n) take = n;
+            memcpy(out + o, head + abs, take);
+            o += take;
+            continue;
+        }
+
+        uint32_t body = abs - kHeadLen;
+        uint32_t into = body % kFrameLen;
+        uint32_t take = kFrameLen - into;
+        if (take > n) take = n;
+        memcpy(out + o, kFrame + into, take);
+        o += take;
+    }
+}
+
+}  // namespace Mp3Silence
