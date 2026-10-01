@@ -138,7 +138,7 @@ Beobachter-Handy. Replay braucht relativ `t_ms seit Plug` — das ist ok. Für F
 ## Abnahme später
 
 - [ ] Exporter aus echtem Feld-Trace (nach Trace-Ring-Upgrade / [`AUFTRAG-MSC-READS-STREAMING`](AUFTRAG-MSC-READS-STREAMING.md))
-- [ ] Feld-Traces 10-01 Abend in `traces/` (+ Sync-Marker-Notizen)
+- [ ] Feld-Traces 10-01 Abend in `traces/` (+ Sync-Marker-Notizen) — **Synth:** `feld_heimabend_6s_cache.replay.json` (lab-safe); echte LBA erst nach `msc.reads`
 - [ ] NTP-Epoch + `boot_id` im Trace-Flush; Exporter kalibriert Anker
 - [ ] `pidrivectl test nbt-replay` Hook
 

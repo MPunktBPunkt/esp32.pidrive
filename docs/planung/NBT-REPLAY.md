@@ -72,6 +72,6 @@ python3 tools/nbt_report.py tools/reports/last_run.json
 
 ## Nächste Schritte
 
-1. Feldabend 0.4.31: neuen Trace sammeln → `traces/feldtest-2026-10-01*.replay.json`
+1. Feldabend 0.4.31: ~~neuen Trace sammeln~~ → Synth `traces/feld_heimabend_6s_cache.replay.json` (6 s Live→Cache); echte LBA via [MSC-READS](../auftraege/AUFTRAG-MSC-READS-STREAMING.md)
 2. Trace-Ring >96 Samples + optional jsonl pro Read
 3. Szenario 4 paced_realtime, Geometrie später
