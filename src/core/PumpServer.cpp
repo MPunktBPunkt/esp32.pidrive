@@ -15,6 +15,7 @@ void PumpServer::begin(EventLog* events, MenuStore* menu, UsbMscGadget* msc, Uar
     binState_ = BinState::Idle;
     active_ = Link::SerialLink;
     tcpPort_ = 0;
+    if (!sendMu_) sendMu_ = xSemaphoreCreateMutex();
     if (events_) events_->push("pump.init", "line-json+bin uart/tcp");
 }
 
@@ -55,16 +56,16 @@ void PumpServer::sendRaw(const char* s) {
     if (!s) return;
     // Always prefer the sticky TCP peer when linked. Using active_==Tcp alone
     // dropped menu_ack/audio_ack onto Serial after SoftAP nav (menu looked frozen).
-    // Mutex: diag (USB task) + msc.reads (loop) must not interleave TCP lines.
-    portENTER_CRITICAL(&sendMux_);
+    // FreeRTOS mutex only — portENTER_CRITICAL around WiFi TCP caused WDT/reboot (0.4.32 field).
+    if (sendMu_ && xSemaphoreTake(sendMu_, pdMS_TO_TICKS(50)) != pdTRUE) return;
     if (tcpLinked_) {
         size_t n = client_.println(s);
-        client_.flush();
+        // no flush(): blocks on ACKs and re-entered WDT risk under USB load
         if (n > 0) tcpDownSinceMs_ = 0;
     } else {
         Serial.println(s);
     }
-    portEXIT_CRITICAL(&sendMux_);
+    if (sendMu_) xSemaphoreGive(sendMu_);
 }
 
 void PumpServer::sendJson(const JsonDocument& doc) {

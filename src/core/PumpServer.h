@@ -74,7 +74,8 @@ private:
     char clientIp_[16] = {0};
     bool tcpLinked_ = false;
     uint32_t tcpDownSinceMs_ = 0;
-    portMUX_TYPE sendMux_ = portMUX_INITIALIZER_UNLOCKED;
+    /** Serialize line sends (USB diag/play vs loop msc.reads). Never spinlock — TCP needs IRQs. */
+    SemaphoreHandle_t sendMu_ = nullptr;
 
     // Binary: 0x01 0x55 = audio, 0x01 0x56 = sticky ID3 append
     enum class BinState : uint8_t { Idle, GotMagic1, GotMagic2, GotLenLo, Payload };
