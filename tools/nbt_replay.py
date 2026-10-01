@@ -163,6 +163,7 @@ class Sampler:
                     "phase": m.get("phase"),
                     "lastReadLba": m.get("lastReadLba"),
                     "streamBytes": m.get("streamBytes"),
+                    "preWarmHostBytes": m.get("preWarmHostBytes"),
                     "playGuessCount": m.get("playGuessCount"),
                     "usbSerial": m.get("usbSerial"),
                     "remountGen": m.get("remountGen"),

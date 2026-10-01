@@ -17,12 +17,13 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/` und Feldbericht.
 
 ## Aktueller Fokus
 
-1. Lab `.88`: 0.4.36 — Prefetch-~180 KiB nach `audio_start`: erwarten `pre≈0`, `streamBytes>0`
-2. Morgen Auto: 0.4.35/36 OTA — `streamBytes>0`?
-3. Weitere B6-Hebel falls Lab/Auto weiter `streamBytes=0`
+1. Morgen Auto: 0.4.36 OTA — kurzer Silence-Glitch bis Ring voll akzeptabel? sonst Pi-Ring-Präfill
+2. Pi-Hebel: Ring vor Arming füllen → Suite-KPI `live_ratio` Richtung 1.0
+3. B6 Lab-Regression: `prefetch_then_warm` (automatisiert)
 
 ## Letzte Änderung
 
+- 2026-10-01 Abend: **B6-Automation** in `nbt_report`/`nbt_suite` — Verdicts `pre_warm_bytes`, `stream_after_arm`, `live_ratio`; Suite-Lauf 0.4.36: preΔ=0 PASS, streamΔ=180224 PASS, live_ratio≈0.29 WARN
 - 2026-10-01 Abend: **0.4.36-dev** `kOverlayWarmupBytes=0` + arm on `audio_start` (B6 Hebel A)
 - 2026-10-01 Abend: **t_ms-Export-Fix**; Suite `prefetch_then_warm`; Feld-Traces
 - 2026-10-01 Abend: **0.4.35-dev** play_uid-Replay

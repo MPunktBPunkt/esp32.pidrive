@@ -30,6 +30,7 @@ SCENARIOS = [
         "id": "head_reread_after_quiet",
         "trace": "feld_1001_guess_then_quiet.replay.json",
         "need_stream": True,
+        "lab_uid": "fav1",
         "extra_events": "head_reread",  # injected after quiet by suite
         "settle_override": 30,
     },
@@ -37,14 +38,16 @@ SCENARIOS = [
         "id": "sequential_past_head",
         "trace": "sequential_past_head.replay.json",
         "need_stream": True,
+        "lab_uid": "fav0",
         "settle_override": 5,
     },
     {
-        # B6 target: ~180 KiB silence window then quiet (Feld pre=182272).
-        # Lab-safe paced sibling — not the raw BOB burst (has ≥100 KiB consecutive).
+        # B6: prefetch ~180 KiB after arm (Feld pre=182272 → live path @ warmup=0).
+        # Asserts via nbt_report: pre_warm_bytes≈0, stream_after_arm>0, live_ratio KPI.
         "id": "prefetch_then_warm",
         "trace": "feld_prefetch_then_warm_gentle.replay.json",
-        "need_stream": False,
+        "need_stream": True,
+        "lab_uid": "fav2",
         "settle_override": 5,
     },
 ]
@@ -132,7 +135,8 @@ def main() -> int:
             )
 
         if sc.get("need_stream"):
-            lab_play(args.esp, "fav0" if sid != "head_reread_after_quiet" else "fav1")
+            uid = sc.get("lab_uid") or ("fav0" if sid != "head_reread_after_quiet" else "fav1")
+            lab_play(args.esp, uid)
             time.sleep(2.0)
             if not wait_warm(args.esp, timeout=45.0):
                 print(f"WARN: stream not warm for {sid} — continuing")
@@ -183,8 +187,11 @@ def main() -> int:
                 "overall": summary["overall"],
                 "esp_reboot": summary["esp_reboot"],
                 "underrun_delta": summary["underrun_delta"],
+                "stream_bytes_delta": summary["stream_bytes_delta"],
+                "pre_warm_delta": summary.get("pre_warm_delta"),
                 "live_ratio": summary["live_ratio"],
                 "read_bytes": summary["read_bytes_total"],
+                "verdicts": {v["id"]: v["result"] for v in (summary.get("verdicts") or [])},
                 "report": str(md_path.name),
             }
         )
@@ -195,16 +202,24 @@ def main() -> int:
         "",
         f"Mode: `{args.mode}` · ESP: `{args.esp}`",
         "",
-        "| Scenario | Overall | reboot | underrunΔ | live_ratio | read_bytes | report |",
-        "|----------|---------|--------|-----------|------------|------------|--------|",
+        "| Scenario | Overall | reboot | preΔ | streamΔ | underrunΔ | live_ratio | read_bytes | report |",
+        "|----------|---------|--------|------|---------|-----------|------------|------------|--------|",
     ]
     for r in rows:
         lr = r["live_ratio"]
         lr_s = f"{lr:.3f}" if isinstance(lr, float) else str(lr)
         lines.append(
             f"| `{r['scenario']}` | **{r['overall']}** | {r['esp_reboot']} | "
+            f"{r.get('pre_warm_delta')} | {r.get('stream_bytes_delta')} | "
             f"{r['underrun_delta']} | {lr_s} | {r['read_bytes']} | {r['report']} |"
         )
+    lines += ["", "## B6 verdicts (`prefetch_then_warm`)", ""]
+    for r in rows:
+        if r["scenario"] != "prefetch_then_warm":
+            continue
+        vd = r.get("verdicts") or {}
+        for kid in ("pre_warm_bytes", "stream_after_arm", "overlay_live"):
+            lines.append(f"- `{kid}`: **{vd.get(kid, '?')}**")
     lines.append("")
     dash.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(dash.read_text())
