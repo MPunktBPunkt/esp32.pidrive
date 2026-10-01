@@ -1,0 +1,787 @@
+{
+  "meta": {
+    "name": "b1_burst_quiet",
+    "source": "synthetic-B1-lab-2026-09-30",
+    "note": "512KiB slot0 paced 25ms/4KiB (~0.16MB/s) then quiet; slower than field to avoid ESP USB-reset"
+  },
+  "geometry": {
+    "slot0_lba": 57,
+    "sector": 512,
+    "slot_sectors": 1024
+  },
+  "events": [
+    {
+      "t_ms": 1500,
+      "op": "read",
+      "lba": 57,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1525,
+      "op": "read",
+      "lba": 65,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1550,
+      "op": "read",
+      "lba": 73,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1575,
+      "op": "read",
+      "lba": 81,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1600,
+      "op": "read",
+      "lba": 89,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1625,
+      "op": "read",
+      "lba": 97,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1650,
+      "op": "read",
+      "lba": 105,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1675,
+      "op": "read",
+      "lba": 113,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1700,
+      "op": "read",
+      "lba": 121,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1725,
+      "op": "read",
+      "lba": 129,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1750,
+      "op": "read",
+      "lba": 137,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1775,
+      "op": "read",
+      "lba": 145,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1800,
+      "op": "read",
+      "lba": 153,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1825,
+      "op": "read",
+      "lba": 161,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1850,
+      "op": "read",
+      "lba": 169,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1875,
+      "op": "read",
+      "lba": 177,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1900,
+      "op": "read",
+      "lba": 185,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1925,
+      "op": "read",
+      "lba": 193,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1950,
+      "op": "read",
+      "lba": 201,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1975,
+      "op": "read",
+      "lba": 209,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2000,
+      "op": "read",
+      "lba": 217,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2025,
+      "op": "read",
+      "lba": 225,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2050,
+      "op": "read",
+      "lba": 233,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2075,
+      "op": "read",
+      "lba": 241,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2100,
+      "op": "read",
+      "lba": 249,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2125,
+      "op": "read",
+      "lba": 257,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2150,
+      "op": "read",
+      "lba": 265,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2175,
+      "op": "read",
+      "lba": 273,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2200,
+      "op": "read",
+      "lba": 281,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2225,
+      "op": "read",
+      "lba": 289,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2250,
+      "op": "read",
+      "lba": 297,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2275,
+      "op": "read",
+      "lba": 305,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2300,
+      "op": "read",
+      "lba": 313,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2325,
+      "op": "read",
+      "lba": 321,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2350,
+      "op": "read",
+      "lba": 329,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2375,
+      "op": "read",
+      "lba": 337,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2400,
+      "op": "read",
+      "lba": 345,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2425,
+      "op": "read",
+      "lba": 353,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2450,
+      "op": "read",
+      "lba": 361,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2475,
+      "op": "read",
+      "lba": 369,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2500,
+      "op": "read",
+      "lba": 377,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2525,
+      "op": "read",
+      "lba": 385,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2550,
+      "op": "read",
+      "lba": 393,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2575,
+      "op": "read",
+      "lba": 401,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2600,
+      "op": "read",
+      "lba": 409,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2625,
+      "op": "read",
+      "lba": 417,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2650,
+      "op": "read",
+      "lba": 425,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2675,
+      "op": "read",
+      "lba": 433,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2700,
+      "op": "read",
+      "lba": 441,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2725,
+      "op": "read",
+      "lba": 449,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2750,
+      "op": "read",
+      "lba": 457,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2775,
+      "op": "read",
+      "lba": 465,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2800,
+      "op": "read",
+      "lba": 473,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2825,
+      "op": "read",
+      "lba": 481,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2850,
+      "op": "read",
+      "lba": 489,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2875,
+      "op": "read",
+      "lba": 497,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2900,
+      "op": "read",
+      "lba": 505,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2925,
+      "op": "read",
+      "lba": 513,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2950,
+      "op": "read",
+      "lba": 521,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2975,
+      "op": "read",
+      "lba": 529,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3000,
+      "op": "read",
+      "lba": 537,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3025,
+      "op": "read",
+      "lba": 545,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3050,
+      "op": "read",
+      "lba": 553,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3075,
+      "op": "read",
+      "lba": 561,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3100,
+      "op": "read",
+      "lba": 569,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3125,
+      "op": "read",
+      "lba": 577,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3150,
+      "op": "read",
+      "lba": 585,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3175,
+      "op": "read",
+      "lba": 593,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3200,
+      "op": "read",
+      "lba": 601,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3225,
+      "op": "read",
+      "lba": 609,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3250,
+      "op": "read",
+      "lba": 617,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3275,
+      "op": "read",
+      "lba": 625,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3300,
+      "op": "read",
+      "lba": 633,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3325,
+      "op": "read",
+      "lba": 641,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3350,
+      "op": "read",
+      "lba": 649,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3375,
+      "op": "read",
+      "lba": 657,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3400,
+      "op": "read",
+      "lba": 665,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3425,
+      "op": "read",
+      "lba": 673,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3450,
+      "op": "read",
+      "lba": 681,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3475,
+      "op": "read",
+      "lba": 689,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3500,
+      "op": "read",
+      "lba": 697,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3525,
+      "op": "read",
+      "lba": 705,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3550,
+      "op": "read",
+      "lba": 713,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3575,
+      "op": "read",
+      "lba": 721,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3600,
+      "op": "read",
+      "lba": 729,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3625,
+      "op": "read",
+      "lba": 737,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3650,
+      "op": "read",
+      "lba": 745,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3675,
+      "op": "read",
+      "lba": 753,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3700,
+      "op": "read",
+      "lba": 761,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3725,
+      "op": "read",
+      "lba": 769,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3750,
+      "op": "read",
+      "lba": 777,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3775,
+      "op": "read",
+      "lba": 785,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3800,
+      "op": "read",
+      "lba": 793,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3825,
+      "op": "read",
+      "lba": 801,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3850,
+      "op": "read",
+      "lba": 809,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3875,
+      "op": "read",
+      "lba": 817,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3900,
+      "op": "read",
+      "lba": 825,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3925,
+      "op": "read",
+      "lba": 833,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3950,
+      "op": "read",
+      "lba": 841,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3975,
+      "op": "read",
+      "lba": 849,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4000,
+      "op": "read",
+      "lba": 857,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4025,
+      "op": "read",
+      "lba": 865,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4050,
+      "op": "read",
+      "lba": 873,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4075,
+      "op": "read",
+      "lba": 881,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4100,
+      "op": "read",
+      "lba": 889,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4125,
+      "op": "read",
+      "lba": 897,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4150,
+      "op": "read",
+      "lba": 905,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4175,
+      "op": "read",
+      "lba": 913,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4200,
+      "op": "read",
+      "lba": 921,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4225,
+      "op": "read",
+      "lba": 929,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4250,
+      "op": "read",
+      "lba": 937,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4275,
+      "op": "read",
+      "lba": 945,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4300,
+      "op": "read",
+      "lba": 953,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4325,
+      "op": "read",
+      "lba": 961,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4350,
+      "op": "read",
+      "lba": 969,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4375,
+      "op": "read",
+      "lba": 977,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4400,
+      "op": "read",
+      "lba": 985,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4425,
+      "op": "read",
+      "lba": 993,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4450,
+      "op": "read",
+      "lba": 1001,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4475,
+      "op": "read",
+      "lba": 1009,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4500,
+      "op": "read",
+      "lba": 1017,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4525,
+      "op": "read",
+      "lba": 1025,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4550,
+      "op": "read",
+      "lba": 1033,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4575,
+      "op": "read",
+      "lba": 1041,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4600,
+      "op": "read",
+      "lba": 1049,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4625,
+      "op": "read",
+      "lba": 1057,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4650,
+      "op": "read",
+      "lba": 1065,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4675,
+      "op": "read",
+      "lba": 1073,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4750,
+      "op": "quiet",
+      "duration_ms": 60000
+    }
+  ]
+}

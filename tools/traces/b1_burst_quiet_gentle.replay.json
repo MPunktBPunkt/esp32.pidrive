@@ -1,0 +1,42 @@
+{
+  "meta": {
+    "name": "b1_burst_quiet_gentle",
+    "source": "synthetic-B1-lab-safe",
+    "note": "16KiB @ 150ms/4KiB then quiet. Lab 2026-10-01: SG \u226532KiB consecutive slot0 reboots ESP; 16KiB@80\u2013150ms PASS."
+  },
+  "geometry": {
+    "slot0_lba": 57,
+    "sector": 512
+  },
+  "events": [
+    {
+      "t_ms": 1500,
+      "op": "read",
+      "lba": 57,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1650,
+      "op": "read",
+      "lba": 65,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1800,
+      "op": "read",
+      "lba": 73,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 1950,
+      "op": "read",
+      "lba": 81,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2150,
+      "op": "quiet",
+      "duration_ms": 60000
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "overall": "PASS",
+  "read_bytes_total": 16384,
+  "read_count": 4,
+  "first_read_ms": 1500,
+  "last_read_ms": 1950,
+  "max_read_gap_ms": 150,
+  "underrun_delta": 0,
+  "stream_bytes_delta": 16384,
+  "live_ratio": 1.0,
+  "head_resync_delta": 1,
+  "esp_reboot": false,
+  "fw_before": "0.4.31-dev",
+  "fw_after": "0.4.31-dev",
+  "verdicts": [
+    {
+      "id": "esp_reboot",
+      "result": "PASS",
+      "detail": "no uptime regression"
+    },
+    {
+      "id": "overlay_live",
+      "result": "PASS",
+      "detail": "live_ratio=1.000"
+    },
+    {
+      "id": "head_resync",
+      "result": "PASS",
+      "detail": "headResyncs 0\u21921"
+    },
+    {
+      "id": "io_errors",
+      "result": "PASS",
+      "detail": "0 IO errors"
+    }
+  ],
+  "transport": "sg:/dev/sg0",
+  "trace": "b1_burst_quiet_gentle"
+}

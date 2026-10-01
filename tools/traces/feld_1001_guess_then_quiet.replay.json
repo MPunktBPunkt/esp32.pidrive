@@ -1,0 +1,31 @@
+{
+  "meta": {
+    "name": "feld_1001_guess_then_quiet",
+    "source": "synthetic-feld-2026-10-01",
+    "note": "Guess-then-quiet pattern (2x4KiB then quiet). Suite injects 2 head-rereads (total 16KiB lab-safe). Field had tighter gaps / more bytes."
+  },
+  "geometry": {
+    "slot0_lba": 57,
+    "slot1_lba": 1081,
+    "sector": 512
+  },
+  "events": [
+    {
+      "t_ms": 8000,
+      "op": "read",
+      "lba": 1081,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 8150,
+      "op": "read",
+      "lba": 1089,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 8500,
+      "op": "quiet",
+      "duration_ms": 120000
+    }
+  ]
+}
