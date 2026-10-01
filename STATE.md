@@ -23,7 +23,7 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/` und Feldbericht.
 
 ## Letzte Änderung
 
-- 2026-10-01 Abend: **B6-Automation** in `nbt_report`/`nbt_suite` — Verdicts `pre_warm_bytes`, `stream_after_arm`, `live_ratio`; Suite-Lauf 0.4.36: preΔ=0 PASS, streamΔ=180224 PASS, live_ratio≈0.29 WARN
+- 2026-10-01 Abend: **B6-Automation** in `nbt_report`/`nbt_suite` — Verdict-IDs `pre_warm_bytes`, `stream_after_arm`, `overlay_live` (KPI-Feld `live_ratio`); Suite-Lauf 0.4.36: preΔ=0 PASS, streamΔ=180224 PASS, live_ratio≈0.29 WARN
 - 2026-10-01 Abend: **0.4.36-dev** `kOverlayWarmupBytes=0` + arm on `audio_start` (B6 Hebel A)
 - 2026-10-01 Abend: **t_ms-Export-Fix**; Suite `prefetch_then_warm`; Feld-Traces
 - 2026-10-01 Abend: **0.4.35-dev** play_uid-Replay
