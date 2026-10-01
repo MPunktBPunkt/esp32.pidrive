@@ -20,6 +20,9 @@ public:
         uid_[0] = 0;
         id3Len_ = 0;
         headResyncs_ = 0;
+        cursorArmed_ = false;
+        hostAbsCursor_ = 0;
+        hostExpectFileOff_ = 0;
     }
 
     void start(const char* uid) {
@@ -71,14 +74,13 @@ public:
     }
 
     /**
-     * File layout: [sticky ID3 @0][audio abs 0..]
-     * B3: underrun / ahead-of-ring → CBR silence frames (not 0x00/0xFF).
-     * B4: head re-read / seek into scrolled-out region remaps onto live window
-     *     (fester ID3-Kopf + Cursor am absBase_), so late Re-Reads stay valid MP3.
+     * File layout: [sticky ID3 @0][audio via host cursor / abs window]
+     * B3: underrun → CBR silence frames.
+     * B4: sticky ID3 @0; head re-read snaps cursor to absBase_; sequential MSC
+     *     reads continue from hostAbsCursor_ (survives ring scroll past head window).
      */
     size_t readAt(uint32_t fileOff, uint8_t* out, size_t n) {
         if (!out || !n) return 0;
-        // Same 48 kb/s silence frame as msc/Mp3Silence.h (keep in sync).
         static const uint8_t kSil[156] = {
             0xff, 0xfb, 0x30, 0x64, 0x00, 0x0f, 0xf0, 0x00, 0x00, 0x69, 0x00, 0x00, 0x00, 0x08,
             0x00, 0x00, 0x0d, 0x20, 0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0xa4, 0x00, 0x00, 0x00,
@@ -94,11 +96,28 @@ public:
             0x55, 0x55,
         };
         constexpr size_t kSilLen = sizeof(kSil);
-        // Reads starting in this file window may remap scrolled-out audio onto live ring.
         static constexpr uint32_t kHeadResyncFileBytes = 8192;
+        static constexpr uint32_t kSeqSlop = 8192;
 
         const bool nearHead = fileOff < (uint32_t)id3Len_ + kHeadResyncFileBytes;
-        bool didResync = false;
+        const bool seekBack =
+            (hostExpectFileOff_ != 0) && (fileOff + 512u < hostExpectFileOff_);
+        const bool sequential =
+            (hostExpectFileOff_ == 0) ||
+            (fileOff + kSeqSlop >= hostExpectFileOff_ && fileOff <= hostExpectFileOff_ + kSeqSlop);
+
+        bool useCursor = false;
+        if (active_) {
+            if (!cursorArmed_ || (nearHead && (seekBack || fileOff <= (uint32_t)id3Len_ + 512u))) {
+                hostAbsCursor_ = absBase_;
+                cursorArmed_ = true;
+                useCursor = true;
+                if (seekBack || fileOff <= (uint32_t)id3Len_ + 512u) headResyncs_++;
+            } else if (sequential && cursorArmed_) {
+                useCursor = true;
+                if (size_ > 0 && hostAbsCursor_ < absBase_) hostAbsCursor_ = absBase_;
+            }
+        }
 
         for (size_t i = 0; i < n; i++) {
             uint32_t off = fileOff + (uint32_t)i;
@@ -106,22 +125,25 @@ public:
                 out[i] = id3_[off];
                 continue;
             }
-            uint32_t aoff = off - (uint32_t)id3Len_;
-            if (active_ && size_ > 0 && aoff < absBase_ && nearHead) {
-                // B4: file-relative early audio → current live window (sticky ID3 stays @0).
-                aoff = absBase_ + aoff;
-                if (!didResync) {
-                    headResyncs_++;
-                    didResync = true;
-                }
+            uint32_t aoff;
+            if (useCursor) {
+                aoff = hostAbsCursor_;
+            } else {
+                aoff = off - (uint32_t)id3Len_;
             }
             if (active_ && size_ > 0 && aoff >= absBase_ && aoff < absEnd_) {
                 uint32_t rel = aoff - absBase_;
                 out[i] = data_[(head_ + rel) % kCapacity];
+                if (useCursor) hostAbsCursor_++;
             } else {
                 if (active_) underruns_++;
                 out[i] = kSil[aoff % kSilLen];
+                if (useCursor) hostAbsCursor_++;
             }
+        }
+
+        if (useCursor || sequential) {
+            hostExpectFileOff_ = fileOff + (uint32_t)n;
         }
         return n;
     }
@@ -250,6 +272,7 @@ public:
 
     uint32_t absBase() const { return absBase_; }
     uint32_t headResyncs() const { return headResyncs_; }
+    uint32_t hostAbsCursor() const { return hostAbsCursor_; }
 
     void toJson(JsonObject obj) const {
         obj["active"] = active_;
@@ -261,6 +284,8 @@ public:
         obj["underruns"] = underruns_;
         obj["id3Len"] = (int)id3Len_;
         obj["headResyncs"] = headResyncs_;
+        obj["cursorArmed"] = cursorArmed_;
+        obj["hostAbsCursor"] = hostAbsCursor_;
         obj["hasCover"] = id3Len_ >= 20 && id3_[0] == 'I' && id3_[1] == 'D' && id3_[2] == '3';
     }
 
@@ -274,6 +299,9 @@ private:
     uint32_t absEnd_ = 0;
     uint32_t underruns_ = 0;
     uint32_t headResyncs_ = 0;
+    bool cursorArmed_ = false;
+    uint32_t hostAbsCursor_ = 0;
+    uint32_t hostExpectFileOff_ = 0;
     bool active_ = false;
     char uid_[24] = {0};
 };
