@@ -76,7 +76,14 @@ void PumpServer::sendJson(const JsonDocument& doc) {
 
 void PumpServer::sendPlayUid(const char* uid) {
     if (!uid || !uid[0]) return;
-    // Prefer live TCP bridge (field), else UART
+    // Remember for hello-replay when PUMP was down at guess (Feld 2026-10-01).
+    strncpy(queuedPlayUid_, uid, sizeof(queuedPlayUid_) - 1);
+    queuedPlayUid_[sizeof(queuedPlayUid_) - 1] = 0;
+    emitPlayUid_(uid);
+}
+
+void PumpServer::emitPlayUid_(const char* uid) {
+    if (!uid || !uid[0]) return;
     if (tcpLinked_) active_ = Link::Tcp;
     else active_ = Link::SerialLink;
     JsonDocument doc;
@@ -240,6 +247,15 @@ void PumpServer::handleLine(char* line) {
         ack["tcpPort"] = (int)tcpPort_;
         sendJson(ack);
         if (events_) events_->push("pump.hello", active_ == Link::Tcp ? "tcp" : "uart");
+        // If play.guess happened while TCP was down, bridge never saw play_uid — replay once.
+        if (queuedPlayUid_[0] && tcpLinked_) {
+            char again[24];
+            strncpy(again, queuedPlayUid_, sizeof(again) - 1);
+            again[sizeof(again) - 1] = 0;
+            queuedPlayUid_[0] = 0;  // one-shot — avoid audio_start spam on reconnect flaps
+            if (events_) events_->push("pump.play_replay", again);
+            emitPlayUid_(again);
+        }
         return;
     }
 
@@ -302,11 +318,14 @@ void PumpServer::handleLine(char* line) {
         ack["warmup"] = (int)kOverlayWarmupBytes;
         sendJson(ack);
         if (events_) events_->push("audio.start", uid);
+        // Bridge accepted this play — stop hello-replay of the same uid.
+        if (uid && uid[0] && !strcmp(queuedPlayUid_, uid)) queuedPlayUid_[0] = 0;
         return;
     }
 
     if (!strcmp(t, "audio_stop")) {
         pendingOverlayUid_[0] = 0;
+        queuedPlayUid_[0] = 0;
         if (stream_) stream_->stop();
         if (msc_) {
             msc_->clearPreWarmWatch();

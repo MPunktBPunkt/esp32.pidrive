@@ -43,6 +43,7 @@ private:
     enum class Link : uint8_t { SerialLink, Tcp };
     void handleLine(char* line);
     void sendRaw(const char* s);
+    void emitPlayUid_(const char* uid);
     void handleBinaryByte(uint8_t c);
     void feedByte(uint8_t c, Link from);
     void drainSerial();
@@ -76,6 +77,8 @@ private:
     uint32_t tcpDownSinceMs_ = 0;
     /** Serialize line sends (USB diag/play vs loop msc.reads). Never spinlock — TCP needs IRQs. */
     SemaphoreHandle_t sendMu_ = nullptr;
+    /** Last play.guess uid — re-emit on hello if bridge missed it (TCP was down). */
+    char queuedPlayUid_[24] = {0};
 
     // Binary: 0x01 0x55 = audio, 0x01 0x56 = sticky ID3 append
     enum class BinState : uint8_t { Idle, GotMagic1, GotMagic2, GotLenLo, Payload };
