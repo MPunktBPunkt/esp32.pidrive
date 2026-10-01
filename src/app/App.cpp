@@ -145,6 +145,7 @@ void App::setupWeb() {
     server_.on("/api/lab/stop", HTTP_POST, [this]() { handleApiLabStop(); });
     server_.on("/api/lab/remount", HTTP_POST, [this]() { handleApiLabRemount(); });
     server_.on("/api/lab/stream", HTTP_GET, [this]() { handleApiLabStream(); });
+    server_.on("/api/lab/overlay_read", HTTP_GET, [this]() { handleApiLabOverlayRead(); });
     server_.on("/api/lab/listen", HTTP_GET, [this]() { handleApiLabListen(); });
     server_.on("/api/lab/cover", HTTP_GET, [this]() { handleApiLabCover(); });
     server_.on("/api/metrics", HTTP_GET, [this]() { handleApiMetrics(); });
@@ -435,6 +436,44 @@ void App::handleApiLabStream() {
     server_.sendHeader(F("X-Stream-AbsEnd"), String(stream.absEnd()));
     server_.setContentLength(n);
     server_.send(200, F("audio/mpeg"), "");
+    if (n) server_.client().write(buf, n);
+}
+
+/** B4 lab probe: SoftAP readAt(fileOff) without MSC host.
+ *  GET /api/lab/overlay_read?off=0&n=4096 → raw bytes + X- headers. */
+void App::handleApiLabOverlayRead() {
+    if (!config.labMode) {
+        NetUtil::sendError(server_, 403, "labMode aus");
+        return;
+    }
+    if (!stream.active()) {
+        server_.send(204, F("text/plain"), F(""));
+        return;
+    }
+    uint32_t off = 0;
+    uint32_t nReq = 4096;
+    if (server_.hasArg("off")) off = (uint32_t)server_.arg("off").toInt();
+    if (server_.hasArg("n")) nReq = (uint32_t)server_.arg("n").toInt();
+    if (nReq == 0) nReq = 4096;
+    if (nReq > 8192) nReq = 8192;
+    static uint8_t buf[8192];
+    uint32_t ud0 = stream.underruns();
+    uint32_t rs0 = stream.headResyncs();
+    size_t n = stream.readAt(off, buf, (size_t)nReq);
+    uint32_t ud1 = stream.underruns();
+    uint32_t rs1 = stream.headResyncs();
+    server_.sendHeader(F("Cache-Control"), F("no-store"));
+    server_.sendHeader(F("X-Stream-Uid"), stream.uid());
+    server_.sendHeader(F("X-File-Off"), String(off));
+    server_.sendHeader(F("X-Stream-Id3"), String((unsigned)stream.id3Len()));
+    server_.sendHeader(F("X-Stream-AbsBase"), String(stream.absBase()));
+    server_.sendHeader(F("X-Stream-AbsEnd"), String(stream.absEnd()));
+    server_.sendHeader(F("X-Stream-Size"), String((unsigned)stream.size()));
+    server_.sendHeader(F("X-Underruns-Delta"), String(ud1 - ud0));
+    server_.sendHeader(F("X-Head-Resyncs-Delta"), String(rs1 - rs0));
+    server_.sendHeader(F("X-Head-Resyncs"), String(rs1));
+    server_.setContentLength(n);
+    server_.send(200, F("application/octet-stream"), "");
     if (n) server_.client().write(buf, n);
 }
 

@@ -19,6 +19,7 @@ public:
         active_ = false;
         uid_[0] = 0;
         id3Len_ = 0;
+        headResyncs_ = 0;
     }
 
     void start(const char* uid) {
@@ -69,8 +70,12 @@ public:
         return written;
     }
 
-    /** File layout: [sticky ID3][audio abs 0..]
-     * B3: underrun / scrolled-out → CBR silence frames (not 0x00/0xFF). */
+    /**
+     * File layout: [sticky ID3 @0][audio abs 0..]
+     * B3: underrun / ahead-of-ring → CBR silence frames (not 0x00/0xFF).
+     * B4: head re-read / seek into scrolled-out region remaps onto live window
+     *     (fester ID3-Kopf + Cursor am absBase_), so late Re-Reads stay valid MP3.
+     */
     size_t readAt(uint32_t fileOff, uint8_t* out, size_t n) {
         if (!out || !n) return 0;
         // Same 48 kb/s silence frame as msc/Mp3Silence.h (keep in sync).
@@ -89,6 +94,11 @@ public:
             0x55, 0x55,
         };
         constexpr size_t kSilLen = sizeof(kSil);
+        // Reads starting in this file window may remap scrolled-out audio onto live ring.
+        static constexpr uint32_t kHeadResyncFileBytes = 8192;
+
+        const bool nearHead = fileOff < (uint32_t)id3Len_ + kHeadResyncFileBytes;
+        bool didResync = false;
 
         for (size_t i = 0; i < n; i++) {
             uint32_t off = fileOff + (uint32_t)i;
@@ -97,6 +107,14 @@ public:
                 continue;
             }
             uint32_t aoff = off - (uint32_t)id3Len_;
+            if (active_ && size_ > 0 && aoff < absBase_ && nearHead) {
+                // B4: file-relative early audio → current live window (sticky ID3 stays @0).
+                aoff = absBase_ + aoff;
+                if (!didResync) {
+                    headResyncs_++;
+                    didResync = true;
+                }
+            }
             if (active_ && size_ > 0 && aoff >= absBase_ && aoff < absEnd_) {
                 uint32_t rel = aoff - absBase_;
                 out[i] = data_[(head_ + rel) % kCapacity];
@@ -231,15 +249,18 @@ public:
     }
 
     uint32_t absBase() const { return absBase_; }
+    uint32_t headResyncs() const { return headResyncs_; }
 
     void toJson(JsonObject obj) const {
         obj["active"] = active_;
         obj["uid"] = uid_;
         obj["size"] = (int)size_;
         obj["cap"] = (int)kCapacity;
+        obj["absBase"] = absBase_;
         obj["absEnd"] = absEnd_;
         obj["underruns"] = underruns_;
         obj["id3Len"] = (int)id3Len_;
+        obj["headResyncs"] = headResyncs_;
         obj["hasCover"] = id3Len_ >= 20 && id3_[0] == 'I' && id3_[1] == 'D' && id3_[2] == '3';
     }
 
@@ -252,6 +273,7 @@ private:
     uint32_t absBase_ = 0;
     uint32_t absEnd_ = 0;
     uint32_t underruns_ = 0;
+    uint32_t headResyncs_ = 0;
     bool active_ = false;
     char uid_[24] = {0};
 };

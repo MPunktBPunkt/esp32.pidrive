@@ -119,6 +119,25 @@ def main() -> None:
         f"underruns+={end['stream']['underruns']-mid['stream']['underruns']}"
     )
 
+    # B4: wait for ring scroll, then re-read slot head — expect live + headResyncs↑
+    print("B4 wait scroll…")
+    for _ in range(20):
+        s = get_status(args.esp)["msc"]["stream"]
+        if int(s.get("absBase") or 0) > 0:
+            break
+        time.sleep(0.5)
+    before = get_status(args.esp)["msc"]
+    dd_read(args.dev, lba0, 16)  # 8 KiB from file head
+    after = get_status(args.esp)["msc"]
+    rs0 = int((before.get("stream") or {}).get("headResyncs") or 0)
+    rs1 = int((after.get("stream") or {}).get("headResyncs") or 0)
+    ud = int(after["stream"]["underruns"]) - int(before["stream"]["underruns"])
+    sb = after["streamBytes"] - before["streamBytes"]
+    print(
+        f"B4 head-reread streamBytes+={sb} underruns+={ud} "
+        f"headResyncs {rs0}→{rs1} absBase={after['stream'].get('absBase')}"
+    )
+
 
 if __name__ == "__main__":
     main()
