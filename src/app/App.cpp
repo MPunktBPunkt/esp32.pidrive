@@ -46,6 +46,8 @@ void App::begin() {
     msc.setPlayHandler([](const char* uid) { App::instance().pump.sendPlayUid(uid); });
     msc.setDiagHandler(
         [](const char* code, const char* detail) { App::instance().pump.sendDiag(code, detail); });
+    msc.setReadsHandler(
+        [](const MscReadBurst& b) { App::instance().pump.sendMscReads(b); });
 
     setupWifi();
 

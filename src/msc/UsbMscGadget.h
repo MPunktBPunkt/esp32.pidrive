@@ -26,6 +26,19 @@ struct MscReadSample {
     char tag[12] = {0};
 };
 
+/** Aggregated read burst for PUMP `msc.reads` (drained in loop(), never in USB cb). */
+struct MscReadBurst {
+    uint32_t ms0 = 0;
+    uint16_t gap0 = 0;
+    uint32_t lba0 = 0;
+    uint32_t lba1 = 0;
+    uint32_t bytes = 0;
+    uint16_t n = 0;
+    uint8_t kind = 0;
+    uint32_t overflow = 0;
+    char tag[12] = {0};
+};
+
 struct MscSlotStats {
     uint32_t bytes = 0;
     uint32_t fromHeadHits = 0;
@@ -48,6 +61,11 @@ struct PlayDetectParams {
 class UsbMscGadget {
 public:
     static constexpr size_t kTraceSize = 96;
+    /** Pending export queue (loop drain → PUMP). Drop oldest on overflow. */
+    static constexpr size_t kPendingReads = 64;
+    /** Merge consecutive samples into one PUMP event while gap ≤ this (ms). */
+    static constexpr uint16_t kBurstGapMs = 50;
+    static constexpr uint16_t kBurstMaxN = 32;
     static constexpr size_t kSlots = 4;
     /** Virtual MSC capacity (2 MiB) — larger than demo_fat.bin; LBAs beyond image are synthesized. */
     static constexpr uint32_t kVirtSectorCount = 4096;
@@ -68,6 +86,7 @@ public:
 
     using PlayHandler = std::function<void(const char* uid)>;
     using DiagHandler = std::function<void(const char* code, const char* detail)>;
+    using ReadsHandler = std::function<void(const MscReadBurst& burst)>;
 
     bool begin(EventLog* events, MenuStore* menu);
     void loop();
@@ -80,9 +99,12 @@ public:
     bool mediaPresented() const { return mediaPresented_; }
     void setPlayHandler(PlayHandler h) { playHandler_ = h; }
     void setDiagHandler(DiagHandler h) { diagHandler_ = h; }
+    void setReadsHandler(ReadsHandler h) { readsHandler_ = h; }
     void setStreamBuffer(StreamBuffer* s) { stream_ = s; }
     void setPlayDetectParams(const PlayDetectParams& p) { playDetect_ = p; }
     PlayDetectParams playDetectParams() const { return playDetect_; }
+    uint32_t readOverflowCount() const { return readOverflowCount_; }
+    void noteReadsEmitted() { readsEmitCount_++; }
     void startStream(const char* uid);
     void stopStream();
 
@@ -125,6 +147,9 @@ private:
 
     void noteDataRead(uint32_t lba, uint32_t bufsize);
     void pushTrace(uint32_t lba, uint32_t bufsize, uint8_t kind, const char* tag);
+    void enqueuePendingRead(const MscReadSample& s);
+    void drainPendingReads();
+    void flushReadBurst(MscReadBurst& b);
     void noteXferSize(uint32_t bufsize);
     void setPhase(Phase p, const char* detail);
     static const char* phaseName(Phase p);
@@ -176,6 +201,7 @@ private:
     StreamBuffer* stream_ = nullptr;
     PlayHandler playHandler_;
     DiagHandler diagHandler_;
+    ReadsHandler readsHandler_;
     void emitDiag(const char* code, const char* detail = "");
     MscFileMap slots_[kSlots];
     MscSlotStats slotStats_[kSlots];
@@ -237,4 +263,12 @@ private:
     MscReadSample trace_[kTraceSize];
     size_t traceHead_ = 0;
     size_t traceCount_ = 0;
+
+    MscReadSample pendingReads_[kPendingReads];
+    size_t pendingHead_ = 0;
+    size_t pendingTail_ = 0;
+    size_t pendingCount_ = 0;
+    uint32_t readOverflowCount_ = 0;
+    uint32_t readsEmitCount_ = 0;
+    portMUX_TYPE pendingMux_ = portMUX_INITIALIZER_UNLOCKED;
 };

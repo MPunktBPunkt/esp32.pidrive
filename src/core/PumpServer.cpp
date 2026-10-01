@@ -55,6 +55,8 @@ void PumpServer::sendRaw(const char* s) {
     if (!s) return;
     // Always prefer the sticky TCP peer when linked. Using active_==Tcp alone
     // dropped menu_ack/audio_ack onto Serial after SoftAP nav (menu looked frozen).
+    // Mutex: diag (USB task) + msc.reads (loop) must not interleave TCP lines.
+    portENTER_CRITICAL(&sendMux_);
     if (tcpLinked_) {
         size_t n = client_.println(s);
         client_.flush();
@@ -62,6 +64,7 @@ void PumpServer::sendRaw(const char* s) {
     } else {
         Serial.println(s);
     }
+    portEXIT_CRITICAL(&sendMux_);
 }
 
 void PumpServer::sendJson(const JsonDocument& doc) {
@@ -95,6 +98,22 @@ void PumpServer::sendDiag(const char* code, const char* detail) {
     doc["code"] = code;
     if (detail && detail[0]) doc["detail"] = detail;
     sendJson(doc);
+}
+
+void PumpServer::sendMscReads(const MscReadBurst& burst) {
+    if (burst.n == 0) return;
+    if (!tcpLinked_ && !up_) return;
+    if (tcpLinked_) active_ = Link::Tcp;
+    else active_ = Link::SerialLink;
+    char line[192];
+    snprintf(line, sizeof(line),
+             "{\"t\":\"event\",\"op\":\"msc.reads\",\"ms\":%lu,\"gap\":%u,\"lba0\":%lu,\"lba1\":%lu,"
+             "\"bytes\":%lu,\"n\":%u,\"kind\":%u,\"ov\":%lu}",
+             (unsigned long)burst.ms0, (unsigned)burst.gap0, (unsigned long)burst.lba0,
+             (unsigned long)burst.lba1, (unsigned long)burst.bytes, (unsigned)burst.n,
+             (unsigned)burst.kind, (unsigned long)burst.overflow);
+    sendRaw(line);
+    if (msc_) msc_->noteReadsEmitted();
 }
 
 void PumpServer::setCoverMeta(const char* src, const char* path, const char* tryList) {

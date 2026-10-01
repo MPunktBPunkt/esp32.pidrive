@@ -30,6 +30,8 @@ public:
     void sendPlayUid(const char* uid);
     /** Field diagnostics → Pi bridge log (play.reject / msc.quiet / msc.phase / …). */
     void sendDiag(const char* code, const char* detail = "");
+    /** Batched MSC read timeline (drained from UsbMscGadget::loop). */
+    void sendMscReads(const MscReadBurst& burst);
     void sendJson(const JsonDocument& doc);
     StreamBuffer* stream() { return stream_; }
 
@@ -72,6 +74,7 @@ private:
     char clientIp_[16] = {0};
     bool tcpLinked_ = false;
     uint32_t tcpDownSinceMs_ = 0;
+    portMUX_TYPE sendMux_ = portMUX_INITIALIZER_UNLOCKED;
 
     // Binary: 0x01 0x55 = audio, 0x01 0x56 = sticky ID3 append
     enum class BinState : uint8_t { Idle, GotMagic1, GotMagic2, GotLenLo, Payload };

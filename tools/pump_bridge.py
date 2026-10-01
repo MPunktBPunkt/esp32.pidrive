@@ -1531,6 +1531,33 @@ def main() -> int:
                         except OSError:
                             pass
                         continue
+                    if t == "event" and msg.get("op") == "msc.reads":
+                        # Batched LBA timeline from ESP drain-task (not USB callback)
+                        row = {
+                            "ts": time.time(),
+                            "ms": msg.get("ms"),
+                            "gap": msg.get("gap"),
+                            "lba0": msg.get("lba0"),
+                            "lba1": msg.get("lba1"),
+                            "bytes": msg.get("bytes"),
+                            "n": msg.get("n"),
+                            "kind": msg.get("kind"),
+                            "ov": msg.get("ov"),
+                            "tag": msg.get("tag") or "",
+                        }
+                        n = int(msg.get("n") or 0)
+                        b = int(msg.get("bytes") or 0)
+                        print(
+                            f"[msc.reads] n={n} bytes={b} lba={msg.get('lba0')}..{msg.get('lba1')} "
+                            f"gap={msg.get('gap')} ov={msg.get('ov')}",
+                            flush=True,
+                        )
+                        try:
+                            with open("/tmp/pidrive_msc_reads.jsonl", "a", encoding="utf-8") as rf:
+                                rf.write(json.dumps(row, separators=(",", ":")) + "\n")
+                        except OSError:
+                            pass
+                        continue
                     if t == "event" and msg.get("op") == "play_uid":
                         uid = str(msg.get("uid") or "")
                         if not uid:

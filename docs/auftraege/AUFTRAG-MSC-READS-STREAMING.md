@@ -1,6 +1,6 @@
 # Auftrag: `msc.reads`-Streaming — echte LBA-Zeitachsen (nach Feldabend)
 
-**Stand:** 2026-10-01 · geplant (nach 0.4.31-Feld)  
+**Stand:** 2026-10-01 · aktiv (0.4.32-dev)  
 **Repo:** `esp32.pidrive` + Pi `pump_bridge.py` / `nbt_trace_export.py`  
 **Vorläufer:** [AUFTRAG-NBT-REPLAY-HARNESS](AUFTRAG-NBT-REPLAY-HARNESS.md) · Ring heute `kTraceSize=96`  
 **Feldbericht:** pidrive FELDTEST §11.4 / §15
@@ -70,12 +70,13 @@ Beobachtung am BMW steuert Aggregation:
 
 ## Abnahme
 
-- [ ] Drain-Task: Callback bleibt frei von Netz-I/O
-- [ ] `overflowCount` + Ring-Fallback im Status
-- [ ] Bridge schreibt `msc_reads.jsonl`
-- [ ] Exporter → Replay; Suite auf `.88` ohne ESP-Reboot (gentle)
+- [x] Drain-Task: Callback bleibt frei von Netz-I/O (`loop()` + Pending-Queue + Critical-Section)
+- [x] `overflowCount` + Ring-Fallback im Status (`readOverflow` / SoftAP `mscTrace`)
+- [x] Bridge schreibt `msc_reads.jsonl` (Lab-Smoke: Zeilen empfangen bei stabilem PUMP)
+- [x] Exporter → Replay (`nbt_trace_export.py --reads`)
+- [x] Suite gentle auf `.88` ohne Reboot (SG 16 KiB; PUMP kurz flaky nach OTA — reconnect)
 - [ ] Ein echter Feld-Trace in `tools/traces/`
-- [ ] OTA `.89` erst nach Lab-grün
+- [ ] OTA `.89` erst nach Lab-grün / nächster Feldabend
 
 ## Reihenfolge
 

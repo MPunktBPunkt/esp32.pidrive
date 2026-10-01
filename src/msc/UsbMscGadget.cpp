@@ -827,6 +827,65 @@ void UsbMscGadget::pushTrace(uint32_t lba, uint32_t bufsize, uint8_t kind, const
     lastReadMs_ = now;
     traceHead_ = (traceHead_ + 1) % kTraceSize;
     if (traceCount_ < kTraceSize) traceCount_++;
+    enqueuePendingRead(s);
+}
+
+void UsbMscGadget::enqueuePendingRead(const MscReadSample& s) {
+    portENTER_CRITICAL(&pendingMux_);
+    if (pendingCount_ >= kPendingReads) {
+        readOverflowCount_++;
+        pendingTail_ = (pendingTail_ + 1) % kPendingReads;
+        pendingCount_--;
+    }
+    pendingReads_[pendingHead_] = s;
+    pendingHead_ = (pendingHead_ + 1) % kPendingReads;
+    pendingCount_++;
+    portEXIT_CRITICAL(&pendingMux_);
+}
+
+void UsbMscGadget::flushReadBurst(MscReadBurst& b) {
+    if (b.n == 0 || !readsHandler_) return;
+    b.overflow = readOverflowCount_;
+    readsHandler_(b);
+    b = MscReadBurst{};
+}
+
+void UsbMscGadget::drainPendingReads() {
+    if (!readsHandler_) return;
+    MscReadSample local[kPendingReads];
+    size_t ncopy = 0;
+    portENTER_CRITICAL(&pendingMux_);
+    while (pendingCount_ > 0 && ncopy < kPendingReads) {
+        local[ncopy++] = pendingReads_[pendingTail_];
+        pendingTail_ = (pendingTail_ + 1) % kPendingReads;
+        pendingCount_--;
+    }
+    portEXIT_CRITICAL(&pendingMux_);
+    if (ncopy == 0) return;
+
+    MscReadBurst burst{};
+    for (size_t i = 0; i < ncopy; i++) {
+        const MscReadSample& s = local[i];
+        const bool canMerge = burst.n > 0 && s.kind == burst.kind && s.gapMs <= kBurstGapMs &&
+                              burst.n < kBurstMaxN;
+        if (!canMerge) {
+            flushReadBurst(burst);
+            burst.ms0 = s.ms;
+            burst.gap0 = s.gapMs;
+            burst.lba0 = s.lba;
+            burst.lba1 = s.lba;
+            burst.bytes = s.bytes;
+            burst.n = 1;
+            burst.kind = s.kind;
+            strncpy(burst.tag, s.tag, sizeof(burst.tag) - 1);
+            burst.tag[sizeof(burst.tag) - 1] = 0;
+        } else {
+            burst.lba1 = s.lba;
+            burst.bytes += s.bytes;
+            burst.n++;
+        }
+    }
+    flushReadBurst(burst);
 }
 
 UsbMscGadget::Region UsbMscGadget::classify(uint32_t lba, const MscFileMap** fileOut) const {
@@ -1118,6 +1177,8 @@ void UsbMscGadget::loop() {
             emitDiag("msc.quiet", d);
         }
     }
+    // PUMP msc.reads — never from USB callback
+    drainPendingReads();
 }
 
 uint32_t UsbMscGadget::msSincePlug() const {
@@ -1175,6 +1236,8 @@ void UsbMscGadget::toJson(JsonObject obj) const {
     obj["playGuessCount"] = playGuessCount_;
     obj["streamSlot"] = streamSlot_;
     obj["streamBytes"] = streamBytesServed_;
+    obj["readOverflow"] = readOverflowCount_;
+    obj["readsEmit"] = readsEmitCount_;
     obj["fatMode"] = "static";
     obj["phase"] = phaseName(phase_);
     obj["mediaPresented"] = mediaPresented_;
@@ -1278,6 +1341,9 @@ void UsbMscGadget::toJson(JsonObject obj) const {
 void UsbMscGadget::traceToJson(JsonArray) const {}
 void UsbMscGadget::noteDataRead(uint32_t, uint32_t) {}
 void UsbMscGadget::pushTrace(uint32_t, uint32_t, uint8_t, const char*) {}
+void UsbMscGadget::enqueuePendingRead(const MscReadSample&) {}
+void UsbMscGadget::drainPendingReads() {}
+void UsbMscGadget::flushReadBurst(MscReadBurst&) {}
 void UsbMscGadget::noteXferSize(uint32_t) {}
 void UsbMscGadget::setPhase(Phase, const char*) {}
 void UsbMscGadget::emitDiag(const char*, const char*) {}
