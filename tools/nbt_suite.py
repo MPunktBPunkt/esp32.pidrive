@@ -39,6 +39,14 @@ SCENARIOS = [
         "need_stream": True,
         "settle_override": 5,
     },
+    {
+        # B6 target: ~180 KiB silence window then quiet (Feld pre=182272).
+        # Lab-safe paced sibling — not the raw BOB burst (has ≥100 KiB consecutive).
+        "id": "prefetch_then_warm",
+        "trace": "feld_prefetch_then_warm_gentle.replay.json",
+        "need_stream": False,
+        "settle_override": 5,
+    },
 ]
 
 

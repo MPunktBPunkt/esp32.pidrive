@@ -69,7 +69,12 @@ def export_diag(diag_path: Path, out: Path) -> None:
 
 
 def export_reads(reads_path: Path, out: Path, chunk: int = 4096) -> None:
-    """Expand burst rows into per-chunk read events for nbt_replay."""
+    """Expand burst rows into per-chunk read events for nbt_replay.
+
+    ``t_ms`` is cumulative harness time (ms since first sample), matching
+    synthetic traces: ``sleep_until(t_ms)``. Uses ESP ``ms`` deltas — do **not**
+    add ``gap`` onto the base (gap is already reflected in ``ms`` between rows).
+    """
     events_out: list[dict] = []
     t0_wall = None
     ms0_esp = None
@@ -106,20 +111,19 @@ def export_reads(reads_path: Path, out: Path, chunk: int = 4096) -> None:
             if n <= 0 or total <= 0:
                 continue
 
-            # Spread reads across [t_ms, …] with gap between chunks when n>1
+            # Spread reads within one burst along the timeline (1 ms stagger).
+            # Base t_ms already includes inter-burst gaps via ESP ms — never += gap.
             per = max(512, total // n) if n else chunk
-            # Prefer sector-aligned 4KiB when it divides
             if per % 512:
                 per = chunk
             step_lba = max(1, per // 512)
-            # If lba span known, distribute
             span = max(0, lba1 - lba0)
             for i in range(n):
                 if n > 1 and span > 0:
                     lba = lba0 + (span * i) // max(n - 1, 1)
                 else:
                     lba = lba0 + i * step_lba
-                ev_t = t_ms + (gap if i == 0 else 0) + i * max(gap, 1)
+                ev_t = t_ms + i
                 events_out.append(
                     {
                         "t_ms": ev_t,
@@ -130,12 +134,15 @@ def export_reads(reads_path: Path, out: Path, chunk: int = 4096) -> None:
                     }
                 )
 
-    # Collapse trailing quiet: if last activity then long gap to end of file — skip
+    events_out.sort(key=lambda e: (int(e["t_ms"]), int(e.get("lba") or 0)))
     doc = {
         "meta": {
             "name": reads_path.stem,
             "source": "msc.reads-jsonl",
-            "note": f"Expanded bursts; overflow_max={overflow_max}. Gaps approximated.",
+            "note": (
+                f"Expanded bursts; overflow_max={overflow_max} (ESP counter snapshot). "
+                "t_ms = ESP ms − first sample (cumulative for nbt_replay.sleep_until)."
+            ),
             "overflow_max": overflow_max,
         },
         "geometry": {"sector": 512},
@@ -155,6 +162,7 @@ def main() -> int:
             "feld_1001_guess_then_quiet",
             "feld_heimabend_6s_cache",
             "feld_bob_2003_prewarm",
+            "feld_bob_2003_prewarm_head",
             "feld_1949_session",
             "feld_prefetch_then_warm_gentle",
             "sequential_past_head",

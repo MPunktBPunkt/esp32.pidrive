@@ -1,0 +1,69 @@
+{
+  "meta": {
+    "name": "feld_bob_2003_prewarm_head",
+    "source": "msc.reads-bob-head",
+    "fw_ref": "0.4.34-dev",
+    "note": "First 7 field 4KiB reads (t_ms 0\u202653) before \u2265100KiB burst \u2014 SG-safe verify of cumulative t_ms.",
+    "t_ms_semantics": "cumulative_from_first_esp_ms"
+  },
+  "geometry": {
+    "slot2_lba": 2105,
+    "sector": 512
+  },
+  "events": [
+    {
+      "t_ms": 0,
+      "op": "read",
+      "lba": 2105,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 17,
+      "op": "read",
+      "lba": 2113,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 24,
+      "op": "read",
+      "lba": 2121,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 41,
+      "op": "read",
+      "lba": 2129,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 45,
+      "op": "read",
+      "lba": 2137,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 49,
+      "op": "read",
+      "lba": 2145,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 53,
+      "op": "read",
+      "lba": 2153,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 203,
+      "op": "quiet",
+      "duration_ms": 3000
+    }
+  ]
+}

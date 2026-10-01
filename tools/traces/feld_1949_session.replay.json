@@ -1,11 +1,13 @@
 {
   "meta": {
     "name": "feld_1949_session",
-    "source": "msc.reads-jsonl-feld-2026-10-01-1949",
-    "fw_ref": "0.4.34-dev",
-    "note": "Longer session (~19:49): BOB overlay first (pre\u2248215040 historically), then more fav0/fav1 reads after warm \u2014 HU still not consuming live streamBytes. 173 burst \u2192 expanded. Complements BOB-only 20:03 trace.",
+    "source": "msc.reads-jsonl",
     "overflow_max": 0,
-    "field_pre_warm_bytes_bob_pass": 215040
+    "fw_ref": "0.4.34-dev",
+    "note": "Longer ~19:49 session (173 burst rows). Separate BOB preWarm measurement \u2248215040 under different conditions (parallel fav0 traffic / earlier pass) vs 20:03 pre=182272. t_ms cumulative (export fix).",
+    "field_pre_warm_bytes_bob_pass": 215040,
+    "field_pre_warm_bytes_2003_bob": 182272,
+    "t_ms_semantics": "cumulative_from_first_esp_ms"
   },
   "geometry": {
     "slot0_lba": 57,
@@ -16,2699 +18,2704 @@
   },
   "events": [
     {
-      "t_ms": 31804,
+      "t_ms": 0,
       "op": "read",
       "lba": 2105,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 34,
+      "t_ms": 17,
       "op": "read",
       "lba": 2113,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 129,
+      "t_ms": 73,
       "op": "read",
       "lba": 2121,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 201,
+      "t_ms": 137,
       "op": "read",
       "lba": 2129,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 145,
+      "t_ms": 141,
       "op": "read",
       "lba": 2137,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 149,
+      "t_ms": 145,
       "op": "read",
       "lba": 2145,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 149,
+      "t_ms": 146,
       "op": "read",
       "lba": 2153,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 153,
+      "t_ms": 147,
       "op": "read",
       "lba": 2161,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 157,
+      "t_ms": 148,
       "op": "read",
       "lba": 2169,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 161,
+      "t_ms": 149,
       "op": "read",
       "lba": 2177,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 165,
+      "t_ms": 150,
       "op": "read",
       "lba": 2185,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 170,
+      "t_ms": 167,
       "op": "read",
       "lba": 2193,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 170,
+      "t_ms": 168,
       "op": "read",
       "lba": 2201,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 173,
+      "t_ms": 169,
       "op": "read",
       "lba": 2209,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 176,
+      "t_ms": 170,
       "op": "read",
       "lba": 2217,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 179,
+      "t_ms": 171,
       "op": "read",
       "lba": 2225,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 182,
+      "t_ms": 172,
       "op": "read",
       "lba": 2233,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 185,
+      "t_ms": 173,
       "op": "read",
       "lba": 2241,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 188,
+      "t_ms": 174,
       "op": "read",
       "lba": 2249,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 191,
+      "t_ms": 175,
       "op": "read",
       "lba": 2257,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 194,
+      "t_ms": 176,
       "op": "read",
       "lba": 2265,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 197,
+      "t_ms": 177,
       "op": "read",
       "lba": 2273,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 200,
+      "t_ms": 178,
       "op": "read",
       "lba": 2281,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 203,
+      "t_ms": 179,
       "op": "read",
       "lba": 2289,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 206,
+      "t_ms": 180,
       "op": "read",
       "lba": 2297,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 209,
+      "t_ms": 181,
       "op": "read",
       "lba": 2305,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 212,
+      "t_ms": 182,
       "op": "read",
       "lba": 2313,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 215,
+      "t_ms": 183,
       "op": "read",
       "lba": 2321,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 218,
+      "t_ms": 184,
       "op": "read",
       "lba": 2329,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 221,
+      "t_ms": 185,
       "op": "read",
       "lba": 2337,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 224,
+      "t_ms": 186,
       "op": "read",
       "lba": 2345,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 227,
+      "t_ms": 187,
       "op": "read",
       "lba": 2353,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 249,
+      "t_ms": 245,
       "op": "read",
       "lba": 2361,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 253,
+      "t_ms": 249,
       "op": "read",
       "lba": 2369,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 257,
+      "t_ms": 253,
       "op": "read",
       "lba": 2377,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 257,
+      "t_ms": 254,
       "op": "read",
       "lba": 2385,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 261,
+      "t_ms": 255,
       "op": "read",
       "lba": 2393,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 265,
+      "t_ms": 256,
       "op": "read",
       "lba": 2401,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 269,
+      "t_ms": 257,
       "op": "read",
       "lba": 2409,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 273,
+      "t_ms": 258,
       "op": "read",
       "lba": 2417,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 277,
+      "t_ms": 259,
       "op": "read",
       "lba": 2425,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 281,
+      "t_ms": 260,
       "op": "read",
       "lba": 2433,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 285,
+      "t_ms": 261,
       "op": "read",
       "lba": 2441,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 289,
+      "t_ms": 262,
       "op": "read",
       "lba": 2449,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 293,
+      "t_ms": 263,
       "op": "read",
       "lba": 2457,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 297,
+      "t_ms": 264,
       "op": "read",
       "lba": 2465,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 302,
+      "t_ms": 298,
       "op": "read",
       "lba": 2473,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 302,
+      "t_ms": 299,
       "op": "read",
       "lba": 2481,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 309,
+      "t_ms": 305,
       "op": "read",
       "lba": 2489,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 309,
+      "t_ms": 306,
       "op": "read",
       "lba": 2497,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 317,
+      "t_ms": 313,
       "op": "read",
       "lba": 2505,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 317,
+      "t_ms": 314,
       "op": "read",
       "lba": 2513,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 321,
+      "t_ms": 315,
       "op": "read",
       "lba": 2521,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 325,
+      "t_ms": 316,
       "op": "read",
       "lba": 2529,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 329,
+      "t_ms": 317,
       "op": "read",
       "lba": 2537,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 333,
+      "t_ms": 318,
       "op": "read",
       "lba": 2545,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 337,
+      "t_ms": 319,
       "op": "read",
       "lba": 2553,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 341,
+      "t_ms": 320,
       "op": "read",
       "lba": 2561,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 347,
+      "t_ms": 343,
       "op": "read",
       "lba": 2569,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 347,
+      "t_ms": 344,
       "op": "read",
       "lba": 2577,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 351,
+      "t_ms": 345,
       "op": "read",
       "lba": 2585,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 355,
+      "t_ms": 346,
       "op": "read",
       "lba": 2593,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 359,
+      "t_ms": 347,
       "op": "read",
       "lba": 2601,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 363,
+      "t_ms": 348,
       "op": "read",
       "lba": 2609,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 367,
+      "t_ms": 349,
       "op": "read",
       "lba": 2617,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 371,
+      "t_ms": 350,
       "op": "read",
       "lba": 2625,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 375,
+      "t_ms": 351,
       "op": "read",
       "lba": 2633,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 379,
+      "t_ms": 352,
       "op": "read",
       "lba": 2641,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 383,
+      "t_ms": 353,
       "op": "read",
       "lba": 2649,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 386,
+      "t_ms": 383,
       "op": "read",
       "lba": 2657,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 386,
+      "t_ms": 384,
       "op": "read",
       "lba": 2665,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 389,
+      "t_ms": 385,
       "op": "read",
       "lba": 2673,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 392,
+      "t_ms": 386,
       "op": "read",
       "lba": 2681,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 395,
+      "t_ms": 387,
       "op": "read",
       "lba": 2689,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 398,
+      "t_ms": 388,
       "op": "read",
       "lba": 2697,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 410,
+      "t_ms": 406,
       "op": "read",
       "lba": 2705,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 410,
+      "t_ms": 407,
       "op": "read",
       "lba": 2713,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 414,
+      "t_ms": 408,
       "op": "read",
       "lba": 2721,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 418,
+      "t_ms": 409,
       "op": "read",
       "lba": 2729,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 422,
+      "t_ms": 410,
       "op": "read",
       "lba": 2737,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 426,
+      "t_ms": 411,
       "op": "read",
       "lba": 2745,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 430,
+      "t_ms": 412,
       "op": "read",
       "lba": 2753,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 434,
+      "t_ms": 413,
       "op": "read",
       "lba": 2761,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 438,
+      "t_ms": 414,
       "op": "read",
       "lba": 2769,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 442,
+      "t_ms": 415,
       "op": "read",
       "lba": 2777,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 555,
+      "t_ms": 496,
       "op": "read",
       "lba": 977,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 555,
+      "t_ms": 497,
       "op": "read",
       "lba": 985,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 614,
+      "t_ms": 498,
       "op": "read",
       "lba": 993,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 673,
+      "t_ms": 499,
       "op": "read",
       "lba": 1001,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 732,
+      "t_ms": 500,
       "op": "read",
       "lba": 1009,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 515,
+      "op": "read",
+      "lba": 1017,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 519,
       "op": "read",
-      "lba": 1017,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 523,
-      "op": "read",
       "lba": 1025,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 523,
+      "t_ms": 520,
       "op": "read",
       "lba": 1033,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 527,
+      "t_ms": 521,
       "op": "read",
       "lba": 1041,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 531,
+      "t_ms": 522,
       "op": "read",
       "lba": 1049,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 535,
+      "t_ms": 523,
       "op": "read",
       "lba": 1057,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 539,
+      "t_ms": 524,
       "op": "read",
       "lba": 1065,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 543,
+      "t_ms": 525,
       "op": "read",
       "lba": 1073,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 545,
+      "op": "read",
+      "lba": 729,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 549,
       "op": "read",
-      "lba": 729,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 553,
-      "op": "read",
       "lba": 737,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 553,
+      "t_ms": 550,
       "op": "read",
       "lba": 745,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 557,
+      "t_ms": 551,
       "op": "read",
       "lba": 753,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 561,
+      "t_ms": 552,
       "op": "read",
       "lba": 761,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 565,
+      "t_ms": 553,
       "op": "read",
       "lba": 769,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 569,
+      "t_ms": 554,
       "op": "read",
       "lba": 777,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 573,
+      "t_ms": 555,
       "op": "read",
       "lba": 785,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 577,
+      "t_ms": 556,
       "op": "read",
       "lba": 793,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 581,
+      "t_ms": 578,
       "op": "read",
       "lba": 801,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 582,
+      "op": "read",
+      "lba": 809,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 586,
       "op": "read",
-      "lba": 809,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 590,
-      "op": "read",
       "lba": 817,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 590,
+      "t_ms": 587,
       "op": "read",
       "lba": 825,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 594,
+      "op": "read",
+      "lba": 833,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 598,
       "op": "read",
-      "lba": 833,
+      "lba": 841,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 602,
       "op": "read",
-      "lba": 841,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 606,
-      "op": "read",
       "lba": 849,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 606,
+      "t_ms": 603,
       "op": "read",
       "lba": 857,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 610,
+      "t_ms": 604,
       "op": "read",
       "lba": 865,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 614,
+      "t_ms": 605,
       "op": "read",
       "lba": 873,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 618,
+      "t_ms": 606,
       "op": "read",
       "lba": 881,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 622,
+      "t_ms": 607,
       "op": "read",
       "lba": 889,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 626,
+      "t_ms": 608,
       "op": "read",
       "lba": 897,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 632,
+      "t_ms": 628,
       "op": "read",
       "lba": 905,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 634,
+      "t_ms": 631,
       "op": "read",
       "lba": 913,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 635,
+      "op": "read",
+      "lba": 921,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 639,
       "op": "read",
-      "lba": 921,
+      "lba": 929,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 643,
       "op": "read",
-      "lba": 929,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 647,
-      "op": "read",
       "lba": 937,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 647,
+      "t_ms": 644,
       "op": "read",
       "lba": 945,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 651,
+      "t_ms": 645,
       "op": "read",
       "lba": 953,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 655,
+      "t_ms": 646,
       "op": "read",
       "lba": 961,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 659,
+      "t_ms": 647,
       "op": "read",
       "lba": 969,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 5855,
+      "t_ms": 3257,
       "op": "read",
       "lba": 1081,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3291,
+      "t_ms": 3274,
       "op": "read",
       "lba": 1089,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3288,
+      "t_ms": 3281,
       "op": "read",
       "lba": 1097,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3289,
+      "t_ms": 3285,
       "op": "read",
       "lba": 1105,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3293,
+      "t_ms": 3289,
       "op": "read",
       "lba": 1113,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3297,
+      "t_ms": 3293,
       "op": "read",
       "lba": 1121,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3297,
+      "t_ms": 3294,
       "op": "read",
       "lba": 1129,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3305,
+      "t_ms": 3301,
       "op": "read",
       "lba": 1137,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3309,
+      "t_ms": 3305,
       "op": "read",
       "lba": 1145,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3313,
+      "t_ms": 3309,
       "op": "read",
       "lba": 1153,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3317,
+      "t_ms": 3313,
       "op": "read",
       "lba": 1161,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3321,
+      "t_ms": 3317,
       "op": "read",
       "lba": 1169,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3321,
+      "t_ms": 3318,
       "op": "read",
       "lba": 1177,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3325,
+      "t_ms": 3319,
       "op": "read",
       "lba": 1185,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3329,
+      "t_ms": 3320,
       "op": "read",
       "lba": 1193,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3333,
+      "t_ms": 3321,
       "op": "read",
       "lba": 1201,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3337,
+      "t_ms": 3322,
       "op": "read",
       "lba": 1209,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3341,
+      "t_ms": 3323,
       "op": "read",
       "lba": 1217,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3345,
+      "t_ms": 3324,
       "op": "read",
       "lba": 1225,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3349,
+      "t_ms": 3325,
       "op": "read",
       "lba": 1233,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3353,
+      "t_ms": 3326,
       "op": "read",
       "lba": 1241,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3357,
+      "t_ms": 3327,
       "op": "read",
       "lba": 1249,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3361,
+      "t_ms": 3328,
       "op": "read",
       "lba": 1257,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3364,
+      "t_ms": 3361,
       "op": "read",
       "lba": 1265,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3369,
+      "t_ms": 3365,
       "op": "read",
       "lba": 1273,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3375,
+      "t_ms": 3370,
       "op": "read",
       "lba": 1281,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3375,
+      "t_ms": 3371,
       "op": "read",
       "lba": 1289,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3380,
+      "t_ms": 3372,
       "op": "read",
       "lba": 1297,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3385,
+      "t_ms": 3373,
       "op": "read",
       "lba": 1305,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3390,
+      "t_ms": 3374,
       "op": "read",
       "lba": 1313,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3395,
+      "t_ms": 3375,
       "op": "read",
       "lba": 1321,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3396,
+      "t_ms": 3392,
       "op": "read",
       "lba": 1329,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3396,
+      "t_ms": 3393,
       "op": "read",
       "lba": 1337,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3400,
+      "t_ms": 3394,
       "op": "read",
       "lba": 1345,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3404,
+      "t_ms": 3395,
       "op": "read",
       "lba": 1353,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3408,
+      "t_ms": 3396,
       "op": "read",
       "lba": 1361,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3412,
+      "t_ms": 3397,
       "op": "read",
       "lba": 1369,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3416,
+      "t_ms": 3398,
       "op": "read",
       "lba": 1377,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3420,
+      "t_ms": 3399,
       "op": "read",
       "lba": 1385,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3424,
+      "t_ms": 3400,
       "op": "read",
       "lba": 1393,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3428,
+      "t_ms": 3401,
       "op": "read",
       "lba": 1401,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3432,
+      "t_ms": 3402,
       "op": "read",
       "lba": 1409,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3467,
+      "t_ms": 3448,
       "op": "read",
       "lba": 73,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3455,
+      "op": "read",
+      "lba": 81,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3459,
+      "op": "read",
+      "lba": 89,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3460,
+      "op": "read",
+      "lba": 97,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3461,
+      "op": "read",
+      "lba": 105,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3462,
       "op": "read",
-      "lba": 81,
+      "lba": 113,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3463,
       "op": "read",
-      "lba": 89,
+      "lba": 121,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3463,
+      "t_ms": 3464,
       "op": "read",
-      "lba": 97,
+      "lba": 129,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3465,
+      "op": "read",
+      "lba": 137,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3466,
+      "op": "read",
+      "lba": 145,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3467,
       "op": "read",
-      "lba": 105,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3471,
-      "op": "read",
-      "lba": 113,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3475,
-      "op": "read",
-      "lba": 121,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3479,
-      "op": "read",
-      "lba": 129,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3483,
-      "op": "read",
-      "lba": 137,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3487,
-      "op": "read",
-      "lba": 145,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3491,
-      "op": "read",
       "lba": 153,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3495,
+      "t_ms": 3468,
       "op": "read",
       "lba": 161,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3499,
+      "t_ms": 3469,
       "op": "read",
       "lba": 169,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3502,
+      "op": "read",
+      "lba": 177,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3506,
       "op": "read",
-      "lba": 177,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3510,
-      "op": "read",
       "lba": 185,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3510,
+      "t_ms": 3507,
       "op": "read",
       "lba": 193,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3514,
+      "op": "read",
+      "lba": 201,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3518,
       "op": "read",
-      "lba": 201,
+      "lba": 209,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3522,
       "op": "read",
-      "lba": 209,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3526,
-      "op": "read",
       "lba": 217,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3526,
+      "t_ms": 3523,
       "op": "read",
       "lba": 225,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3524,
+      "op": "read",
+      "lba": 233,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3525,
+      "op": "read",
+      "lba": 241,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3526,
+      "op": "read",
+      "lba": 249,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3527,
+      "op": "read",
+      "lba": 257,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3528,
+      "op": "read",
+      "lba": 265,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3529,
+      "op": "read",
+      "lba": 273,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3530,
       "op": "read",
-      "lba": 233,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3534,
-      "op": "read",
-      "lba": 241,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3538,
-      "op": "read",
-      "lba": 249,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3542,
-      "op": "read",
-      "lba": 257,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3546,
-      "op": "read",
-      "lba": 265,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3550,
-      "op": "read",
-      "lba": 273,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3554,
-      "op": "read",
       "lba": 281,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3558,
+      "t_ms": 3531,
       "op": "read",
       "lba": 289,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3562,
+      "t_ms": 3532,
       "op": "read",
       "lba": 297,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3566,
+      "t_ms": 3533,
       "op": "read",
       "lba": 305,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3570,
+      "t_ms": 3534,
       "op": "read",
       "lba": 313,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3576,
+      "t_ms": 3572,
       "op": "read",
       "lba": 321,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3580,
+      "t_ms": 3576,
       "op": "read",
       "lba": 329,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3580,
+      "op": "read",
+      "lba": 337,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3584,
       "op": "read",
-      "lba": 337,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3588,
-      "op": "read",
       "lba": 345,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3594,
+      "t_ms": 3589,
       "op": "read",
       "lba": 353,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3593,
+      "op": "read",
+      "lba": 361,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3597,
       "op": "read",
-      "lba": 361,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3601,
-      "op": "read",
       "lba": 369,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3601,
+      "t_ms": 3598,
       "op": "read",
       "lba": 377,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3605,
+      "op": "read",
+      "lba": 385,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3609,
       "op": "read",
-      "lba": 385,
+      "lba": 393,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3613,
       "op": "read",
-      "lba": 393,
+      "lba": 401,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3617,
       "op": "read",
-      "lba": 401,
+      "lba": 409,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3621,
       "op": "read",
-      "lba": 409,
+      "lba": 417,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3625,
       "op": "read",
-      "lba": 417,
+      "lba": 425,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3629,
       "op": "read",
-      "lba": 425,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3633,
-      "op": "read",
       "lba": 433,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3633,
+      "t_ms": 3630,
       "op": "read",
       "lba": 441,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3637,
+      "op": "read",
+      "lba": 449,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3641,
       "op": "read",
-      "lba": 449,
+      "lba": 457,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3645,
       "op": "read",
-      "lba": 457,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3649,
-      "op": "read",
       "lba": 465,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3655,
+      "t_ms": 3650,
       "op": "read",
       "lba": 473,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3654,
+      "op": "read",
+      "lba": 481,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3658,
       "op": "read",
-      "lba": 481,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3662,
-      "op": "read",
       "lba": 489,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3662,
+      "t_ms": 3659,
       "op": "read",
       "lba": 497,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3666,
+      "op": "read",
+      "lba": 505,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3670,
       "op": "read",
-      "lba": 505,
+      "lba": 513,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3674,
       "op": "read",
-      "lba": 513,
+      "lba": 521,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3678,
       "op": "read",
-      "lba": 521,
+      "lba": 529,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3682,
       "op": "read",
-      "lba": 529,
+      "lba": 537,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3685,
+      "op": "read",
+      "lba": 545,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3686,
       "op": "read",
-      "lba": 537,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3688,
-      "op": "read",
-      "lba": 545,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3688,
-      "op": "read",
       "lba": 553,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3697,
+      "t_ms": 3693,
       "op": "read",
       "lba": 561,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3697,
+      "t_ms": 3694,
       "op": "read",
       "lba": 569,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3701,
+      "op": "read",
+      "lba": 577,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3705,
       "op": "read",
-      "lba": 577,
+      "lba": 585,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3709,
       "op": "read",
-      "lba": 585,
+      "lba": 593,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3712,
+      "op": "read",
+      "lba": 601,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3713,
       "op": "read",
-      "lba": 593,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3715,
-      "op": "read",
-      "lba": 601,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3715,
-      "op": "read",
       "lba": 609,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3718,
+      "t_ms": 3714,
       "op": "read",
       "lba": 617,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3724,
+      "op": "read",
+      "lba": 625,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3728,
       "op": "read",
-      "lba": 625,
+      "lba": 633,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3731,
+      "op": "read",
+      "lba": 641,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3732,
       "op": "read",
-      "lba": 633,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3734,
-      "op": "read",
-      "lba": 641,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3734,
-      "op": "read",
       "lba": 649,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3737,
+      "t_ms": 3733,
       "op": "read",
       "lba": 657,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3747,
+      "t_ms": 3743,
       "op": "read",
       "lba": 665,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3749,
+      "t_ms": 3746,
       "op": "read",
       "lba": 673,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3750,
+      "op": "read",
+      "lba": 681,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3754,
       "op": "read",
-      "lba": 681,
+      "lba": 689,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3758,
       "op": "read",
-      "lba": 689,
+      "lba": 697,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3762,
       "op": "read",
-      "lba": 697,
+      "lba": 705,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3766,
       "op": "read",
-      "lba": 705,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3770,
-      "op": "read",
       "lba": 713,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 3770,
+      "t_ms": 3767,
       "op": "read",
       "lba": 721,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 3774,
+      "op": "read",
+      "lba": 729,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3778,
       "op": "read",
-      "lba": 729,
+      "lba": 737,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3782,
       "op": "read",
-      "lba": 737,
+      "lba": 745,
       "bytes": 4096,
       "kind": 2
     },
     {
       "t_ms": 3786,
       "op": "read",
-      "lba": 745,
-      "bytes": 4096,
-      "kind": 2
-    },
-    {
-      "t_ms": 3790,
-      "op": "read",
       "lba": 753,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 68334,
+      "t_ms": 36060,
       "op": "read",
       "lba": 537,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36096,
+      "t_ms": 36078,
       "op": "read",
       "lba": 545,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36096,
+      "t_ms": 36079,
       "op": "read",
       "lba": 553,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36114,
+      "t_ms": 36080,
       "op": "read",
       "lba": 561,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36132,
+      "t_ms": 36081,
       "op": "read",
       "lba": 569,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36150,
+      "t_ms": 36082,
       "op": "read",
       "lba": 577,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36168,
+      "t_ms": 36083,
       "op": "read",
       "lba": 585,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36186,
+      "t_ms": 36084,
       "op": "read",
       "lba": 593,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36109,
+      "t_ms": 36105,
       "op": "read",
       "lba": 329,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36113,
+      "t_ms": 36109,
       "op": "read",
       "lba": 337,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36113,
+      "t_ms": 36110,
       "op": "read",
       "lba": 345,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36121,
+      "t_ms": 36117,
       "op": "read",
       "lba": 353,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36125,
+      "t_ms": 36121,
       "op": "read",
       "lba": 361,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36129,
+      "t_ms": 36125,
       "op": "read",
       "lba": 369,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36133,
+      "t_ms": 36129,
       "op": "read",
       "lba": 377,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36137,
+      "t_ms": 36133,
       "op": "read",
       "lba": 385,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36137,
+      "t_ms": 36134,
       "op": "read",
       "lba": 393,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36145,
+      "t_ms": 36141,
       "op": "read",
       "lba": 401,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36149,
+      "t_ms": 36145,
       "op": "read",
       "lba": 409,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36153,
+      "t_ms": 36149,
       "op": "read",
       "lba": 417,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36153,
+      "t_ms": 36150,
       "op": "read",
       "lba": 425,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36161,
+      "t_ms": 36157,
       "op": "read",
       "lba": 433,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36165,
+      "t_ms": 36161,
       "op": "read",
       "lba": 441,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36169,
+      "t_ms": 36165,
       "op": "read",
       "lba": 449,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36169,
+      "t_ms": 36166,
       "op": "read",
       "lba": 457,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36173,
+      "t_ms": 36167,
       "op": "read",
       "lba": 465,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36181,
+      "t_ms": 36177,
       "op": "read",
       "lba": 473,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36181,
+      "t_ms": 36178,
       "op": "read",
       "lba": 481,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36189,
+      "t_ms": 36185,
       "op": "read",
       "lba": 489,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36193,
+      "t_ms": 36189,
       "op": "read",
       "lba": 497,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36197,
+      "t_ms": 36193,
       "op": "read",
       "lba": 505,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36201,
+      "t_ms": 36197,
       "op": "read",
       "lba": 513,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36205,
+      "t_ms": 36201,
       "op": "read",
       "lba": 521,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36209,
+      "t_ms": 36205,
       "op": "read",
       "lba": 529,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36209,
+      "t_ms": 36206,
       "op": "read",
       "lba": 537,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36227,
+      "t_ms": 36218,
       "op": "read",
       "lba": 65,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36234,
+      "t_ms": 36226,
       "op": "read",
       "lba": 73,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36242,
+      "t_ms": 36234,
       "op": "read",
       "lba": 81,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36242,
+      "t_ms": 36235,
       "op": "read",
       "lba": 89,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36250,
+      "t_ms": 36236,
       "op": "read",
       "lba": 97,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36258,
+      "t_ms": 36237,
       "op": "read",
       "lba": 105,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36266,
+      "t_ms": 36238,
       "op": "read",
       "lba": 113,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36274,
+      "t_ms": 36239,
       "op": "read",
       "lba": 121,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36261,
+      "t_ms": 36257,
       "op": "read",
       "lba": 129,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36265,
+      "t_ms": 36261,
       "op": "read",
       "lba": 137,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36269,
+      "t_ms": 36265,
       "op": "read",
       "lba": 145,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36273,
+      "t_ms": 36269,
       "op": "read",
       "lba": 153,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36277,
+      "t_ms": 36273,
       "op": "read",
       "lba": 161,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36281,
+      "t_ms": 36277,
       "op": "read",
       "lba": 169,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36281,
+      "t_ms": 36278,
       "op": "read",
       "lba": 177,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36285,
+      "t_ms": 36279,
       "op": "read",
       "lba": 185,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36289,
+      "t_ms": 36280,
       "op": "read",
       "lba": 193,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36293,
+      "t_ms": 36281,
       "op": "read",
       "lba": 201,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36297,
+      "t_ms": 36282,
       "op": "read",
       "lba": 209,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36301,
+      "t_ms": 36283,
       "op": "read",
       "lba": 217,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36305,
+      "t_ms": 36284,
       "op": "read",
       "lba": 225,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36312,
+      "t_ms": 36308,
       "op": "read",
       "lba": 233,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36316,
+      "t_ms": 36312,
       "op": "read",
       "lba": 241,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36316,
+      "t_ms": 36313,
       "op": "read",
       "lba": 249,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36324,
+      "t_ms": 36320,
       "op": "read",
       "lba": 257,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36328,
+      "t_ms": 36324,
       "op": "read",
       "lba": 265,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36332,
+      "t_ms": 36328,
       "op": "read",
       "lba": 273,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36332,
+      "t_ms": 36329,
       "op": "read",
       "lba": 281,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36336,
+      "t_ms": 36330,
       "op": "read",
       "lba": 289,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36348,
+      "t_ms": 36342,
       "op": "read",
       "lba": 569,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36378,
+      "t_ms": 36360,
       "op": "read",
       "lba": 577,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36366,
+      "t_ms": 36363,
       "op": "read",
       "lba": 585,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36371,
+      "t_ms": 36367,
       "op": "read",
       "lba": 593,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36375,
+      "t_ms": 36371,
       "op": "read",
       "lba": 601,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36379,
+      "t_ms": 36375,
       "op": "read",
       "lba": 609,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36383,
+      "t_ms": 36379,
       "op": "read",
       "lba": 617,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36383,
+      "t_ms": 36380,
       "op": "read",
       "lba": 625,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36389,
+      "t_ms": 36386,
       "op": "read",
       "lba": 633,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36394,
+      "t_ms": 36390,
       "op": "read",
       "lba": 641,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36394,
+      "t_ms": 36391,
       "op": "read",
       "lba": 649,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36402,
+      "t_ms": 36398,
       "op": "read",
       "lba": 657,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36402,
+      "t_ms": 36399,
       "op": "read",
       "lba": 665,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36410,
+      "t_ms": 36406,
       "op": "read",
       "lba": 673,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36414,
+      "t_ms": 36410,
       "op": "read",
       "lba": 681,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36418,
+      "t_ms": 36414,
       "op": "read",
       "lba": 689,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36420,
+      "t_ms": 36417,
       "op": "read",
       "lba": 697,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36420,
+      "t_ms": 36418,
       "op": "read",
       "lba": 705,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36429,
+      "t_ms": 36425,
       "op": "read",
       "lba": 713,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36429,
+      "t_ms": 36426,
       "op": "read",
       "lba": 721,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36437,
+      "t_ms": 36433,
       "op": "read",
       "lba": 729,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36441,
+      "t_ms": 36437,
       "op": "read",
       "lba": 737,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36445,
+      "t_ms": 36441,
       "op": "read",
       "lba": 745,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36447,
+      "t_ms": 36444,
       "op": "read",
       "lba": 753,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36447,
+      "t_ms": 36445,
       "op": "read",
       "lba": 761,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36450,
+      "t_ms": 36446,
       "op": "read",
       "lba": 769,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36460,
+      "t_ms": 36456,
       "op": "read",
       "lba": 777,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36464,
+      "t_ms": 36460,
       "op": "read",
       "lba": 785,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36468,
+      "t_ms": 36464,
       "op": "read",
       "lba": 793,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36470,
+      "t_ms": 36467,
       "op": "read",
       "lba": 801,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36470,
+      "t_ms": 36468,
       "op": "read",
       "lba": 809,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36473,
+      "t_ms": 36469,
       "op": "read",
       "lba": 817,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36476,
+      "t_ms": 36470,
       "op": "read",
       "lba": 825,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36479,
+      "t_ms": 36471,
       "op": "read",
       "lba": 833,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36482,
+      "t_ms": 36472,
       "op": "read",
       "lba": 841,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36485,
+      "t_ms": 36473,
       "op": "read",
       "lba": 849,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36488,
+      "t_ms": 36474,
       "op": "read",
       "lba": 857,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36491,
+      "t_ms": 36475,
       "op": "read",
       "lba": 865,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36494,
+      "t_ms": 36476,
       "op": "read",
       "lba": 873,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36509,
+      "t_ms": 36505,
       "op": "read",
       "lba": 881,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36511,
+      "t_ms": 36508,
       "op": "read",
       "lba": 889,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36511,
+      "t_ms": 36509,
       "op": "read",
       "lba": 897,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36520,
+      "t_ms": 36516,
       "op": "read",
       "lba": 905,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36520,
+      "t_ms": 36517,
       "op": "read",
       "lba": 913,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36524,
+      "t_ms": 36518,
       "op": "read",
       "lba": 921,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36530,
+      "t_ms": 36527,
       "op": "read",
       "lba": 929,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36530,
+      "t_ms": 36528,
       "op": "read",
       "lba": 937,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36533,
+      "t_ms": 36529,
       "op": "read",
       "lba": 945,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36536,
+      "t_ms": 36530,
       "op": "read",
       "lba": 953,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36539,
+      "t_ms": 36531,
       "op": "read",
       "lba": 961,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36542,
+      "t_ms": 36532,
       "op": "read",
       "lba": 969,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36545,
+      "t_ms": 36533,
       "op": "read",
       "lba": 977,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36558,
+      "t_ms": 36554,
       "op": "read",
       "lba": 985,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36562,
+      "t_ms": 36558,
       "op": "read",
       "lba": 993,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36564,
+      "t_ms": 36561,
       "op": "read",
       "lba": 1001,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36569,
+      "t_ms": 36565,
       "op": "read",
       "lba": 1009,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36573,
+      "t_ms": 36569,
       "op": "read",
       "lba": 1017,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36573,
+      "t_ms": 36570,
       "op": "read",
       "lba": 1025,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36581,
+      "t_ms": 36577,
       "op": "read",
       "lba": 1033,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36585,
+      "t_ms": 36581,
       "op": "read",
       "lba": 1041,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36589,
+      "t_ms": 36585,
       "op": "read",
       "lba": 1049,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36589,
+      "t_ms": 36586,
       "op": "read",
       "lba": 1057,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36597,
+      "t_ms": 36593,
       "op": "read",
       "lba": 1065,
       "bytes": 4096,
       "kind": 2
     },
     {
-      "t_ms": 36601,
+      "t_ms": 36597,
       "op": "read",
       "lba": 1073,
       "bytes": 4096,
       "kind": 2
+    },
+    {
+      "t_ms": 36647,
+      "op": "quiet",
+      "duration_ms": 5000
     }
   ]
 }

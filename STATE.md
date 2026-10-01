@@ -23,6 +23,6 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/` und Feldbericht.
 
 ## Letzte Änderung
 
-- 2026-10-01 Abend: Feld-Traces in `tools/traces/` (`feld_bob_2003_prewarm`, `feld_1949_session`, `feld_prefetch_then_warm_gentle`); READS-Auftrag Abnahme Feld-Trace ✅
+- 2026-10-01 Abend: **t_ms-Export-Fix** (Feld-Traces kumulativ); Suite-Szenario `prefetch_then_warm`; Feld-Traces `feld_bob_*` / `feld_1949_session`
 - 2026-10-01 Abend: **0.4.35-dev** queued `play_uid` → Replay auf `hello`
 - 2026-10-01: **0.4.34-dev** Critical→Mutex Reboot-Fix · **0.4.33** `preWarmHostBytes`
