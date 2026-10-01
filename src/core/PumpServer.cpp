@@ -298,7 +298,7 @@ void PumpServer::handleLine(char* line) {
             stream_->start(uid);
             stream_->clearId3();
         }
-        // B5: arm MSC overlay only after ring warmup (host keeps reading B2 silence).
+        // B6: arm overlay immediately (warmup=0). Host still in silence window gets live path.
         pendingOverlayUid_[0] = 0;
         if (uid && uid[0]) {
             strncpy(pendingOverlayUid_, uid, sizeof(pendingOverlayUid_) - 1);
@@ -320,6 +320,7 @@ void PumpServer::handleLine(char* line) {
         if (events_) events_->push("audio.start", uid);
         // Bridge accepted this play — stop hello-replay of the same uid.
         if (uid && uid[0] && !strcmp(queuedPlayUid_, uid)) queuedPlayUid_[0] = 0;
+        armOverlayIfWarm();  // warmup==0 → startStream now
         return;
     }
 

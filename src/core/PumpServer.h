@@ -65,9 +65,12 @@ private:
     char coverPath_[80] = {0};
     char coverTry_[120] = {0};
     Link active_ = Link::SerialLink;
-    /** B5: delay msc_->startStream until ring has warmup bytes. */
+    /** Pending uid until overlay armed (B6: armed immediately when warmup==0). */
     char pendingOverlayUid_[24] = {0};
-    static constexpr size_t kOverlayWarmupBytes = 8192;
+    /** B5→B6: arm MSC overlay immediately on audio_start (was 8192).
+     * Feld 2026-10-01: HU consumed ~182 KiB B2 silence before warm → streamBytes=0.
+     * Warmup=0 closes the pre-warm silence window; measure preWarmHostBytes≈0 + streamBytes. */
+    static constexpr size_t kOverlayWarmupBytes = 0;
 
     WiFiServer server_;
     WiFiClient client_;
