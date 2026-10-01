@@ -17,12 +17,12 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/` und Feldbericht.
 
 ## Aktueller Fokus
 
-1. Lab `.88`: 0.4.35 — play_uid-Replay bei hello (Feld: Guess während `pump.tcp.down`)
-2. **B6:** HU-Lesefenster — Feld `pre≈182 KiB` Silence, dann 0 Live-Reads (`streamBytes=0`); Cache-Invalidate / Prefetch
-3. Morgen Auto: 0.4.35 OTA wenn Lab-grün
+1. Lab: Trace `feld_prefetch_then_warm_gentle` / `feld_bob_2003_prewarm` — B6-Hebel gegen `pre=182272`
+2. Morgen Auto: **0.4.35** OTA — ohne PUMP-Drops: kommt `streamBytes>0`?
+3. B6: Warm früher / Prefetch-Silence / Cache-Key
 
 ## Letzte Änderung
 
-- 2026-10-01 Abend Feld: `preWarmHostBytes` bestätigt (BOB `pre=182272`, nach Warm 0 Reads); PUMP-Drops verpassen play_uid
+- 2026-10-01 Abend: Feld-Traces in `tools/traces/` (`feld_bob_2003_prewarm`, `feld_1949_session`, `feld_prefetch_then_warm_gentle`); READS-Auftrag Abnahme Feld-Trace ✅
 - 2026-10-01 Abend: **0.4.35-dev** queued `play_uid` → Replay auf `hello`
-- 2026-10-01: **0.4.34-dev** Critical→Mutex Reboot-Fix
+- 2026-10-01: **0.4.34-dev** Critical→Mutex Reboot-Fix · **0.4.33** `preWarmHostBytes`

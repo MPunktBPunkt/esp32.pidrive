@@ -1,0 +1,287 @@
+{
+  "meta": {
+    "name": "feld_prefetch_then_warm_gentle",
+    "source": "synthetic-from-feld-bob-pre=182272",
+    "fw_ref": "0.4.35-dev",
+    "note": "Lab-safe reproduction of B6 target: ~180KiB sequential slot2 (fav2) @ 4KiB/150ms then quiet. Models HU silence consume before overlay_warm; expect preWarmHostBytes>0 and streamBytes\u22480 if warm arms after burst. SG-safe (no \u226532KiB consecutive).",
+    "field_pre_warm_bytes": 182272,
+    "lab_bytes": 180224
+  },
+  "geometry": {
+    "slot0_lba": 57,
+    "slot2_lba": 2105,
+    "sector": 512,
+    "field_pre_warm_bytes": 182272
+  },
+  "events": [
+    {
+      "t_ms": 2000,
+      "op": "read",
+      "lba": 2105,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2150,
+      "op": "read",
+      "lba": 2113,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2300,
+      "op": "read",
+      "lba": 2121,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2450,
+      "op": "read",
+      "lba": 2129,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2600,
+      "op": "read",
+      "lba": 2137,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2750,
+      "op": "read",
+      "lba": 2145,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 2900,
+      "op": "read",
+      "lba": 2153,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3050,
+      "op": "read",
+      "lba": 2161,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3200,
+      "op": "read",
+      "lba": 2169,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3350,
+      "op": "read",
+      "lba": 2177,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3500,
+      "op": "read",
+      "lba": 2185,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3650,
+      "op": "read",
+      "lba": 2193,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3800,
+      "op": "read",
+      "lba": 2201,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 3950,
+      "op": "read",
+      "lba": 2209,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4100,
+      "op": "read",
+      "lba": 2217,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4250,
+      "op": "read",
+      "lba": 2225,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4400,
+      "op": "read",
+      "lba": 2233,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4550,
+      "op": "read",
+      "lba": 2241,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4700,
+      "op": "read",
+      "lba": 2249,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 4850,
+      "op": "read",
+      "lba": 2257,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 5000,
+      "op": "read",
+      "lba": 2265,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 5150,
+      "op": "read",
+      "lba": 2273,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 5300,
+      "op": "read",
+      "lba": 2281,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 5450,
+      "op": "read",
+      "lba": 2289,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 5600,
+      "op": "read",
+      "lba": 2297,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 5750,
+      "op": "read",
+      "lba": 2305,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 5900,
+      "op": "read",
+      "lba": 2313,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 6050,
+      "op": "read",
+      "lba": 2321,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 6200,
+      "op": "read",
+      "lba": 2329,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 6350,
+      "op": "read",
+      "lba": 2337,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 6500,
+      "op": "read",
+      "lba": 2345,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 6650,
+      "op": "read",
+      "lba": 2353,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 6800,
+      "op": "read",
+      "lba": 2361,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 6950,
+      "op": "read",
+      "lba": 2369,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 7100,
+      "op": "read",
+      "lba": 2377,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 7250,
+      "op": "read",
+      "lba": 2385,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 7400,
+      "op": "read",
+      "lba": 2393,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 7550,
+      "op": "read",
+      "lba": 2401,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 7700,
+      "op": "read",
+      "lba": 2409,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 7850,
+      "op": "read",
+      "lba": 2417,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 8000,
+      "op": "read",
+      "lba": 2425,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 8150,
+      "op": "read",
+      "lba": 2433,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 8300,
+      "op": "read",
+      "lba": 2441,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 8450,
+      "op": "read",
+      "lba": 2449,
+      "bytes": 4096
+    },
+    {
+      "t_ms": 8650,
+      "op": "quiet",
+      "duration_ms": 30000
+    }
+  ]
+}

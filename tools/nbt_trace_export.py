@@ -154,6 +154,9 @@ def main() -> int:
             "b1_burst_quiet_gentle",
             "feld_1001_guess_then_quiet",
             "feld_heimabend_6s_cache",
+            "feld_bob_2003_prewarm",
+            "feld_1949_session",
+            "feld_prefetch_then_warm_gentle",
             "sequential_past_head",
         ),
     )

@@ -75,8 +75,8 @@ Beobachtung am BMW steuert Aggregation:
 - [x] Bridge schreibt `msc_reads.jsonl` (Lab-Smoke: Zeilen empfangen bei stabilem PUMP)
 - [x] Exporter → Replay (`nbt_trace_export.py --reads`)
 - [x] Suite gentle auf `.88` ohne Reboot (SG 16 KiB; PUMP kurz flaky nach OTA — reconnect)
-- [ ] Ein echter Feld-Trace in `tools/traces/`
-- [ ] OTA `.89` erst nach Lab-grün / nächster Feldabend
+- [x] Echter Feld-Trace in `tools/traces/` — `feld_bob_2003_prewarm` (37 Burst→129 Reads, `pre=182272`) + `feld_1949_session`; Lab-Szenario `feld_prefetch_then_warm_gentle`
+- [x] OTA `.89` 0.4.34 Feldabend (PUMP-Lücken / Silence-Cache); **0.4.35** Lab-grün (play_uid-Replay) — nächster Auto-Test morgen
 
 ## Reihenfolge
 

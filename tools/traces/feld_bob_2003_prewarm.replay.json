@@ -1,0 +1,925 @@
+{
+  "meta": {
+    "name": "feld_bob_2003_prewarm",
+    "source": "msc.reads-jsonl-feld-2026-10-01-2003",
+    "fw_ref": "0.4.34-dev",
+    "note": "Auto .89 Radio BOB: play.guess\u2192overlay_warm with pre=182272; after warm 0 slot reads (streamBytes=0). Exported 37 burst rows \u2192 expanded. Field preWarmHostBytes=182272; jsonl slot fav2 sum before warm\u2248346KiB (includes parallel fav0). Lab-safe sibling: feld_prefetch_then_warm_gentle.",
+    "overflow_max": 100,
+    "field_pre_warm_bytes": 182272,
+    "field_stream_bytes_after_warm": 0,
+    "field_overlay_warm": "warm=8445 pre=182272"
+  },
+  "geometry": {
+    "slot0_lba": 57,
+    "slot1_lba": 1081,
+    "slot2_lba": 2105,
+    "sector": 512,
+    "field_live_bytes_approx": 0,
+    "field_pre_warm_bytes": 182272
+  },
+  "events": [
+    {
+      "t_ms": 22056,
+      "op": "read",
+      "lba": 2105,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 34,
+      "op": "read",
+      "lba": 2113,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 31,
+      "op": "read",
+      "lba": 2121,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 58,
+      "op": "read",
+      "lba": 2129,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 49,
+      "op": "read",
+      "lba": 2137,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 53,
+      "op": "read",
+      "lba": 2145,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 57,
+      "op": "read",
+      "lba": 2153,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 59,
+      "op": "read",
+      "lba": 2161,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 59,
+      "op": "read",
+      "lba": 2169,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 62,
+      "op": "read",
+      "lba": 2177,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 65,
+      "op": "read",
+      "lba": 2185,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 68,
+      "op": "read",
+      "lba": 2193,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 71,
+      "op": "read",
+      "lba": 2201,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 74,
+      "op": "read",
+      "lba": 2209,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 77,
+      "op": "read",
+      "lba": 2217,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 80,
+      "op": "read",
+      "lba": 2225,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 83,
+      "op": "read",
+      "lba": 2233,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 86,
+      "op": "read",
+      "lba": 2241,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 89,
+      "op": "read",
+      "lba": 2249,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 92,
+      "op": "read",
+      "lba": 2257,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 95,
+      "op": "read",
+      "lba": 2265,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 98,
+      "op": "read",
+      "lba": 2273,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 101,
+      "op": "read",
+      "lba": 2281,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 104,
+      "op": "read",
+      "lba": 2289,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 107,
+      "op": "read",
+      "lba": 2297,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 110,
+      "op": "read",
+      "lba": 2305,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 113,
+      "op": "read",
+      "lba": 2313,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 116,
+      "op": "read",
+      "lba": 2321,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 119,
+      "op": "read",
+      "lba": 2329,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 122,
+      "op": "read",
+      "lba": 2337,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 125,
+      "op": "read",
+      "lba": 2345,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 128,
+      "op": "read",
+      "lba": 2353,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 131,
+      "op": "read",
+      "lba": 2361,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 156,
+      "op": "read",
+      "lba": 2369,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 161,
+      "op": "read",
+      "lba": 2377,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 161,
+      "op": "read",
+      "lba": 2385,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 169,
+      "op": "read",
+      "lba": 2393,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 173,
+      "op": "read",
+      "lba": 2401,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 173,
+      "op": "read",
+      "lba": 2409,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 177,
+      "op": "read",
+      "lba": 2417,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 185,
+      "op": "read",
+      "lba": 2425,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 185,
+      "op": "read",
+      "lba": 2433,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 189,
+      "op": "read",
+      "lba": 2441,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 193,
+      "op": "read",
+      "lba": 2449,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 197,
+      "op": "read",
+      "lba": 2457,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 201,
+      "op": "read",
+      "lba": 2465,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 205,
+      "op": "read",
+      "lba": 2473,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 209,
+      "op": "read",
+      "lba": 2481,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 213,
+      "op": "read",
+      "lba": 2489,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 218,
+      "op": "read",
+      "lba": 2497,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 218,
+      "op": "read",
+      "lba": 2505,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 225,
+      "op": "read",
+      "lba": 2513,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 229,
+      "op": "read",
+      "lba": 2521,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 233,
+      "op": "read",
+      "lba": 2529,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 237,
+      "op": "read",
+      "lba": 2537,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 241,
+      "op": "read",
+      "lba": 2545,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 245,
+      "op": "read",
+      "lba": 2553,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 245,
+      "op": "read",
+      "lba": 2561,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 249,
+      "op": "read",
+      "lba": 2569,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 253,
+      "op": "read",
+      "lba": 2577,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 257,
+      "op": "read",
+      "lba": 2585,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 261,
+      "op": "read",
+      "lba": 2593,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 265,
+      "op": "read",
+      "lba": 2601,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 269,
+      "op": "read",
+      "lba": 2609,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 273,
+      "op": "read",
+      "lba": 2617,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 277,
+      "op": "read",
+      "lba": 2625,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 282,
+      "op": "read",
+      "lba": 2633,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 286,
+      "op": "read",
+      "lba": 2641,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 290,
+      "op": "read",
+      "lba": 2649,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 294,
+      "op": "read",
+      "lba": 2657,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 294,
+      "op": "read",
+      "lba": 2665,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 298,
+      "op": "read",
+      "lba": 2673,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 302,
+      "op": "read",
+      "lba": 2681,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 306,
+      "op": "read",
+      "lba": 2689,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 310,
+      "op": "read",
+      "lba": 2697,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 314,
+      "op": "read",
+      "lba": 2705,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 318,
+      "op": "read",
+      "lba": 2713,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 322,
+      "op": "read",
+      "lba": 2721,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 326,
+      "op": "read",
+      "lba": 2729,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 330,
+      "op": "read",
+      "lba": 2737,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 334,
+      "op": "read",
+      "lba": 2745,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 338,
+      "op": "read",
+      "lba": 2753,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 342,
+      "op": "read",
+      "lba": 2761,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 346,
+      "op": "read",
+      "lba": 2769,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 350,
+      "op": "read",
+      "lba": 2777,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 377,
+      "op": "read",
+      "lba": 977,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 368,
+      "op": "read",
+      "lba": 985,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 372,
+      "op": "read",
+      "lba": 993,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 372,
+      "op": "read",
+      "lba": 1001,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 376,
+      "op": "read",
+      "lba": 1009,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 380,
+      "op": "read",
+      "lba": 1017,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 387,
+      "op": "read",
+      "lba": 1025,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 391,
+      "op": "read",
+      "lba": 1033,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 391,
+      "op": "read",
+      "lba": 1041,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 395,
+      "op": "read",
+      "lba": 1049,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 399,
+      "op": "read",
+      "lba": 1057,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 403,
+      "op": "read",
+      "lba": 1065,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 407,
+      "op": "read",
+      "lba": 1073,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 411,
+      "op": "read",
+      "lba": 1081,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 417,
+      "op": "read",
+      "lba": 737,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 421,
+      "op": "read",
+      "lba": 745,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 425,
+      "op": "read",
+      "lba": 753,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 425,
+      "op": "read",
+      "lba": 761,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 429,
+      "op": "read",
+      "lba": 769,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 433,
+      "op": "read",
+      "lba": 777,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 438,
+      "op": "read",
+      "lba": 785,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 438,
+      "op": "read",
+      "lba": 793,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 441,
+      "op": "read",
+      "lba": 801,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 444,
+      "op": "read",
+      "lba": 809,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 447,
+      "op": "read",
+      "lba": 817,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 450,
+      "op": "read",
+      "lba": 825,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 453,
+      "op": "read",
+      "lba": 833,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 456,
+      "op": "read",
+      "lba": 841,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 459,
+      "op": "read",
+      "lba": 849,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 462,
+      "op": "read",
+      "lba": 857,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 465,
+      "op": "read",
+      "lba": 865,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 468,
+      "op": "read",
+      "lba": 873,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 471,
+      "op": "read",
+      "lba": 881,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 474,
+      "op": "read",
+      "lba": 889,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 489,
+      "op": "read",
+      "lba": 897,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 494,
+      "op": "read",
+      "lba": 905,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 498,
+      "op": "read",
+      "lba": 913,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 502,
+      "op": "read",
+      "lba": 921,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 502,
+      "op": "read",
+      "lba": 929,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 506,
+      "op": "read",
+      "lba": 937,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 510,
+      "op": "read",
+      "lba": 945,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 514,
+      "op": "read",
+      "lba": 953,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 518,
+      "op": "read",
+      "lba": 961,
+      "bytes": 4096,
+      "kind": 2
+    },
+    {
+      "t_ms": 522,
+      "op": "read",
+      "lba": 969,
+      "bytes": 4096,
+      "kind": 2
+    }
+  ]
+}
