@@ -68,6 +68,7 @@ python3 tools/nbt_report.py tools/reports/last_run.json
 - Replay ≠ Vorhersage von HU-Cache.
 - Synthetische Traces V1; echte Feld-LBA-Sequenzen brauchen größeren ESP-Trace-Flush.
 - SoftAP-Cursor-Tests (`lab_b4_reread.py`) bleiben die Reset-freie Cursor-Regression.
+- **Keine gemeinsame Wanduhr** ESP↔Pi↔Handy bis Trace-Ring+NTP; Feldabend: Sync-Marker-Protokoll (siehe Auftrag).
 
 ## Nächste Schritte
 

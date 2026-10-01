@@ -106,6 +106,26 @@ Thread, ~1 s: `GET /api/status` → Zeitreihe (`cursorArmed`, `hostAbsCursor`,
 
 `O_DIRECT` bleibt implementiert; nach USB-Reset oft IO-Errors bis Re-Enum. Suite auf **Proxmox-Host** (`.108`), nicht im LXC (kein `/dev/sda`).
 
+## Zeitbasis / Sync (Randbedingungen)
+
+Drei Uhren sind **nicht** gekoppelt: ESP `millis()`/Uptime (Reset bei Reboot), Pi/JSONL Epoch,
+Beobachter-Handy. Replay braucht relativ `t_ms seit Plug` — das ist ok. Für Feld-Korrelation
+(„Senderwechsel 20:14 → danach Read?“) fehlt der gemeinsame Anker.
+
+**Heute Abend (ohne FW):**
+
+1. **Sync-Marker pro Pass:** Handy-Uhr notieren + sichtbare Aktion in allen Quellen
+   (OTG-Replug oder SoftAP-`overlay_read` / Lab-Play). Danach Trace sofort sichern
+   (96-Sample-Ring).
+2. **Jeder Status-/Harness-Snapshot:** `uptime`, `msSincePlug`, `usbSerial`, `remountGen`
+   (Reboot-Segmente später trennen).
+
+**Beim Trace-Ring-Umbau (nächster FW-Eingriff):**
+
+- STA → NTP; Reads zusätzlich mit Epoch-ms annotieren (`millis()` Fallback offline)
+- Trace-Flush-Header: `boot_id` (z. B. Boot-Counter + `remountGen` / MAC)
+- `nbt_trace_export.py`: Epoch/Marker → `t_ms seit Plug` + Sync-Anker in Replay-`meta`
+
 ## Abnahme V1
 
 - [x] Auftrag + `NBT-REPLAY.md` + synthetische Traces
@@ -118,7 +138,8 @@ Thread, ~1 s: `GET /api/status` → Zeitreihe (`cursorArmed`, `hostAbsCursor`,
 ## Abnahme später
 
 - [ ] Exporter aus echtem Feld-Trace (nach Trace-Ring-Upgrade)
-- [ ] Feld-Traces 10-01 Abend in `traces/`
+- [ ] Feld-Traces 10-01 Abend in `traces/` (+ Sync-Marker-Notizen)
+- [ ] NTP-Epoch + `boot_id` im Trace-Flush; Exporter kalibriert Anker
 - [ ] `pidrivectl test nbt-replay` Hook
 
 ---

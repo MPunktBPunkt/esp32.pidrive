@@ -166,6 +166,7 @@ class Sampler:
                     "playGuessCount": m.get("playGuessCount"),
                     "usbSerial": m.get("usbSerial"),
                     "remountGen": m.get("remountGen"),
+                    "msSincePlug": m.get("msSincePlug"),
                     "stream_active": s.get("active"),
                     "underruns": s.get("underruns"),
                     "absBase": s.get("absBase"),
