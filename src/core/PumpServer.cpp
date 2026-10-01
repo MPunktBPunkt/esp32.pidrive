@@ -287,7 +287,10 @@ void PumpServer::handleLine(char* line) {
             strncpy(pendingOverlayUid_, uid, sizeof(pendingOverlayUid_) - 1);
             pendingOverlayUid_[sizeof(pendingOverlayUid_) - 1] = 0;
         }
-        if (msc_) msc_->stopStream();
+        if (msc_) {
+            msc_->stopStream();
+            msc_->beginPreWarmWatch(uid);
+        }
         up_ = true;
         JsonDocument ack;
         ack["t"] = "audio_ack";
@@ -304,7 +307,10 @@ void PumpServer::handleLine(char* line) {
     if (!strcmp(t, "audio_stop")) {
         pendingOverlayUid_[0] = 0;
         if (stream_) stream_->stop();
-        if (msc_) msc_->stopStream();
+        if (msc_) {
+            msc_->clearPreWarmWatch();
+            msc_->stopStream();
+        }
         clearCoverMeta();
         JsonDocument ack;
         ack["t"] = "audio_ack";
@@ -412,10 +418,13 @@ void PumpServer::armOverlayIfWarm() {
         return;
     }
     if (stream_->size() < kOverlayWarmupBytes) return;
+    const uint32_t preWarm = msc_->preWarmHostBytes();
     msc_->startStream(pendingOverlayUid_);
+    msc_->clearPreWarmWatch();
     if (events_) {
-        char d[32];
-        snprintf(d, sizeof(d), "warm=%u", (unsigned)stream_->size());
+        char d[48];
+        snprintf(d, sizeof(d), "warm=%u pre=%lu", (unsigned)stream_->size(),
+                 (unsigned long)preWarm);
         events_->push("msc.overlay_warm", d);
     }
     pendingOverlayUid_[0] = 0;

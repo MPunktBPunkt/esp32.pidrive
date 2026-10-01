@@ -107,6 +107,11 @@ public:
     void noteReadsEmitted() { readsEmitCount_++; }
     void startStream(const char* uid);
     void stopStream();
+    /** Heimabend/Mistral: count host file-bytes on uid while overlay still pending (B2 silence). */
+    void beginPreWarmWatch(const char* uid);
+    void clearPreWarmWatch();
+    uint32_t preWarmHostBytes() const { return preWarmHostBytes_; }
+    const char* preWarmUid() const { return preWarmUid_; }
 
     bool ready() const { return ready_; }
     bool plugged() const { return plugged_; }
@@ -245,6 +250,9 @@ private:
     uint32_t playRejectCount_ = 0;
     uint32_t playGuessCount_ = 0;
     uint32_t streamBytesServed_ = 0;
+    /** Host reads of watched slot while live overlay not yet armed (silence window). */
+    char preWarmUid_[24] = {0};
+    uint32_t preWarmHostBytes_ = 0;
     bool mediaPresented_ = false;
     uint32_t presentDeadlineMs_ = 0;
     uint32_t remountHoldUntilMs_ = 0;

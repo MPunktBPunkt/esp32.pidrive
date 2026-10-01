@@ -2,14 +2,15 @@
   "meta": {
     "name": "feld_heimabend_6s_cache",
     "source": "synthetic-feld-2026-10-01-heimabend",
-    "fw_ref": "0.4.31-dev",
-    "note": "Heimabend Auto .89: after OTG+warm overlay, HU consumed ~168KiB live (streamBytes) with ID3 cover audible ~6s, then stopped MSC reads; re-select plays same ~6s from HU cache. Lab suite capped at 16KiB@150ms (ESP reboots on SG ≥32KiB consecutive). Full LBA timeline missing (msc.trace empty) — replace via msc.reads streaming later."
+    "fw_ref": "0.4.33-dev",
+    "note": "Heimabend Auto .89 (0.4.31): play.guess→overlay_warm Δ≈2708ms; streamBytes≈167936 live with ID3/~6s ear; then MSC quiet; re-select = HU cache loop. Lab-safe 16KiB chunks. Full LBA via msc.reads still missing (Feld 19:00: WiFi/reboot, jsonl leer). 0.4.33 adds preWarmHostBytes to split silence-window vs live consume."
   },
   "geometry": {
     "slot0_lba": 57,
     "slot1_lba": 1081,
     "sector": 512,
-    "field_live_bytes_approx": 167936
+    "field_live_bytes_approx": 167936,
+    "field_guess_to_warm_ms": 2708
   },
   "events": [
     {"t_ms": 2000, "op": "read", "lba": 1081, "bytes": 4096},

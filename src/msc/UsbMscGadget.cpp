@@ -230,6 +230,20 @@ void UsbMscGadget::presentMedia(const char* reason) {
     Serial.printf("[MSC] mediaPresent=true (%s)\n", reason ? reason : "");
 }
 
+void UsbMscGadget::beginPreWarmWatch(const char* uid) {
+    preWarmHostBytes_ = 0;
+    preWarmUid_[0] = 0;
+    if (uid && uid[0]) {
+        strncpy(preWarmUid_, uid, sizeof(preWarmUid_) - 1);
+        preWarmUid_[sizeof(preWarmUid_) - 1] = 0;
+    }
+}
+
+void UsbMscGadget::clearPreWarmWatch() {
+    preWarmUid_[0] = 0;
+    // keep preWarmHostBytes_ latched for status until next begin
+}
+
 void UsbMscGadget::startStream(const char* uid) {
     streamSlot_ = -1;
     if (!uid || !uid[0]) return;
@@ -646,6 +660,10 @@ int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32
             // skipping through 0xFF junk after a short demo stub (field 2026-09-28).
             uint32_t fileOff = (lba - f->lbaStart) * DEMO_FAT_SECTOR_SIZE + offset;
             Mp3Silence::fill(out, bufsize, fileOff, slotBytes(*f));
+            // Pending-overlay window: HU may already be consuming — Mistral ~6s suspicion.
+            if (preWarmUid_[0] && f->uid[0] && strcmp(f->uid, preWarmUid_) == 0) {
+                preWarmHostBytes_ += bufsize;
+            }
         }
     }
 
@@ -1236,6 +1254,8 @@ void UsbMscGadget::toJson(JsonObject obj) const {
     obj["playGuessCount"] = playGuessCount_;
     obj["streamSlot"] = streamSlot_;
     obj["streamBytes"] = streamBytesServed_;
+    obj["preWarmHostBytes"] = preWarmHostBytes_;
+    obj["preWarmUid"] = preWarmUid_;
     obj["readOverflow"] = readOverflowCount_;
     obj["readsEmit"] = readsEmitCount_;
     obj["fatMode"] = "static";
@@ -1327,6 +1347,8 @@ void UsbMscGadget::formatPdSerial(uint16_t, char* ser, size_t n) {
 }
 void UsbMscGadget::startStream(const char*) {}
 void UsbMscGadget::stopStream() {}
+void UsbMscGadget::beginPreWarmWatch(const char*) {}
+void UsbMscGadget::clearPreWarmWatch() {}
 void UsbMscGadget::onUsbPlugged(bool) {}
 void UsbMscGadget::onUsbSuspend(bool) {}
 void UsbMscGadget::onHostStartStop(uint8_t, bool, bool) {}
