@@ -1,0 +1,19 @@
+{
+  "meta": {
+    "name": "b7_burst_then_quiet_150s",
+    "source": "synthetic-after-§11.10",
+    "fw_ref": "0.4.36-dev",
+    "note": "Mount-like burst then 150s quiet — for Proxmox nbt_replay when /dev/sg0 available. Not a BMW verdict."
+  },
+  "geometry": {"slot0_lba": 57, "sector": 512},
+  "events": [
+    {"t_ms": 500, "op": "read", "lba": 57, "bytes": 4096},
+    {"t_ms": 520, "op": "read", "lba": 65, "bytes": 4096},
+    {"t_ms": 540, "op": "read", "lba": 73, "bytes": 4096},
+    {"t_ms": 560, "op": "read", "lba": 81, "bytes": 8192},
+    {"t_ms": 600, "op": "read", "lba": 97, "bytes": 16384},
+    {"t_ms": 800, "op": "read", "lba": 129, "bytes": 32768},
+    {"t_ms": 1200, "op": "read", "lba": 193, "bytes": 65536},
+    {"t_ms": 2000, "op": "quiet", "duration_ms": 150000}
+  ]
+}
