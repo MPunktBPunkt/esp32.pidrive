@@ -836,11 +836,17 @@ def send_bin(ser: PumpIO, kind: int, payload: bytes, *, gap_s: float | None = No
 
 
 class AudioFwd:
+    # Debounce station switches after audio.start — must use started_at, NOT the
+    # "forwarded N B / 2s" heartbeat (that refreshed last_audio_log and blocked
+    # all fav* switches for the whole stream — field 2026-10-02 ignore rapid).
+    RAPID_SWITCH_S = 4.0
+
     def __init__(self, ser: PumpIO, bitrate: str):
         self.ser = ser
         self.bitrate = bitrate
         self.proc: subprocess.Popen | None = None
         self.uid = ""
+        self.started_at: float = 0.0
         self.last_start_msg: dict | None = None
         self.last_id3: bytes = b""
         self.hold_menu_until: float = 0.0
@@ -864,6 +870,7 @@ class AudioFwd:
             self.ser.flush()
             print(f"[tx] {line}", flush=True)
         self.uid = ""
+        self.started_at = 0.0
         self.last_start_msg = None
         self.last_id3 = b""
         if status_cover:
@@ -903,6 +910,7 @@ class AudioFwd:
                 flush=True,
             )
         self.uid = ""
+        self.started_at = 0.0
         self.last_start_msg = None
         self.last_id3 = b""
         self._last_src = None
@@ -914,6 +922,7 @@ class AudioFwd:
         kind = kind or infer_status_kind()
         uid = f"status:{kind}"
         self.uid = uid
+        self.started_at = time.time()
         c_rel = (cover_meta.get("rel") or "")[:72]
         start_msg = {
             "t": "audio_start",
@@ -965,6 +974,7 @@ class AudioFwd:
     ) -> None:
         self.stop(status_cover=False)
         self.uid = uid
+        self.started_at = time.time()
         # Cover meta filled after load_cover; sent in audio_start below
         cover_meta: dict = {}
         meta = (node or {}).get("meta") or {}
@@ -1624,9 +1634,26 @@ def main() -> int:
                                 node = _PRESET_BY_UID.get(uid) or {}
                             if args.no_audio:
                                 continue
-                            if audio.uid and uid != audio.uid and (time.time() - last_audio_log) < 4.0:
-                                print(f"[audio] ignore rapid {uid} (have {audio.uid})", flush=True)
+                            # Debounce only right after a start — not while streaming
+                            # (last_audio_log is a 2s forward heartbeat; using it blocked
+                            # all station switches for the whole session).
+                            age = (
+                                (time.time() - audio.started_at)
+                                if audio.uid and audio.started_at
+                                else 1e9
+                            )
+                            if audio.uid and uid != audio.uid and age < AudioFwd.RAPID_SWITCH_S:
+                                print(
+                                    f"[audio] ignore rapid {uid} (have {audio.uid} "
+                                    f"age={age:.1f}s<{AudioFwd.RAPID_SWITCH_S:.0f}s)",
+                                    flush=True,
+                                )
                                 continue
+                            if audio.uid and uid != audio.uid:
+                                print(
+                                    f"[audio] switch {audio.uid} → {uid} (age={age:.1f}s)",
+                                    flush=True,
+                                )
                             src, media_path = resolve_stream_target(node) if node else (None, None)
                             if src:
                                 time.sleep(0.05)
