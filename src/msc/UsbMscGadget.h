@@ -5,6 +5,7 @@
 #include "core/EventLog.h"
 #include "core/MenuStore.h"
 #include "core/StreamBuffer.h"
+#include "MscGeometry.h"
 #include <functional>
 
 struct MscFileMap {
@@ -67,19 +68,18 @@ public:
     static constexpr uint16_t kBurstGapMs = 50;
     static constexpr uint16_t kBurstMaxN = 32;
     static constexpr size_t kSlots = 4;
-    /** Virtual MSC capacity (2 MiB) — larger than demo_fat.bin; LBAs beyond image are synthesized. */
-    static constexpr uint32_t kVirtSectorCount = 4096;
-    static constexpr uint8_t kFatSpf = 8;           // sectors/FAT (FAT12 can address 512KiB slots)
-    static constexpr uint32_t kFat0Lba = 1;         // LBA 1..8
-    static constexpr uint32_t kFat1Lba = 9;         // LBA 9..16
-    static constexpr uint32_t kRootLba0 = 17;       // 32 sectors (512 ents)
-    static constexpr uint32_t kRootSectors = 32;
-    static constexpr uint32_t kDataStartLba = 49;   // cluster 2
-    static constexpr uint8_t kSpc = 4;              // sectors per cluster
-    static constexpr uint32_t kStationsLba = 49;    // cluster 2
-    static constexpr uint32_t kSettingsLba = 53;    // cluster 3
-    /** ~512 KiB station stubs so HU cannot cache the whole file at index. */
-    static constexpr uint32_t kSlotSectors = 1024;
+    /** Virtual MSC capacity — see MscGeometry.h (legacy 2 MiB FAT12 / L0 4 MiB FAT16). */
+    static constexpr uint32_t kVirtSectorCount = MscGeo::kVirtSectorCount;
+    static constexpr uint8_t kFatSpf = MscGeo::kFatSpf;
+    static constexpr uint32_t kFat0Lba = MscGeo::kFat0Lba;
+    static constexpr uint32_t kFat1Lba = MscGeo::kFat1Lba;
+    static constexpr uint32_t kRootLba0 = MscGeo::kRootLba0;
+    static constexpr uint32_t kRootSectors = MscGeo::kRootSectors;
+    static constexpr uint32_t kDataStartLba = MscGeo::kDataStartLba;
+    static constexpr uint8_t kSpc = MscGeo::kSpc;
+    static constexpr uint32_t kStationsLba = MscGeo::kStationsLba;
+    static constexpr uint32_t kSettingsLba = MscGeo::kSettingsLba;
+    static constexpr uint32_t kSlotSectors = MscGeo::kSlotSectors;
     /** Wait for menu_set before mediaPresent; then show last-known/demo. */
     static constexpr uint32_t kMediaPresentTimeoutMs = 7000;
     static constexpr uint32_t kQuietAfterFileMs = 2000;

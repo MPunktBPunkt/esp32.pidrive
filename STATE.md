@@ -4,27 +4,24 @@ Lebender Projektstand. Kurz halten; Details in `docs/planung/` und Feldbericht.
 
 | Feld | Wert |
 |------|------|
-| Stand | 2026-10-02 |
-| Phase | **Firmware 0.4.36-dev** — Feld §11.10 Mount-Scan+Cache; nächster Fokus **B7/150s** (kein separates Probe-FW) |
+| Stand | 2026-10-03 |
+| Phase | **Lab 0.4.37-dev L0** (FAT16/4 MiB) auf `.88` · **Auto `.89` bleibt 0.4.36** bis B7 |
 | Repo | `MPunktBPunkt/esp32.pidrive` |
-| Build | PlatformIO `env:pidrive-s3` (`pio run`) |
-| Dist | `dist/pidrive.0.4.36-dev.ota.esp32s3.bin` (nach Build) |
-| Hub-Depot | `iobroker.esp-hub/firmware/pidrive.0.4.36-dev.*.esp32s3.bin` |
+| Build | `pio run -e pidrive-s3` (0.4.36) · **Lab L0:** `pio run -e pidrive-s3-l0` (0.4.37) |
+| Dist | `dist/pidrive.0.4.37-dev.ota.esp32s3.bin` (L0) · `0.4.36` weiter für Auto |
+| Hub-Depot | nicht für L0-Auto pushen |
 | Hardware | ESP32-S3-DevKitC-1 (OTG + UART) |
 | Pi-Link | [PUMP.md](docs/planung/PUMP.md) · Bridge `tools/pump_bridge.py` |
 | Feldbericht | [FELDTEST-ESP-MSC-BMW-2026-09-28](https://github.com/MPunktBPunkt/pidrive/blob/main/docs/betrieb/FELDTEST-ESP-MSC-BMW-2026-09-28.md) |
-| Auftrag | [AUFTRAG-MSC-READS-STREAMING](docs/auftraege/AUFTRAG-MSC-READS-STREAMING.md) |
+| Auftrag | [AUFTRAG-L0-GEOMETRIE](docs/auftraege/AUFTRAG-L0-GEOMETRIE.md) · pidrive Host-Read-Nachweis M2 |
 
 ## Aktueller Fokus
 
-1. **Kein neues Probe-FW-Repo** — Lab-APIs + `nbt_*` Harness reichen; BMW-Nachlesen = Auto (pidrive B7).
-2. Zählersemantik dokumentiert (`streamBytes` = Live-Overlay-Serve; `readOverflow` = Telemetrie-Queue).
-3. Ring/Präfill **nach** B7-Feldpass, nicht vorher.
+1. **B7 am Auto** auf 0.4.36 — kein L0-OTA auf `.89`.
+2. **L0 Lab** `.88`: FAT16, `sectorCount=8192`, Slots ~1 MiB — Smoke OK 2026-10-03.
+3. Danach: L0_16M + statische Zeitmarker-MP3 (M3), nicht Ring.
 
 ## Letzte Änderung
 
-- 2026-10-02: Feld §11.10 Präzisierung; Entscheidung gegen Probe-FW-Fork; Fokus B7
-- 2026-10-01 Abend: **B6-Automation** in `nbt_report`/`nbt_suite` — Verdict-IDs `pre_warm_bytes`, `stream_after_arm`, `overlay_live` (KPI-Feld `live_ratio`); Suite-Lauf 0.4.36: preΔ=0 PASS, streamΔ=180224 PASS, live_ratio≈0.29 WARN
-- 2026-10-01 Abend: **0.4.36-dev** `kOverlayWarmupBytes=0` + arm on `audio_start` (B6 Hebel A)
-- 2026-10-01 Abend: **t_ms-Export-Fix**; Suite `prefetch_then_warm`; Feld-Traces
-- 2026-10-01 Abend: **0.4.35-dev** play_uid-Replay
+- 2026-10-03: **0.4.37-dev / PIDRIVE_GEO_L0** — FAT16 4 MiB; env `pidrive-s3-l0`; OTA nur Lab `.88`
+- 2026-10-02: Feld §11.10; gegen Probe-FW-Fork; Fokus B7

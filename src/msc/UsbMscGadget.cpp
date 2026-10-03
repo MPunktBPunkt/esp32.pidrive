@@ -27,7 +27,7 @@ static bool isDirLba(uint32_t lba) {
            (lba >= UsbMscGadget::kSettingsLba && lba < UsbMscGadget::kSettingsLba + UsbMscGadget::kSpc);
 }
 
-/** Virtual FAT12: boot@0, FAT0@1-8, FAT1@9-16, ROOT@17-48, DATA@49. */
+/** Virtual FAT layout — see MscGeometry.h. */
 static const char* metaTag(uint32_t lba) {
     if (lba == 0) return "BOOT";
     if (lba >= UsbMscGadget::kFat0Lba && lba < UsbMscGadget::kFat0Lba + UsbMscGadget::kFatSpf)
@@ -265,19 +265,6 @@ void UsbMscGadget::stopStream() {
     streamSlot_ = -1;
 }
 
-static void fat12Set(uint8_t* fat, uint16_t cl, uint16_t val) {
-    // fat points at start of FAT region in a linear buffer — we patch within one sector view
-    // Caller passes pointer to full FAT image slice; for sector-local we need absolute index.
-    size_t i = cl + (cl / 2);
-    if (cl & 1) {
-        fat[i] = (uint8_t)((fat[i] & 0x0F) | ((val & 0x0F) << 4));
-        fat[i + 1] = (uint8_t)(val >> 4);
-    } else {
-        fat[i] = (uint8_t)(val & 0xFF);
-        fat[i + 1] = (uint8_t)((fat[i + 1] & 0xF0) | ((val >> 8) & 0x0F));
-    }
-}
-
 void UsbMscGadget::patchFatChain(uint8_t* sector, uint32_t lba, uint16_t cl0, uint16_t cl1) const {
     if (cl0 < 2 || cl1 < cl0) return;
     uint32_t fatBase;
@@ -289,31 +276,44 @@ void UsbMscGadget::patchFatChain(uint8_t* sector, uint32_t lba, uint16_t cl0, ui
         return;
     }
 
+    const uint16_t eoc = MscGeo::kFat16 ? 0xFFFF : 0x0FFF;
     for (uint16_t cl = cl0; cl <= cl1; cl++) {
-        uint16_t next = (cl < cl1) ? (uint16_t)(cl + 1) : 0xFFF;
-        size_t byteIndex = cl + (cl / 2);
-        if (byteIndex < fatBase) continue;
-        size_t local = byteIndex - fatBase;
-        if (local < 511) {
-            uint8_t pair[2] = {sector[local], sector[local + 1]};
-            if (cl & 1) {
-                pair[0] = (uint8_t)((pair[0] & 0x0F) | ((next & 0x0F) << 4));
-                pair[1] = (uint8_t)(next >> 4);
-            } else {
-                pair[0] = (uint8_t)(next & 0xFF);
-                pair[1] = (uint8_t)((pair[1] & 0xF0) | ((next >> 8) & 0x0F));
-            }
-            sector[local] = pair[0];
-            sector[local + 1] = pair[1];
-        } else if (local == 511) {
-            if (cl & 1) {
-                sector[511] = (uint8_t)((sector[511] & 0x0F) | ((next & 0x0F) << 4));
-            } else {
+        uint16_t next = (cl < cl1) ? (uint16_t)(cl + 1) : eoc;
+        if (MscGeo::kFat16) {
+            size_t byteIndex = (size_t)cl * 2u;
+            if (byteIndex + 1 < fatBase) continue;
+            if (byteIndex >= fatBase + 512u) break;
+            size_t local = byteIndex - fatBase;
+            if (local < 511) {
+                sector[local] = (uint8_t)(next & 0xFF);
+                sector[local + 1] = (uint8_t)(next >> 8);
+            } else if (local == 511) {
                 sector[511] = (uint8_t)(next & 0xFF);
+            }
+        } else {
+            size_t byteIndex = cl + (cl / 2);
+            if (byteIndex < fatBase) continue;
+            size_t local = byteIndex - fatBase;
+            if (local < 511) {
+                uint8_t pair[2] = {sector[local], sector[local + 1]};
+                if (cl & 1) {
+                    pair[0] = (uint8_t)((pair[0] & 0x0F) | ((next & 0x0F) << 4));
+                    pair[1] = (uint8_t)(next >> 4);
+                } else {
+                    pair[0] = (uint8_t)(next & 0xFF);
+                    pair[1] = (uint8_t)((pair[1] & 0xF0) | ((next >> 8) & 0x0F));
+                }
+                sector[local] = pair[0];
+                sector[local + 1] = pair[1];
+            } else if (local == 511) {
+                if (cl & 1) {
+                    sector[511] = (uint8_t)((sector[511] & 0x0F) | ((next & 0x0F) << 4));
+                } else {
+                    sector[511] = (uint8_t)(next & 0xFF);
+                }
             }
         }
     }
-    (void)fat12Set;
 }
 
 void UsbMscGadget::patchFatFixed(uint8_t* sector, uint32_t lba) const {
@@ -329,7 +329,7 @@ void UsbMscGadget::patchFatFixed(uint8_t* sector, uint32_t lba) const {
 }
 
 void UsbMscGadget::patchBoot(uint8_t* sector) const {
-    // Start from demo boot, then override BPB for virtual 2MiB / spf=8 geometry.
+    // Start from demo boot, then override BPB for virtual geometry (legacy FAT12 or L0 FAT16).
     memcpy(sector, DEMO_FAT_IMAGE, 512);
     sector[13] = kSpc;
     sector[14] = 1;
@@ -337,15 +337,27 @@ void UsbMscGadget::patchBoot(uint8_t* sector) const {
     sector[16] = 2;  // FATs
     sector[17] = (uint8_t)(512 & 0xFF);
     sector[18] = (uint8_t)(512 >> 8);  // root entries
-    sector[19] = (uint8_t)(kVirtSectorCount & 0xFF);
-    sector[20] = (uint8_t)((kVirtSectorCount >> 8) & 0xFF);
+    if (kVirtSectorCount < 65536u) {
+        sector[19] = (uint8_t)(kVirtSectorCount & 0xFF);
+        sector[20] = (uint8_t)((kVirtSectorCount >> 8) & 0xFF);
+        sector[32] = 0;
+        sector[33] = 0;
+        sector[34] = 0;
+        sector[35] = 0;
+    } else {
+        sector[19] = 0;
+        sector[20] = 0;
+        sector[32] = (uint8_t)(kVirtSectorCount & 0xFF);
+        sector[33] = (uint8_t)((kVirtSectorCount >> 8) & 0xFF);
+        sector[34] = (uint8_t)((kVirtSectorCount >> 16) & 0xFF);
+        sector[35] = (uint8_t)((kVirtSectorCount >> 24) & 0xFF);
+    }
     sector[22] = kFatSpf;
     sector[23] = 0;
-    // total32 (unused when total16 != 0) clear
-    sector[32] = 0;
-    sector[33] = 0;
-    sector[34] = 0;
-    sector[35] = 0;
+    // OEM / FS type string (offset 54, 8 bytes) — helps some hosts pick FAT16.
+    if (MscGeo::kFat16) {
+        memcpy(sector + 54, "FAT16   ", 8);
+    }
 }
 
 void UsbMscGadget::patchRootDir(uint8_t* sector, uint32_t lba) const {
@@ -635,7 +647,12 @@ int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32
                 if (sec == kFat0Lba || sec == kFat1Lba) {
                     s[0] = 0xF8;
                     s[1] = 0xFF;
-                    s[2] = 0xFF;  // FAT12 media + EOC
+                    if (MscGeo::kFat16) {
+                        s[2] = 0xFF;
+                        s[3] = 0xFF;  // FAT16 media + EOC for cl 0/1
+                    } else {
+                        s[2] = 0xFF;  // FAT12 media + EOC
+                    }
                 }
                 patchFatFixed(s, sec);
             } else if (sec >= kRootLba0 && sec < kRootLba0 + kRootSectors) {
@@ -718,9 +735,10 @@ bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
     USB.begin();
     ready_ = true;
     HostScsiProbe::instance().begin(events_);
-    if (events_) events_->push("msc.ready", "FAT12 virt 512k slots");
-    Serial.printf("[MSC] ready virt_sectors=%u image=%u media=held timeout=%ums\n", kVirtSectorCount,
-                  DEMO_FAT_SECTOR_COUNT, (unsigned)kMediaPresentTimeoutMs);
+    if (events_) events_->push("msc.ready", MscGeo::kReadyDetail);
+    Serial.printf("[MSC] ready %s virt_sectors=%u fat16=%d image=%u media=held timeout=%ums\n",
+                  MscGeo::kReadyDetail, kVirtSectorCount, (int)MscGeo::kFat16, DEMO_FAT_SECTOR_COUNT,
+                  (unsigned)kMediaPresentTimeoutMs);
     return true;
 }
 
