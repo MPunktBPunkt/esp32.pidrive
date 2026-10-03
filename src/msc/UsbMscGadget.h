@@ -181,14 +181,14 @@ private:
     void patchFatFixed(uint8_t* sector, uint32_t lba) const;
     void patchFatChain(uint8_t* sector, uint32_t lba, uint16_t cl0, uint16_t cl1) const;
     static void slotRanges(uint32_t out[kSlots][2]) {
-        // After STATIONS/SETTINGS clusters (49-56): three 512KiB slots + short page slot.
-        const uint32_t a0 = kSettingsLba + kSpc;  // 57
+        // After STATIONS/SETTINGS clusters: three station file ranges (sizes from MscGeo) + page.
+        const uint32_t a0 = kSettingsLba + kSpc;
         out[0][0] = a0;
-        out[0][1] = a0 + kSlotSectors - 1;
+        out[0][1] = a0 + MscGeo::kSlotSectors0 - 1;
         out[1][0] = out[0][1] + 1;
-        out[1][1] = out[1][0] + kSlotSectors - 1;
+        out[1][1] = out[1][0] + MscGeo::kSlotSectors1 - 1;
         out[2][0] = out[1][1] + 1;
-        out[2][1] = out[2][0] + kSlotSectors - 1;
+        out[2][1] = out[2][0] + MscGeo::kSlotSectors2 - 1;
         out[3][0] = out[2][1] + 1;
         out[3][1] = out[3][0] + 12;
     }
