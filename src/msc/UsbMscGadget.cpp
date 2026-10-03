@@ -354,9 +354,11 @@ void UsbMscGadget::patchBoot(uint8_t* sector) const {
     }
     sector[22] = kFatSpf;
     sector[23] = 0;
-    // OEM / FS type string (offset 54, 8 bytes) — helps some hosts pick FAT16.
+    // OEM / FS type string (offset 54, 8 bytes)
     if (MscGeo::kFat16) {
         memcpy(sector + 54, "FAT16   ", 8);
+    } else {
+        memcpy(sector + 54, "FAT12   ", 8);
     }
 }
 
@@ -557,12 +559,21 @@ static void writeDotDirs(uint8_t* sector, uint16_t selfCl) {
 }
 
 void UsbMscGadget::patchDirNames(uint8_t* sector, uint32_t lba) const {
-    // STATIONS = cluster 2 → kStationsLba; SETTINGS = cluster 3 → kSettingsLba
-    const bool stations = (lba == kStationsLba);
-    const bool settings = (lba == kSettingsLba);
-    if (!stations && !settings) return;
+    // STATIONS = cluster 2 (kSpc sectors); SETTINGS = cluster 3.
+    // Only the first sector of each dir holds entries; the rest of the cluster
+    // MUST be zero — otherwise demo_fat leftovers look like extra/corrupt ents
+    // (especially with L0 spc=8). BMW then often shows a single file.
+    const bool stationsCl =
+        (lba >= kStationsLba && lba < kStationsLba + kSpc);
+    const bool settingsCl =
+        (lba >= kSettingsLba && lba < kSettingsLba + kSpc);
+    if (!stationsCl && !settingsCl) return;
 
-    if (stations) {
+    if (stationsCl) {
+        if (lba != kStationsLba) {
+            memset(sector, 0, 512);
+            return;
+        }
         writeDotDirs(sector, 2);
         int ent = 2;
         for (int slot = 0; slot < 3 && ent < 16; slot++) {
@@ -570,6 +581,8 @@ void UsbMscGadget::patchDirNames(uint8_t* sector, uint32_t lba) const {
 
             uint8_t name83[11];
             labelTo83(slots_[slot].name, name83);
+            // Unique 8.3 prefix — LFN can collide ("Rock Antenne" / "… Bayern").
+            name83[0] = (uint8_t)('1' + slot);
             uint8_t sum = fat83Checksum(name83);
 
             uint16_t u16[40];
@@ -595,26 +608,35 @@ void UsbMscGadget::patchDirNames(uint8_t* sector, uint32_t lba) const {
         return;
     }
 
-    if (settings && slots_[3].active && slots_[3].name[0]) {
-        writeDotDirs(sector, 3);
-        uint8_t name83[11];
-        labelTo83(slots_[3].name, name83);
-        uint8_t sum = fat83Checksum(name83);
-        uint16_t u16[40];
-        int u16Len = labelToUtf16(slots_[3].name, u16, 39);
-        if (u16Len < 36) {
-            const char* ext = ".mp3";
-            for (int i = 0; ext[i] && u16Len < 39; i++) u16[u16Len++] = (uint16_t)ext[i];
+    if (settingsCl) {
+        if (lba != kSettingsLba) {
+            memset(sector, 0, 512);
+            return;
         }
-        int nLfn = (u16Len + 12) / 13;
-        if (nLfn < 1) nLfn = 1;
-        int ent = 2;
-        for (int ord = nLfn; ord >= 1 && ent < 15; --ord) {
-            writeLfnEntry(sector + ent * 32, (uint8_t)ord, ord == nLfn, u16, u16Len, sum);
-            ent++;
+        if (slots_[3].active && slots_[3].name[0]) {
+            writeDotDirs(sector, 3);
+            uint8_t name83[11];
+            labelTo83(slots_[3].name, name83);
+            name83[0] = '9';
+            uint8_t sum = fat83Checksum(name83);
+            uint16_t u16[40];
+            int u16Len = labelToUtf16(slots_[3].name, u16, 39);
+            if (u16Len < 36) {
+                const char* ext = ".mp3";
+                for (int i = 0; ext[i] && u16Len < 39; i++) u16[u16Len++] = (uint16_t)ext[i];
+            }
+            int nLfn = (u16Len + 12) / 13;
+            if (nLfn < 1) nLfn = 1;
+            int ent = 2;
+            for (int ord = nLfn; ord >= 1 && ent < 15; --ord) {
+                writeLfnEntry(sector + ent * 32, (uint8_t)ord, ord == nLfn, u16, u16Len, sum);
+                ent++;
+            }
+            uint16_t startCl = lbaToCluster(slots_[3].lbaStart);
+            write83File(sector + ent * 32, name83, startCl, slotBytes(slots_[3]));
+        } else {
+            memset(sector, 0, 512);
         }
-        uint16_t startCl = lbaToCluster(slots_[3].lbaStart);
-        write83File(sector + ent * 32, name83, startCl, slotBytes(slots_[3]));
     }
 }
 

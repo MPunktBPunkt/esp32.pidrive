@@ -15,21 +15,22 @@ namespace MscGeo {
 
 #if defined(PIDRIVE_GEO_L0) && PIDRIVE_GEO_L0
 
-// --- L0: FAT16 / 4 KiB cluster / 4 MiB disk ---
-static constexpr bool kFat16 = true;
+// --- L0: 4 MiB disk, 4 KiB clusters, ~1 MiB station slots ---
+// IMPORTANT: cluster count ≈ (8192-41)/8 ≈ 1018 < 4085 → hosts classify as FAT12
+// regardless of the "FAT16" BPB string. Must use FAT12 encoding on this size.
+static constexpr bool kFat16 = false;
 static constexpr uint32_t kVirtSectorCount = 8192;  // 4 MiB
 static constexpr uint8_t kSpc = 8;                  // 4 KiB clusters
-static constexpr uint8_t kFatSpf = 4;               // enough for ~1k clusters
+static constexpr uint8_t kFatSpf = 6;               // FAT12: ~1.5 B/cl × ~1020 cl ≈ 4–5 sectors; use 6
 static constexpr uint32_t kFat0Lba = 1;
-static constexpr uint32_t kFat1Lba = kFat0Lba + kFatSpf;  // 5
-static constexpr uint32_t kRootLba0 = kFat1Lba + kFatSpf; // 9
-static constexpr uint32_t kRootSectors = 32;              // 512 ents
-static constexpr uint32_t kDataStartLba = kRootLba0 + kRootSectors;  // 41
+static constexpr uint32_t kFat1Lba = kFat0Lba + kFatSpf;  // 7
+static constexpr uint32_t kRootLba0 = kFat1Lba + kFatSpf; // 13
+static constexpr uint32_t kRootSectors = 32;
+static constexpr uint32_t kDataStartLba = kRootLba0 + kRootSectors;  // 45
 static constexpr uint32_t kStationsLba = kDataStartLba;              // cl 2
 static constexpr uint32_t kSettingsLba = kStationsLba + kSpc;        // cl 3
-/** ~1 MiB station stubs (3×) — fits 4 MiB; still > legacy 512 KiB. */
-static constexpr uint32_t kSlotSectors = 2048;
-static constexpr const char* kReadyDetail = "FAT16 L0 4MiB 1M slots";
+static constexpr uint32_t kSlotSectors = 2048;  // ~1 MiB
+static constexpr const char* kReadyDetail = "FAT12 L0 4MiB 1M slots";
 
 #else
 

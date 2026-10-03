@@ -13,6 +13,14 @@ namespace Mp3Silence {
 /** One MPEG-1 L3 stereo 48 kb/s frame @ 44.1 kHz (pad=0), length 156. */
 static constexpr uint16_t kFrameLen = 156;
 
+/** M3 lab markers: distinctive stamp every ~30 s @ 48 kbit/s (≈6000 B/s). */
+static constexpr uint32_t kBytesPerSec = 6000;
+static constexpr uint32_t kMarkerIntervalBytes = 30u * kBytesPerSec;  // 180000
+static constexpr uint8_t kMarkerMagic0 = 'P';
+static constexpr uint8_t kMarkerMagic1 = 'D';
+static constexpr uint8_t kMarkerMagic2 = 'M';
+static constexpr uint8_t kMarkerMagic3 = 'K';
+
 // clang-format off
 static const uint8_t kFrame[kFrameLen] = {
     0xff, 0xfb, 0x30, 0x64, 0x00, 0x0f, 0xf0, 0x00, 0x00, 0x69, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00,
@@ -67,7 +75,26 @@ inline void writeHead(uint8_t* dest, uint32_t fileSize) {
     writeBe32(dest + tagOff + 12, fileSize);
 }
 
-/** Fill read buffer as MP3 silence for absolute file offset. */
+/** Body offset of the first frame that carries marker index `idx` (0-based). */
+inline uint32_t markerBodyOff(uint16_t idx) {
+    uint32_t raw = (uint32_t)idx * kMarkerIntervalBytes;
+    return (raw / kFrameLen) * kFrameLen;
+}
+
+/** Absolute file offset of marker `idx` (start of stamped frame), or 0 if past EOF. */
+inline uint32_t markerFileOff(uint16_t idx, uint32_t fileSize) {
+    if (fileSize <= kHeadLen) return 0;
+    uint32_t abs = kHeadLen + markerBodyOff(idx);
+    return abs < fileSize ? abs : 0;
+}
+
+inline uint16_t markerCount(uint32_t fileSize) {
+    if (fileSize <= kHeadLen || kMarkerIntervalBytes == 0) return 0;
+    uint32_t body = fileSize - kHeadLen;
+    return (uint16_t)(body / kMarkerIntervalBytes + 1);
+}
+
+/** Fill read buffer as MP3 silence for absolute file offset (with M3 stamps). */
 inline void fill(uint8_t* out, uint32_t outLen, uint32_t fileOff, uint32_t fileSize) {
     uint32_t o = 0;
     while (o < outLen) {
@@ -94,6 +121,39 @@ inline void fill(uint8_t* out, uint32_t outLen, uint32_t fileOff, uint32_t fileS
         uint32_t take = kFrameLen - into;
         if (take > n) take = n;
         memcpy(out + o, kFrame + into, take);
+
+        // Stamp first frame of each ~30 s window: keep sync (0..3), write PDMK+idx at 4..9.
+        // Note: markerBodyOff(i) aligns down to a frame, so it can be < i*INTERVAL —
+        // floor(frameBody0/INTERVAL) alone misses those frames (use guess and guess+1).
+        const uint32_t frameBody0 = body - into;
+        uint16_t stampIdx = 0;
+        bool isMarker = false;
+        {
+            const uint16_t guess = (uint16_t)(frameBody0 / kMarkerIntervalBytes);
+            for (uint16_t d = 0; d < 2; d++) {
+                const uint16_t cand = (uint16_t)(guess + d);
+                if (markerBodyOff(cand) == frameBody0) {
+                    stampIdx = cand;
+                    isMarker = true;
+                    break;
+                }
+            }
+        }
+        if (isMarker) {
+            for (uint32_t i = 0; i < take; i++) {
+                const uint32_t fr = into + i;  // 0..kFrameLen
+                uint8_t v = 0;
+                bool stamp = true;
+                if (fr == 4) v = kMarkerMagic0;
+                else if (fr == 5) v = kMarkerMagic1;
+                else if (fr == 6) v = kMarkerMagic2;
+                else if (fr == 7) v = kMarkerMagic3;
+                else if (fr == 8) v = (uint8_t)(stampIdx >> 8);
+                else if (fr == 9) v = (uint8_t)(stampIdx & 0xff);
+                else stamp = false;
+                if (stamp) out[o + i] = v;
+            }
+        }
         o += take;
     }
 }
