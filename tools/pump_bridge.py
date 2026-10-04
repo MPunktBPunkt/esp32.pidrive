@@ -1433,14 +1433,26 @@ def main() -> int:
             tcp_port=args.tcp_port,
         )
 
-    try:
-        ser, label = connect()
-    except SystemExit as e:
-        print(str(e) or "connect failed", file=sys.stderr)
-        return 1
-    except OSError as e:
-        print(f"connect failed: {e}", file=sys.stderr)
-        return 1
+    ser: PumpIO | None = None
+    label = ""
+    while True:
+        try:
+            ser, label = connect()
+            break
+        except SystemExit as e:
+            msg = str(e) or "connect failed"
+            if args.reconnect <= 0:
+                print(msg, file=sys.stderr)
+                return 1
+            print(f"{msg} — retry in {args.reconnect:.0f}s", flush=True)
+            time.sleep(args.reconnect)
+        except OSError as e:
+            if args.reconnect <= 0:
+                print(f"connect failed: {e}", file=sys.stderr)
+                return 1
+            print(f"connect failed: {e} — retry in {args.reconnect:.0f}s", flush=True)
+            time.sleep(args.reconnect)
+    assert ser is not None
 
     def send(obj: dict) -> None:
         line = json.dumps(obj, separators=(",", ":"))
