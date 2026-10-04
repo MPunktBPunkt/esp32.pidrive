@@ -1092,6 +1092,59 @@ void UsbMscGadget::emitPlayReject(PlayEval eval, const MscFileMap* f, uint32_t s
     emitDiag("play.reject", d);
 }
 
+void UsbMscGadget::noteColdBodyRead(const MscFileMap* f, uint32_t lba, uint32_t bufsize) {
+    if (!f || f < &slots_[0] || f > &slots_[2]) return;
+    // Warm-head touch — not a cold body burst; reset accumulator.
+    if (lba <= f->lbaStart + playDetect_.headLbaSlop) {
+        coldBodyFile_ = nullptr;
+        coldBodyBytes_ = 0;
+        coldBodyN_ = 0;
+        return;
+    }
+    const uint32_t now = millis();
+    if (coldBodyFile_ != f || !coldBodyLastMs_ ||
+        (now - coldBodyLastMs_) > kColdBodyGapResetMs) {
+        coldBodyFile_ = f;
+        coldBodyLba0_ = lba;
+        coldBodyLba1_ = lba;
+        coldBodyBytes_ = 0;
+        coldBodyN_ = 0;
+    }
+    if (lba < coldBodyLba0_) coldBodyLba0_ = lba;
+    if (lba > coldBodyLba1_) coldBodyLba1_ = lba;
+    coldBodyBytes_ += bufsize;
+    if (coldBodyN_ < 65535) coldBodyN_++;
+    coldBodyLastMs_ = now;
+
+    if (coldBodyBytes_ < kColdBodyEmitBytes) return;
+    if (coldBodyEmitMs_ && (now - coldBodyEmitMs_) < kColdBodyEmitCooldownMs) return;
+
+    // What would Detect decide for this burst window? (log only — no arming)
+    PlayEval eval = evaluatePlay(f, coldBodyLba0_, coldBodyBytes_);
+    emitColdBodyBurst(f, eval);
+}
+
+void UsbMscGadget::emitColdBodyBurst(const MscFileMap* f, PlayEval eval) {
+    coldBodyEmitMs_ = millis();
+    coldBodyBurstCount_++;
+    const char* uid = (f && f->uid[0]) ? f->uid : "-";
+    const int si = slotIndex(f);
+    const bool warm = f && (coldBodyLba0_ <= f->lbaStart + playDetect_.headLbaSlop);
+    const char* reason = playEvalName(eval);
+    // EventLog detail is 96 bytes — keep this ≤95 chars.
+    char d[96];
+    snprintf(d, sizeof(d), "s=%d lba=%u..%u n=%u B=%lu w=%u ev=%s set=%u %s", si,
+             (unsigned)coldBodyLba0_, (unsigned)coldBodyLba1_, (unsigned)coldBodyN_,
+             (unsigned long)coldBodyBytes_, warm ? 1u : 0u, reason, indexSettled_ ? 1u : 0u,
+             uid);
+    Serial.printf("[MSC] cold_body_burst %s\n", d);
+    if (events_) events_->push("cold_body_burst", d);
+    emitDiag("cold_body_burst", d);
+    // Soft reset volume so a long burst can emit again after cooldown, but keep span.
+    coldBodyBytes_ = 0;
+    coldBodyN_ = 0;
+}
+
 int32_t UsbMscGadget::onWrite(uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_t bufsize) {
     (void)offset;
     (void)buffer;
@@ -1159,6 +1212,9 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
             else
                 slotStats_[si].midFileHits++;
         }
+        // Diagnose-only: log cold mid-file bursts that Detect would reject as not_from_head.
+        // Does NOT change play_uid / stream / policy.
+        noteColdBodyRead(f, lba, bufsize);
         // During plug window, file reads are indexing (not arming live).
         if (playDetect_.plugWindowMs > 0 && plugMs_ &&
             (millis() - plugMs_) < playDetect_.plugWindowMs) {
@@ -1345,6 +1401,7 @@ void UsbMscGadget::toJson(JsonObject obj) const {
         bs["tag"] = labBodySeedActive_ ? String(labBodySeedTag_) : "";
         bs["fromOff"] = labBodySeedFromOff_;
     }
+    obj["coldBodyBurstCount"] = coldBodyBurstCount_;
     obj["readOverflow"] = readOverflowCount_;
     obj["readsEmit"] = readsEmitCount_;
     obj["fatMode"] = "static";
@@ -1441,6 +1498,8 @@ void UsbMscGadget::clearPreWarmWatch() {}
 bool UsbMscGadget::setLabBodySeed(int, char, uint32_t) { return false; }
 void UsbMscGadget::clearLabBodySeed() {}
 size_t UsbMscGadget::labBodyRead(int, uint32_t, uint8_t*, size_t) const { return 0; }
+void UsbMscGadget::noteColdBodyRead(const MscFileMap*, uint32_t, uint32_t) {}
+void UsbMscGadget::emitColdBodyBurst(const MscFileMap*, PlayEval) {}
 void UsbMscGadget::onUsbPlugged(bool) {}
 void UsbMscGadget::onUsbSuspend(bool) {}
 void UsbMscGadget::onHostStartStop(uint8_t, bool, bool) {}

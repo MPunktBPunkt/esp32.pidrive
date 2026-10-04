@@ -178,6 +178,9 @@ private:
     static const char* playEvalName(PlayEval e);
     void emitPlayReject(PlayEval eval, const MscFileMap* f, uint32_t startLba, uint32_t seqBytes,
                         const char* extra = nullptr);
+    /** Diagnose only — never arms play_uid / stream. Mid-file cold body burst. */
+    void noteColdBodyRead(const MscFileMap* f, uint32_t lba, uint32_t bufsize);
+    void emitColdBodyBurst(const MscFileMap* f, PlayEval eval);
     void loadDefaultSlots();
     /** Bump USB serialNumber + productRevision (HU MediaStore cache key). */
     void applyUsbIdentity();
@@ -269,6 +272,19 @@ private:
     char labBodySeedTag_ = 'A';
     int labBodySeedSlot_ = -1;
     uint32_t labBodySeedFromOff_ = 348160u;
+
+    /** cold_body_burst diagnose accumulator (log only, no policy). */
+    static constexpr uint32_t kColdBodyEmitBytes = 32768u;
+    static constexpr uint32_t kColdBodyGapResetMs = 2000u;
+    static constexpr uint32_t kColdBodyEmitCooldownMs = 3000u;
+    const MscFileMap* coldBodyFile_ = nullptr;
+    uint32_t coldBodyLba0_ = 0;
+    uint32_t coldBodyLba1_ = 0;
+    uint32_t coldBodyBytes_ = 0;
+    uint16_t coldBodyN_ = 0;
+    uint32_t coldBodyLastMs_ = 0;
+    uint32_t coldBodyEmitMs_ = 0;
+    uint32_t coldBodyBurstCount_ = 0;
     bool mediaPresented_ = false;
     uint32_t presentDeadlineMs_ = 0;
     uint32_t remountHoldUntilMs_ = 0;
