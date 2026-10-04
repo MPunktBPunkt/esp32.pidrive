@@ -2,6 +2,8 @@
 """PiDrive ↔ esp32.pidrive PUMP bridge (line-JSON + binary audio over UART or TCP).
 
 - Syncs /tmp/pidrive_menu.json via menu_set with soft paging (≤4 MSC slots)
+- P0 MSC session lock: freeze published names/UIDs while USB host is plugged
+  (--msc-lock / --no-msc-lock; HTTP poll + usb.otg.* edges)
 - On play_uid: activate:<uid> + live MP3 (audio_start + ID3/APIC + 0x01 0x55)
 - Cover priority: embedded APIC → stations/*.jpg → default.jpg → generated JPEG
 - Status covers: assets/usb-msc-covers/status/*.jpg on stop / idle / no-stream
@@ -31,6 +33,7 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
 from typing import Protocol
 
@@ -98,6 +101,133 @@ _PRESET_BY_UID: dict[str, dict] = {}
 # UIDs from previous menu pages stay resolvable after drill-down / TCP reconnect
 # (BMW may re-fire play_uid for a folder that is no longer on the current page).
 UID_GRACE_S = 180.0
+MSC_LOCK_LOG = Path("/tmp/pidrive_msc_lock.jsonl")
+
+
+def menu_items_identity(items: list | None) -> list[tuple[str, str]]:
+    """Stable (uid, name) tuples for MSC map compare (rev ignored)."""
+    out: list[tuple[str, str]] = []
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        out.append((str(it.get("uid") or ""), str(it.get("name") or "")))
+    return out
+
+
+class MscSessionLock:
+    """Freeze published MSC names/UIDs while USB host session is plugged (P0).
+
+    States: released → sealing (allow one menu_set) → frozen (identical only)
+    → released on unplug. Pi-UI may change /tmp/pidrive_menu.json freely; only
+    menu_set to the ESP is gated.
+    """
+
+    def __init__(self, enabled: bool = True):
+        self.enabled = enabled
+        self.plugged = False
+        self.frozen_items: list[dict] | None = None
+        self.frozen_identity: list[tuple[str, str]] | None = None
+        self.sealing = False  # True until first successful publish after plug
+        self.reject_count = 0
+        self.seal_count = 0
+        self._last_reject_log = 0.0
+
+    def on_plug(self) -> None:
+        if not self.enabled:
+            return
+        self.plugged = True
+        self.frozen_items = None
+        self.frozen_identity = None
+        self.sealing = True
+        print("[msc-lock] USB_SESSION_START → sealing (next menu_set freezes map)", flush=True)
+        self._log("session_start", {})
+
+    def on_unplug(self) -> None:
+        if not self.enabled:
+            return
+        was = self.plugged or self.frozen_identity is not None
+        self.plugged = False
+        self.frozen_items = None
+        self.frozen_identity = None
+        self.sealing = False
+        if was:
+            print("[msc-lock] USB_SESSION_END → MSC_MAP_RELEASED", flush=True)
+            self._log("session_end", {})
+
+    def set_plugged(self, plugged: bool) -> bool:
+        """Update from HTTP poll / events. Returns True if state changed."""
+        if not self.enabled:
+            self.plugged = plugged
+            return False
+        if plugged and not self.plugged:
+            self.on_plug()
+            return True
+        if (not plugged) and self.plugged:
+            self.on_unplug()
+            return True
+        return False
+
+    def allow_menu_set(self, items: list) -> tuple[bool, str]:
+        """Return (ok, reason). ok=False → defer/reject publish."""
+        if not self.enabled:
+            return True, "disabled"
+        if not self.plugged:
+            return True, "unplugged"
+        ident = menu_items_identity(items)
+        if self.sealing or self.frozen_identity is None:
+            return True, "seal"
+        if ident == self.frozen_identity:
+            return True, "idempotent"
+        self.reject_count += 1
+        names = ",".join(n for _, n in ident[:4])
+        frozen = ",".join(n for _, n in (self.frozen_identity or [])[:4])
+        reason = f"frozen_reject want=[{names}] have=[{frozen}]"
+        now = time.time()
+        if now - self._last_reject_log >= 5.0:
+            self._last_reject_log = now
+            print(f"[msc-lock] {reason} (n={self.reject_count})", flush=True)
+            self._log(
+                "reject",
+                {"want": ident, "have": self.frozen_identity, "n": self.reject_count},
+            )
+        return False, reason
+
+    def note_published(self, items: list) -> None:
+        """Call after menu_set TX (or menu_ack) while sealing/plugged."""
+        if not self.enabled or not self.plugged:
+            return
+        self.frozen_items = [dict(x) for x in items]
+        self.frozen_identity = menu_items_identity(items)
+        if self.sealing:
+            self.sealing = False
+            self.seal_count += 1
+            names = ",".join(n for _, n in self.frozen_identity[:4])
+            print(f"[msc-lock] MSC_MAP_FROZEN [{names}]", flush=True)
+            self._log("frozen", {"items": self.frozen_identity, "seal": self.seal_count})
+
+    def _log(self, op: str, payload: dict) -> None:
+        try:
+            row = {"ts": time.time(), "op": op, **payload}
+            with MSC_LOCK_LOG.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(row, separators=(",", ":")) + "\n")
+        except OSError:
+            pass
+
+
+def fetch_esp_plugged(host: str, http_port: int = 80, timeout: float = 2.0) -> bool | None:
+    """GET /api/status → msc.plugged / otgUp. None on error."""
+    if not host:
+        return None
+    url = f"http://{host}:{http_port}/api/status"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            doc = json.loads(r.read().decode())
+        msc = doc.get("msc") or {}
+        if "plugged" in msc:
+            return bool(msc.get("plugged"))
+        return bool(doc.get("otgUp") or doc.get("usbEnumerated"))
+    except Exception:
+        return None
 
 
 def remember_uid_nodes(
@@ -1280,6 +1410,18 @@ def main() -> int:
         default=3.0,
         help="seconds between TCP reconnect attempts (0=exit on drop)",
     )
+    ap.add_argument(
+        "--msc-lock",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="freeze MSC names/UIDs while USB host is plugged (P0, default on)",
+    )
+    ap.add_argument(
+        "--esp-http-port",
+        type=int,
+        default=int(cfg.get("usb_esp_port") or os.environ.get("PUMP_HTTP_PORT") or 80),
+        help="ESP SoftAP/STA HTTP port for plugged poll",
+    )
     args = ap.parse_args()
 
     def connect() -> tuple[PumpIO, str]:
@@ -1307,6 +1449,18 @@ def main() -> int:
         print(f"[tx] {line}", flush=True)
 
     audio = AudioFwd(ser, args.bitrate)
+    msc_lock = MscSessionLock(enabled=bool(args.msc_lock))
+    last_plug_poll = 0.0
+    # Seed lock from live ESP status (bridge often starts mid-session).
+    seed = fetch_esp_plugged(args.host, args.esp_http_port)
+    if seed is True:
+        msc_lock.on_plug()
+    elif seed is False:
+        msc_lock.on_unplug()
+    print(
+        f"[msc-lock] enabled={msc_lock.enabled} seed_plugged={seed}",
+        flush=True,
+    )
     send({"t": "hello", "ver": 1})
     # Wait briefly for hello_ack so menu_set is not raced before the session is up.
     hello_deadline = time.time() + 2.5
@@ -1503,14 +1657,17 @@ def main() -> int:
                             print(f"[rx] {text}", flush=True)
                         if "usb.otg.up" in text:
                             page = 0
+                            inject("goto:root")
                             force_menu = True
                             last_sig = ""
                             resume_at = 0.0
+                            msc_lock.on_plug()
                             if audio.uid:
                                 audio.stop(status_cover=False)
                             print("[plug] stream off for BMW index (demos)", flush=True)
                         if "usb.otg.down" in text:
                             resume_at = 0.0
+                            msc_lock.on_unplug()
                             if audio.uid:
                                 audio.stop(status_cover=False)
                         continue
@@ -1520,6 +1677,23 @@ def main() -> int:
                     except json.JSONDecodeError:
                         continue
                     t = msg.get("t")
+                    if t == "event" and msg.get("op") in ("usb.otg.up", "usb.otg.down"):
+                        if msg.get("op") == "usb.otg.up":
+                            page = 0
+                            inject("goto:root")
+                            force_menu = True
+                            last_sig = ""
+                            resume_at = 0.0
+                            msc_lock.on_plug()
+                            if audio.uid:
+                                audio.stop(status_cover=False)
+                            print("[plug] stream off for BMW index (demos)", flush=True)
+                        else:
+                            resume_at = 0.0
+                            msc_lock.on_unplug()
+                            if audio.uid:
+                                audio.stop(status_cover=False)
+                        continue
                     if t == "event" and msg.get("op") == "diag":
                         code = str(msg.get("code") or "")
                         detail = str(msg.get("detail") or "")
@@ -1737,6 +1911,8 @@ def main() -> int:
                         if pending_menu and msg.get("ok"):
                             last_rev = int(pending_menu.get("rev") or msg.get("rev") or last_rev)
                             last_sig = str(pending_menu.get("sig") or last_sig)
+                            sealed = pending_menu.get("msg", {}).get("items") or []
+                            msc_lock.note_published(sealed)
                             pending_menu = None
                         elif pending_menu and msg.get("ok") is False:
                             force_menu = True
@@ -1751,6 +1927,18 @@ def main() -> int:
                         )
 
             now = time.time()
+            # Poll ESP HTTP for plugged edge (TCP may not forward usb.otg.* events).
+            if msc_lock.enabled and args.host and now - last_plug_poll >= 2.0:
+                last_plug_poll = now
+                polled = fetch_esp_plugged(args.host, args.esp_http_port)
+                if polled is True and not msc_lock.plugged:
+                    page = 0
+                    inject("goto:root")
+                    force_menu = True
+                    last_sig = ""
+                    msc_lock.set_plugged(True)
+                elif polled is False and msc_lock.plugged:
+                    msc_lock.set_plugged(False)
             # Keep TCP alive when idle. While streaming, binary frames are enough —
             # ping JSON mid-0x55 has triggered WiFiClient resets on SoftAP+STA.
             if now - last_ping >= 2.0:
@@ -1800,15 +1988,23 @@ def main() -> int:
                         elif (streaming and not force_menu) or held or not session_ok or not rate_ok:
                             pass  # keep force_menu / dirty sig for next tick
                         else:
-                            msg = {"t": "menu_set", "rev": rev, "page": page, "items": items}
-                            send(msg)
-                            pending_menu = {"rev": rev, "sig": sig, "msg": msg}
-                            last_menu_snapshot = dict(msg)
-                            remember_menu_items(uid_grace, items)
-                            last_menu_tx = time.time()
-                            force_menu = False
-                            # Settle — ESP applyMenuSlots while SoftAP+STA is fragile
-                            menu_hold_until = time.time() + 1.2
+                            ok_lock, lock_why = msc_lock.allow_menu_set(items)
+                            if not ok_lock:
+                                # Keep Pi menu dirty; do not update last_sig so we retry after unplug.
+                                force_menu = False
+                                pass
+                            else:
+                                msg = {"t": "menu_set", "rev": rev, "page": page, "items": items}
+                                send(msg)
+                                pending_menu = {"rev": rev, "sig": sig, "msg": msg}
+                                last_menu_snapshot = dict(msg)
+                                remember_menu_items(uid_grace, items)
+                                last_menu_tx = time.time()
+                                force_menu = False
+                                # Settle — ESP applyMenuSlots while SoftAP+STA is fragile
+                                menu_hold_until = time.time() + 1.2
+                                if lock_why == "seal":
+                                    print(f"[msc-lock] sealing publish ({lock_why})", flush=True)
                     elif not (force_menu or rev != last_rev or sig != last_sig or pending_menu):
                         force_menu = False
                 except (BrokenPipeError, OSError, ConnectionError) as e:
