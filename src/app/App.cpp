@@ -1,5 +1,6 @@
 #include "App.h"
 #include "core/NetUtil.h"
+#include "msc/LabBodySeed.h"
 #include "web/UiPages.h"
 #include <WiFi.h>
 #include <WiFiManager.h>
@@ -148,6 +149,8 @@ void App::setupWeb() {
     server_.on("/api/lab/remount", HTTP_POST, [this]() { handleApiLabRemount(); });
     server_.on("/api/lab/stream", HTTP_GET, [this]() { handleApiLabStream(); });
     server_.on("/api/lab/overlay_read", HTTP_GET, [this]() { handleApiLabOverlayRead(); });
+    server_.on("/api/lab/body_seed", HTTP_POST, [this]() { handleApiLabBodySeed(); });
+    server_.on("/api/lab/body_read", HTTP_GET, [this]() { handleApiLabBodyRead(); });
     server_.on("/api/lab/listen", HTTP_GET, [this]() { handleApiLabListen(); });
     server_.on("/api/lab/cover", HTTP_GET, [this]() { handleApiLabCover(); });
     server_.on("/api/metrics", HTTP_GET, [this]() { handleApiMetrics(); });
@@ -438,6 +441,71 @@ void App::handleApiLabStream() {
     server_.sendHeader(F("X-Stream-AbsEnd"), String(stream.absEnd()));
     server_.setContentLength(n);
     server_.send(200, F("audio/mpeg"), "");
+    if (n) server_.client().write(buf, n);
+}
+
+/** Q3b Prefill: arm/clear deterministic body behind frozen scan head.
+ *  POST {"slot":0,"tag":"A"|"B"|"off","fromOff":348160} */
+void App::handleApiLabBodySeed() {
+    if (!config.labMode) {
+        NetUtil::sendError(server_, 403, "labMode aus");
+        return;
+    }
+    JsonDocument body;
+    if (!NetUtil::readJsonBody(server_, body)) return;
+    const char* tag = body["tag"] | "";
+    int slot = body["slot"] | 0;
+    uint32_t fromOff = body["fromOff"] | LabBodySeed::kDefaultFromOff;
+    bool ok = false;
+    if (!tag[0] || strcmp(tag, "off") == 0) {
+        msc.clearLabBodySeed();
+        ok = true;
+    } else if ((tag[0] == 'A' || tag[0] == 'B') && tag[1] == 0) {
+        // Body seed must not compete with live overlay on the same slot.
+        if (stream.active()) {
+            stream.stop();
+            msc.stopStream();
+            menu.clearPlaying();
+        }
+        ok = msc.setLabBodySeed(slot, tag[0], fromOff);
+    }
+    if (!ok) {
+        NetUtil::sendError(server_, 400, "tag A|B|off, slot 0..2");
+        return;
+    }
+    events.push("lab.body_seed", tag[0] ? tag : "off");
+    JsonDocument doc;
+    doc["ok"] = true;
+    doc["active"] = msc.labBodySeedActive();
+    doc["slot"] = msc.labBodySeedSlot();
+    doc["tag"] = msc.labBodySeedActive() ? String(msc.labBodySeedTag()) : "";
+    doc["fromOff"] = msc.labBodySeedFromOff();
+    NetUtil::sendJson(server_, 200, doc);
+}
+
+/** Q3b Oracle A: SoftAP view of slot bytes (same fill as MSC onRead non-live).
+ *  GET /api/lab/body_read?slot=0&off=348160&n=8192 */
+void App::handleApiLabBodyRead() {
+    if (!config.labMode) {
+        NetUtil::sendError(server_, 403, "labMode aus");
+        return;
+    }
+    int slot = server_.hasArg("slot") ? server_.arg("slot").toInt() : 0;
+    uint32_t off = server_.hasArg("off") ? (uint32_t)server_.arg("off").toInt() : 0;
+    uint32_t nReq = server_.hasArg("n") ? (uint32_t)server_.arg("n").toInt() : 4096;
+    if (nReq == 0) nReq = 4096;
+    if (nReq > 8192) nReq = 8192;
+    static uint8_t buf[8192];
+    size_t n = msc.labBodyRead(slot, off, buf, (size_t)nReq);
+    server_.sendHeader(F("Cache-Control"), F("no-store"));
+    server_.sendHeader(F("X-Body-Slot"), String(slot));
+    server_.sendHeader(F("X-File-Off"), String(off));
+    server_.sendHeader(F("X-Body-Seed-Active"), msc.labBodySeedActive() ? F("1") : F("0"));
+    server_.sendHeader(F("X-Body-Seed-Tag"),
+                       msc.labBodySeedActive() ? String(msc.labBodySeedTag()) : String(""));
+    server_.sendHeader(F("X-Body-Seed-FromOff"), String(msc.labBodySeedFromOff()));
+    server_.setContentLength(n);
+    server_.send(200, F("application/octet-stream"), "");
     if (n) server_.client().write(buf, n);
 }
 

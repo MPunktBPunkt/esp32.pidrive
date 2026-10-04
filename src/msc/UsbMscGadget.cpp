@@ -2,6 +2,7 @@
 #include "DemoFatImage.h"
 #include "HostScsiProbe.h"
 #include "Mp3Silence.h"
+#include "LabBodySeed.h"
 #include "USB.h"
 #include "USBMSC.h"
 #include <Preferences.h>
@@ -242,6 +243,41 @@ void UsbMscGadget::beginPreWarmWatch(const char* uid) {
 void UsbMscGadget::clearPreWarmWatch() {
     preWarmUid_[0] = 0;
     // keep preWarmHostBytes_ latched for status until next begin
+}
+
+bool UsbMscGadget::setLabBodySeed(int slot, char tag, uint32_t fromOff) {
+    if (slot < 0 || slot > 2) return false;
+    if (tag != 'A' && tag != 'B') return false;
+    labBodySeedActive_ = true;
+    labBodySeedSlot_ = slot;
+    labBodySeedTag_ = tag;
+    labBodySeedFromOff_ = fromOff;
+    if (events_) {
+        char detail[40];
+        snprintf(detail, sizeof(detail), "s%d %c @%u", slot, tag, (unsigned)fromOff);
+        events_->push("lab.body_seed", detail);
+    }
+    return true;
+}
+
+void UsbMscGadget::clearLabBodySeed() {
+    labBodySeedActive_ = false;
+    labBodySeedSlot_ = -1;
+    if (events_) events_->push("lab.body_seed", "off");
+}
+
+size_t UsbMscGadget::labBodyRead(int slot, uint32_t fileOff, uint8_t* out, size_t n) const {
+    if (!out || n == 0 || slot < 0 || slot > 2) return 0;
+    if (!slots_[slot].active) return 0;
+    const uint32_t sz = slotBytes(slots_[slot]);
+    if (fileOff >= sz) return 0;
+    if (fileOff + n > sz) n = sz - fileOff;
+    if (labBodySeedActive_ && slot == labBodySeedSlot_ && fileOff >= labBodySeedFromOff_) {
+        LabBodySeed::fill(out, (uint32_t)n, fileOff, labBodySeedTag_);
+    } else {
+        Mp3Silence::fill(out, (uint32_t)n, fileOff, sz);
+    }
+    return n;
 }
 
 void UsbMscGadget::startStream(const char* uid) {
@@ -698,7 +734,13 @@ int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32
             // Full-slot CBR silence + Info/Xing — HU keeps the track instead of
             // skipping through 0xFF junk after a short demo stub (field 2026-09-28).
             uint32_t fileOff = (lba - f->lbaStart) * DEMO_FAT_SECTOR_SIZE + offset;
-            Mp3Silence::fill(out, bufsize, fileOff, slotBytes(*f));
+            const int si = slotIndex(f);
+            if (labBodySeedActive_ && si == labBodySeedSlot_ && fileOff >= labBodySeedFromOff_) {
+                // Q3b Prefill: deterministic body behind frozen scan head.
+                LabBodySeed::fill(out, bufsize, fileOff, labBodySeedTag_);
+            } else {
+                Mp3Silence::fill(out, bufsize, fileOff, slotBytes(*f));
+            }
             // Pending-overlay window: HU may already be consuming — Mistral ~6s suspicion.
             if (preWarmUid_[0] && f->uid[0] && strcmp(f->uid, preWarmUid_) == 0) {
                 preWarmHostBytes_ += bufsize;
@@ -1296,6 +1338,13 @@ void UsbMscGadget::toJson(JsonObject obj) const {
     obj["streamBytes"] = streamBytesServed_;
     obj["preWarmHostBytes"] = preWarmHostBytes_;
     obj["preWarmUid"] = preWarmUid_;
+    {
+        JsonObject bs = obj["bodySeed"].to<JsonObject>();
+        bs["active"] = labBodySeedActive_;
+        bs["slot"] = labBodySeedSlot_;
+        bs["tag"] = labBodySeedActive_ ? String(labBodySeedTag_) : "";
+        bs["fromOff"] = labBodySeedFromOff_;
+    }
     obj["readOverflow"] = readOverflowCount_;
     obj["readsEmit"] = readsEmitCount_;
     obj["fatMode"] = "static";
@@ -1389,6 +1438,9 @@ void UsbMscGadget::startStream(const char*) {}
 void UsbMscGadget::stopStream() {}
 void UsbMscGadget::beginPreWarmWatch(const char*) {}
 void UsbMscGadget::clearPreWarmWatch() {}
+bool UsbMscGadget::setLabBodySeed(int, char, uint32_t) { return false; }
+void UsbMscGadget::clearLabBodySeed() {}
+size_t UsbMscGadget::labBodyRead(int, uint32_t, uint8_t*, size_t) const { return 0; }
 void UsbMscGadget::onUsbPlugged(bool) {}
 void UsbMscGadget::onUsbSuspend(bool) {}
 void UsbMscGadget::onHostStartStop(uint8_t, bool, bool) {}

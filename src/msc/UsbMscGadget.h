@@ -113,6 +113,16 @@ public:
     uint32_t preWarmHostBytes() const { return preWarmHostBytes_; }
     const char* preWarmUid() const { return preWarmUid_; }
 
+    /** Lab Q3b: arm deterministic body behind frozen head (non-live slot only). */
+    bool setLabBodySeed(int slot, char tag, uint32_t fromOff);
+    void clearLabBodySeed();
+    bool labBodySeedActive() const { return labBodySeedActive_; }
+    char labBodySeedTag() const { return labBodySeedTag_; }
+    int labBodySeedSlot() const { return labBodySeedSlot_; }
+    uint32_t labBodySeedFromOff() const { return labBodySeedFromOff_; }
+    /** Synthesize what onRead would return for slot fileOff (Oracle A SoftAP). */
+    size_t labBodyRead(int slot, uint32_t fileOff, uint8_t* out, size_t n) const;
+
     bool ready() const { return ready_; }
     bool plugged() const { return plugged_; }
     bool suspended() const { return suspended_; }
@@ -253,6 +263,12 @@ private:
     /** Host reads of watched slot while live overlay not yet armed (silence window). */
     char preWarmUid_[24] = {0};
     uint32_t preWarmHostBytes_ = 0;
+
+    /** Lab-only body seed (Q3b Prefill) — inactive by default. */
+    bool labBodySeedActive_ = false;
+    char labBodySeedTag_ = 'A';
+    int labBodySeedSlot_ = -1;
+    uint32_t labBodySeedFromOff_ = 348160u;
     bool mediaPresented_ = false;
     uint32_t presentDeadlineMs_ = 0;
     uint32_t remountHoldUntilMs_ = 0;

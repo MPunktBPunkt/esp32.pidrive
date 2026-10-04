@@ -52,6 +52,8 @@ private:
     void handleApiLabRemount();
     void handleApiLabStream();
     void handleApiLabOverlayRead();
+    void handleApiLabBodySeed();
+    void handleApiLabBodyRead();
     void handleApiLabListen();
     void handleApiLabCover();
     void handleApiMetrics();
