@@ -480,6 +480,7 @@ void App::handleApiLabBodySeed() {
     doc["slot"] = msc.labBodySeedSlot();
     doc["tag"] = msc.labBodySeedActive() ? String(msc.labBodySeedTag()) : "";
     doc["fromOff"] = msc.labBodySeedFromOff();
+    doc["bytesServed"] = msc.seedBytesServed();
     NetUtil::sendJson(server_, 200, doc);
 }
 

@@ -120,6 +120,7 @@ public:
     char labBodySeedTag() const { return labBodySeedTag_; }
     int labBodySeedSlot() const { return labBodySeedSlot_; }
     uint32_t labBodySeedFromOff() const { return labBodySeedFromOff_; }
+    uint32_t seedBytesServed() const { return seedBytesServed_; }
     /** Synthesize what onRead would return for slot fileOff (Oracle A SoftAP). */
     size_t labBodyRead(int slot, uint32_t fileOff, uint8_t* out, size_t n) const;
 
@@ -272,6 +273,7 @@ private:
     char labBodySeedTag_ = 'A';
     int labBodySeedSlot_ = -1;
     uint32_t labBodySeedFromOff_ = 348160u;
+    uint32_t seedBytesServed_ = 0;
 
     /** cold_body_burst diagnose accumulator (log only, no policy). */
     static constexpr uint32_t kColdBodyEmitBytes = 32768u;
