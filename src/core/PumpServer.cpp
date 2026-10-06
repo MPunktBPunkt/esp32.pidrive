@@ -392,10 +392,16 @@ void PumpServer::acceptTcp() {
 void PumpServer::drainTcp() {
     if (!tcpLinked_) return;
 
+    // Bulk-read: per-byte client_.read() capped idle pump ~70 KB/s (lab 2026-10-06).
+    uint8_t buf[512];
     while (client_.available() > 0) {
-        int c = client_.read();
-        if (c < 0) break;
-        feedByte((uint8_t)c, Link::Tcp);
+        size_t want = client_.available();
+        if (want > sizeof(buf)) want = sizeof(buf);
+        int n = client_.read(buf, want);
+        if (n <= 0) break;
+        for (int i = 0; i < n; i++) {
+            feedByte(buf[i], Link::Tcp);
+        }
         tcpDownSinceMs_ = 0;
     }
 
