@@ -79,8 +79,8 @@ MAX_SLOTS = 4
 PAGE_CONTENT = 3  # when paging: 3 items + Mehr/Seite1
 FRAME_MAX = 256
 ID3_BUDGET = 8 * 1024
-# SoftAP listen needs ≥ realtime fill for 48k MP3 (~6 KB/s). Stay a bit above.
-AUDIO_TARGET_BPS = 9000
+# SoftAP listen needs ≥ realtime fill. Scaled from --bitrate (see audio_target_bps).
+AUDIO_TARGET_BPS_MIN = 9000
 PULSE_SERVER = "unix:/var/run/pulse/native"
 # ffmpeg input marker for Pulse/PipeWire monitor (DAB/FM ohne meta.url)
 PULSE_PREFIX = "pulse:"
@@ -102,6 +102,19 @@ _PRESET_BY_UID: dict[str, dict] = {}
 # (BMW may re-fire play_uid for a folder that is no longer on the current page).
 UID_GRACE_S = 180.0
 MSC_LOCK_LOG = Path("/tmp/pidrive_msc_lock.jsonl")
+
+
+def bitrate_to_bps(bitrate: str) -> int:
+    """Parse ffmpeg-style bitrate ('48k', '128k', '96000') to bits/s."""
+    s = str(bitrate or "48k").strip().lower()
+    if s.endswith("k"):
+        return int(float(s[:-1]) * 1000)
+    return int(float(s))
+
+
+def audio_target_bps(bitrate: str) -> int:
+    """1.5× Echtzeit, floor 9000 (48k SoftAP-Polster). 128k → 24000."""
+    return max(AUDIO_TARGET_BPS_MIN, int(1.5 * bitrate_to_bps(bitrate) / 8))
 
 
 def menu_items_identity(items: list | None) -> list[tuple[str, str]]:
@@ -971,15 +984,18 @@ class AudioFwd:
     # all fav* switches for the whole stream — field 2026-10-02 ignore rapid).
     RAPID_SWITCH_S = 4.0
 
-    def __init__(self, ser: PumpIO, bitrate: str):
+    def __init__(self, ser: PumpIO, bitrate: str, marker: bool = False):
         self.ser = ser
         self.bitrate = bitrate
+        self.marker = bool(marker)
+        self.target_bps = audio_target_bps(bitrate)
         self.proc: subprocess.Popen | None = None
         self.uid = ""
         self.started_at: float = 0.0
         self.last_start_msg: dict | None = None
         self.last_id3: bytes = b""
         self.hold_menu_until: float = 0.0
+        self.marker_t0: float | None = None
 
     def stop(self, status_cover: bool = False) -> None:
         """Stop ffmpeg + ESP stream.
@@ -1216,8 +1232,12 @@ class AudioFwd:
         self._last_src = url
         self._last_node = node
         self._last_media = media_path
-        cmd, env = _ffmpeg_cmd_for_source(url, self.bitrate)
-        print(f"[audio] ffmpeg {url} @ {self.bitrate}", flush=True)
+        cmd, env = _ffmpeg_cmd_for_source(url, self.bitrate, marker=self.marker)
+        print(
+            f"[audio] ffmpeg {url} @ {self.bitrate} target_bps={self.target_bps}"
+            f"{' marker=on' if self.marker else ''}",
+            flush=True,
+        )
         self.proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -1228,6 +1248,11 @@ class AudioFwd:
         self._next_pump_ts = time.time() + 0.2
         self._audio_bytes_window = 0
         self._audio_window_t0 = time.time()
+        if self.marker:
+            self.marker_t0 = time.time()
+            print(f"[audio] marker_t0={self.marker_t0:.3f}", flush=True)
+        else:
+            self.marker_t0 = None
 
     def pump(self) -> int:
         if not self.proc or not self.proc.stdout:
@@ -1239,22 +1264,23 @@ class AudioFwd:
         now = time.time()
         if now < getattr(self, "_next_pump_ts", 0):
             return 0
-        # Token-bucket toward AUDIO_TARGET_BPS so SoftAP fills near realtime
+        # Token-bucket toward target_bps so SoftAP fills near realtime
         # without the old blast that reset ESP TCP.
         t0 = getattr(self, "_audio_window_t0", now)
         sent = getattr(self, "_audio_bytes_window", 0)
+        target = getattr(self, "target_bps", AUDIO_TARGET_BPS_MIN)
         if now - t0 >= 1.0:
             self._audio_window_t0 = now
             self._audio_bytes_window = 0
             t0, sent = now, 0
-        if sent >= AUDIO_TARGET_BPS:
+        if sent >= target:
             self._next_pump_ts = t0 + 1.0
             return 0
         r, _, _ = select.select([self.proc.stdout], [], [], 0)
         if not r:
             return 0
         # Up to ~1 KiB per tick; bucket caps sustained rate
-        want = min(FRAME_MAX * 4, AUDIO_TARGET_BPS - sent)
+        want = min(FRAME_MAX * 4, target - sent)
         data = self.proc.stdout.read(want)
         if not data:
             return 0
@@ -1286,12 +1312,17 @@ def resolve_pulse_monitor() -> str | None:
     return mon
 
 
-def _ffmpeg_cmd_for_source(src: str, bitrate: str) -> tuple[list[str], dict]:
-    """Build ffmpeg argv + env. pulse:<name> → Pulse input; else URL/file."""
+def _ffmpeg_cmd_for_source(
+    src: str, bitrate: str, marker: bool = False
+) -> tuple[list[str], dict]:
+    """Build ffmpeg argv + env. pulse:<name> → Pulse input; else URL/file.
+
+    marker: mix a 1 kHz 150 ms beep every 10 s (Stufe 0/5 latency probe).
+    """
     env = {**os.environ, "PULSE_SERVER": PULSE_SERVER}
     if src.startswith(PULSE_PREFIX):
         mon = src[len(PULSE_PREFIX) :]
-        cmd = [
+        base_in = [
             "ffmpeg",
             "-hide_banner",
             "-loglevel",
@@ -1304,6 +1335,29 @@ def _ffmpeg_cmd_for_source(src: str, bitrate: str) -> tuple[list[str], dict]:
             "pulse",
             "-i",
             mon,
+        ]
+    else:
+        base_in = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-reconnect",
+            "1",
+            "-reconnect_streamed",
+            "1",
+            "-i",
+            src,
+        ]
+    if marker:
+        # aevalsrc: 150 ms beep every 10 s @ 22050 mono, mix with main
+        cmd = base_in + [
+            "-f",
+            "lavfi",
+            "-i",
+            "aevalsrc='0.25*sin(2*PI*1000*t)*lt(mod(t,10),0.15)':s=22050:c=mono",
+            "-filter_complex",
+            "[0:a][1:a]amix=inputs=2:duration=first:normalize=0",
             "-vn",
             "-ac",
             "1",
@@ -1315,30 +1369,19 @@ def _ffmpeg_cmd_for_source(src: str, bitrate: str) -> tuple[list[str], dict]:
             "mp3",
             "pipe:1",
         ]
-        return cmd, env
-    # HTTP / file / pipe path
-    cmd = [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-reconnect",
-        "1",
-        "-reconnect_streamed",
-        "1",
-        "-i",
-        src,
-        "-vn",
-        "-ac",
-        "1",
-        "-ar",
-        "22050",
-        "-b:a",
-        bitrate,
-        "-f",
-        "mp3",
-        "pipe:1",
-    ]
+    else:
+        cmd = base_in + [
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "22050",
+            "-b:a",
+            bitrate,
+            "-f",
+            "mp3",
+            "pipe:1",
+        ]
     return cmd, env
 
 
@@ -1403,6 +1446,11 @@ def main() -> int:
     )
     ap.add_argument("--interval", type=float, default=0.5, help="menu poll seconds")
     ap.add_argument("--bitrate", default="48k", help="ffmpeg audio bitrate for USB path")
+    ap.add_argument(
+        "--marker",
+        action="store_true",
+        help="mix 1 kHz beep every 10 s into MP3 (latency probe; default off)",
+    )
     ap.add_argument("--no-audio", action="store_true", help="menu/activate only")
     ap.add_argument(
         "--reconnect",
@@ -1460,7 +1508,11 @@ def main() -> int:
         ser.flush()
         print(f"[tx] {line}", flush=True)
 
-    audio = AudioFwd(ser, args.bitrate)
+    audio = AudioFwd(ser, args.bitrate, marker=bool(args.marker))
+    print(
+        f"[audio] target_bps={audio.target_bps} bitrate={args.bitrate} marker={bool(args.marker)}",
+        flush=True,
+    )
     msc_lock = MscSessionLock(enabled=bool(args.msc_lock))
     last_plug_poll = 0.0
     # Seed lock from live ESP status (bridge often starts mid-session).
