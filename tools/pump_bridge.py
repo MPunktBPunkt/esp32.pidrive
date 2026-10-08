@@ -1337,18 +1337,24 @@ def _ffmpeg_cmd_for_source(
             mon,
         ]
     else:
+        # -reconnect* is an HTTP/HTTPS option; local files reject it
+        # ("Option reconnect not found" → ffmpeg exit 8 on some builds).
         base_in = [
             "ffmpeg",
             "-hide_banner",
             "-loglevel",
             "error",
-            "-reconnect",
-            "1",
-            "-reconnect_streamed",
-            "1",
-            "-i",
-            src,
         ]
+        if src.startswith(("http://", "https://")):
+            base_in.extend(
+                [
+                    "-reconnect",
+                    "1",
+                    "-reconnect_streamed",
+                    "1",
+                ]
+            )
+        base_in.extend(["-i", src])
     if marker:
         # aevalsrc: 150 ms beep every 10 s @ 22050 mono, mix with main
         cmd = base_in + [
