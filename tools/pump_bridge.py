@@ -525,6 +525,35 @@ def page_items(nodes: list[dict], page: int) -> tuple[list[dict], int]:
     return items, page
 
 
+def apply_name_overrides(items: list[dict], path: str = "") -> list[dict]:
+    """Copy items and apply optional ``uid: name`` values from a JSON file.
+
+    The file is read for every menu build so the operator can change a track
+    identity while the bridge runs. MscSessionLock still prevents publishing
+    changed names while the USB host is plugged.
+    """
+    if not path:
+        return items
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("root must be a JSON object")
+    except FileNotFoundError:
+        return items
+    except Exception as e:
+        print(f"[menu] name overrides ignored ({path}): {e}", flush=True)
+        return items
+    out: list[dict] = []
+    for item in items:
+        copy = dict(item)
+        uid = str(copy.get("uid") or "")
+        name = raw.get(uid)
+        if isinstance(name, str) and name.strip():
+            copy["name"] = fat_safe_name(name)
+        out.append(copy)
+    return out
+
+
 def _first_existing(paths: list[Path]) -> Path | None:
     for p in paths:
         if p.is_file():
@@ -984,11 +1013,21 @@ class AudioFwd:
     # all fav* switches for the whole stream — field 2026-10-02 ignore rapid).
     RAPID_SWITCH_S = 4.0
 
-    def __init__(self, ser: PumpIO, bitrate: str, marker: bool = False):
+    def __init__(
+        self,
+        ser: PumpIO,
+        bitrate: str,
+        marker: bool = False,
+        marker_period: float = 10.0,
+        target_bps: int | None = None,
+        re_local: bool = False,
+    ):
         self.ser = ser
         self.bitrate = bitrate
         self.marker = bool(marker)
-        self.target_bps = audio_target_bps(bitrate)
+        self.marker_period = float(marker_period)
+        self.re_local = bool(re_local)
+        self.target_bps = int(target_bps) if target_bps else audio_target_bps(bitrate)
         self.proc: subprocess.Popen | None = None
         self.uid = ""
         self.started_at: float = 0.0
@@ -1232,10 +1271,17 @@ class AudioFwd:
         self._last_src = url
         self._last_node = node
         self._last_media = media_path
-        cmd, env = _ffmpeg_cmd_for_source(url, self.bitrate, marker=self.marker)
+        cmd, env = _ffmpeg_cmd_for_source(
+            url,
+            self.bitrate,
+            marker=self.marker,
+            marker_period=self.marker_period,
+            re_local=self.re_local,
+        )
         print(
             f"[audio] ffmpeg {url} @ {self.bitrate} target_bps={self.target_bps}"
-            f"{' marker=on' if self.marker else ''}",
+            f"{f' marker={self.marker_period:g}s' if self.marker else ''}"
+            f"{' re' if '-re' in cmd else ''}",
             flush=True,
         )
         self.proc = subprocess.Popen(
@@ -1312,12 +1358,36 @@ def resolve_pulse_monitor() -> str | None:
     return mon
 
 
+def marker_expr(period: float = 10.0) -> str:
+    """aevalsrc expression for the latency / window probe.
+
+    period 10 (default): 1 kHz 150 ms beep every 10 s (Stufe 0/5).
+    period < 10: counting tone — beep n = floor(t/period) has pitch 400 + 80*(n mod 10) Hz,
+    every 10th beep (n mod 10 == 0) is 300 ms long, so the heard window can be counted
+    from a recording (s4 / ANALYSE-STREAM-WEG).
+    """
+    p = max(0.2, float(period))
+    if p >= 10.0:
+        return f"0.25*sin(2*PI*1000*t)*lt(mod(t,{p:g}),0.15)"
+    n = f"mod(floor(t/{p:g}),10)"
+    return (
+        f"0.25*sin(2*PI*(400+80*{n})*t)"
+        f"*lt(mod(t,{p:g}),0.15+0.15*eq({n},0))"
+    )
+
+
 def _ffmpeg_cmd_for_source(
-    src: str, bitrate: str, marker: bool = False
+    src: str,
+    bitrate: str,
+    marker: bool = False,
+    marker_period: float = 10.0,
+    re_local: bool = False,
 ) -> tuple[list[str], dict]:
     """Build ffmpeg argv + env. pulse:<name> → Pulse input; else URL/file.
 
-    marker: mix a 1 kHz 150 ms beep every 10 s (Stufe 0/5 latency probe).
+    marker: mix a beep into the MP3 (see marker_expr).
+    re_local: read local files at native rate (-re) instead of as fast as the token bucket
+    allows (~1.5× realtime); http and pulse sources are realtime anyway.
     """
     env = {**os.environ, "PULSE_SERVER": PULSE_SERVER}
     if src.startswith(PULSE_PREFIX):
@@ -1354,14 +1424,16 @@ def _ffmpeg_cmd_for_source(
                     "1",
                 ]
             )
+        elif re_local:
+            base_in.append("-re")
         base_in.extend(["-i", src])
     if marker:
-        # aevalsrc: 150 ms beep every 10 s @ 22050 mono, mix with main
+        # aevalsrc @ 22050 mono, mix with main
         cmd = base_in + [
             "-f",
             "lavfi",
             "-i",
-            "aevalsrc='0.25*sin(2*PI*1000*t)*lt(mod(t,10),0.15)':s=22050:c=mono",
+            f"aevalsrc='{marker_expr(marker_period)}':s=22050:c=mono",
             "-filter_complex",
             "[0:a][1:a]amix=inputs=2:duration=first:normalize=0",
             "-vn",
@@ -1457,6 +1529,25 @@ def main() -> int:
         action="store_true",
         help="mix 1 kHz beep every 10 s into MP3 (latency probe; default off)",
     )
+    ap.add_argument(
+        "--marker-period",
+        type=float,
+        default=10.0,
+        help="with --marker: beep every S s; S < 10 = counting tone (pitch steps per beep, "
+        "every 10th beep long) to count the heard window",
+    )
+    ap.add_argument(
+        "--target-bps",
+        type=int,
+        default=0,
+        help="token-bucket bytes/s to the ESP (0 = max(9000, 1.5 × bitrate/8)); "
+        "field rate @48k is 6000",
+    )
+    ap.add_argument(
+        "--re-local",
+        action="store_true",
+        help="ffmpeg -re for local files (realtime like a station instead of ~1.5×)",
+    )
     ap.add_argument("--no-audio", action="store_true", help="menu/activate only")
     ap.add_argument(
         "--reconnect",
@@ -1469,6 +1560,12 @@ def main() -> int:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="freeze MSC names/UIDs while USB host is plugged (P0, default on)",
+    )
+    ap.add_argument(
+        "--name-override-file",
+        default="",
+        help='JSON object mapping uid to displayed MSC name, e.g. {"fav2":"Radio BOB 1008"}. '
+        "Re-read continuously; with --msc-lock a change is published after OTG unplug.",
     )
     ap.add_argument(
         "--esp-http-port",
@@ -1514,9 +1611,17 @@ def main() -> int:
         ser.flush()
         print(f"[tx] {line}", flush=True)
 
-    audio = AudioFwd(ser, args.bitrate, marker=bool(args.marker))
+    audio = AudioFwd(
+        ser,
+        args.bitrate,
+        marker=bool(args.marker),
+        marker_period=args.marker_period,
+        target_bps=args.target_bps or None,
+        re_local=bool(args.re_local),
+    )
     print(
-        f"[audio] target_bps={audio.target_bps} bitrate={args.bitrate} marker={bool(args.marker)}",
+        f"[audio] target_bps={audio.target_bps} bitrate={args.bitrate} marker={bool(args.marker)}"
+        f" marker_period={args.marker_period:g} re_local={bool(args.re_local)}",
         flush=True,
     )
     msc_lock = MscSessionLock(enabled=bool(args.msc_lock))
@@ -2039,6 +2144,7 @@ def main() -> int:
                         folder_sig = fsig
                         page = 0
                     items, page, extra = menu_nodes_for_page(path_ids, nodes, page)
+                    items = apply_name_overrides(items, args.name_override_file)
                     if extra:
                         by_uid.update(extra)
                         remember_uid_nodes(uid_grace, extra)
@@ -2055,7 +2161,12 @@ def main() -> int:
                         # Wait for menu_ack before retrying the same payload
                         if pending_menu and (time.time() - last_menu_tx) < 3.0:
                             pass
-                        elif (streaming and not force_menu) or held or not session_ok or not rate_ok:
+                        elif (
+                            (streaming and msc_lock.plugged and not force_menu)
+                            or held
+                            or not session_ok
+                            or not rate_ok
+                        ):
                             pass  # keep force_menu / dirty sig for next tick
                         else:
                             ok_lock, lock_why = msc_lock.allow_menu_set(items)
