@@ -324,6 +324,8 @@ void UsbMscGadget::startStream(const char* uid) {
     streamSlot_ = -1;
     stallLeadLeft_ = stall_.leadBytes;
     stallCmdActive_ = false;
+    // Menu/pump may arm overlay before HU has a from-head play — do not BUSY yet (S7).
+    stallArmed_ = false;
     if (!uid || !uid[0]) return;
     for (size_t i = 0; i < kSlots; i++) {
         if (slots_[i].active && strcmp(slots_[i].uid, uid) == 0) {
@@ -341,6 +343,8 @@ void UsbMscGadget::startStream(const char* uid) {
 void UsbMscGadget::stopStream() {
     if (streamSlot_ >= 0 && events_) events_->push("msc.stream_off", "");
     streamSlot_ = -1;
+    stallArmed_ = false;
+    stallCmdActive_ = false;
 }
 
 void UsbMscGadget::patchFatChain(uint8_t* sector, uint32_t lba, uint16_t cl0, uint16_t cl1) const {
@@ -776,7 +780,14 @@ int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32
             const bool live =
                 stream_ && stream_->active() && streamSlot_ >= 0 && f == &slots_[streamSlot_];
             if (live) {
-                if (stall_.enable && stall_.scope != 0) {
+                // scope 1 (S7-B): BUSY only after MSC play.guess from head (stallArmed_).
+                // scope 2: every live body read (legacy aggressive pacing).
+                const bool wantStall = stall_.enable && stall_.scope != 0 &&
+                                       (stall_.scope >= 2 || stallArmed_);
+                if (stall_.enable && stall_.scope == 1 && !stallArmed_) {
+                    stallSkipNotArmed_++;
+                }
+                if (wantStall) {
                     int32_t n = onReadLiveStall(lba, offset, out, bufsize, fileOff);
                     if (n > 0) {
                         streamBytesServed_ += (uint32_t)n;
@@ -825,10 +836,9 @@ int32_t UsbMscGadget::onReadLiveStall(uint32_t lba, uint32_t offset, uint8_t* ou
         stream_->armCursorAtLiveHead();
     }
 
-    // Scope 1: only sequential after head (offset==0 starts / sequential hostExpect).
-    // First cut: scope 1 and 2 both stall live; Tap-out-of-order stays silence via readAt fallback.
     // Busy-Retry re-enters with the SAME (lba,offset) — must NOT reset cmd/cb timers or cmds++
     // (Lab 2026-10-12: offset==0 on every return-0 cleared stallCmdT0_ → maxMs never fired).
+    // Scope gating (armed vs all-live) happens in onRead before this function.
     const bool keyChanged = (lba != stallKeyLba_) || (offset != stallKeyOff_);
     if (keyChanged) {
         if (offset == 0) {
@@ -977,6 +987,9 @@ void UsbMscGadget::onUsbPlugged(bool on) {
         lastFileReadMs_ = 0;
         quietEmitted_ = false;
         indexSettled_ = false;
+        stallArmed_ = false;
+        stallSkipNotArmed_ = 0;
+        stallCmdActive_ = false;
         phase_ = Phase::Idle;
         xfer512_ = xfer2k_ = xfer4k_ = xfer8kPlus_ = 0;
         memset(slotStats_, 0, sizeof(slotStats_));
@@ -1442,6 +1455,9 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
         }
         playGuessCount_++;
         lastRejectEval_ = 0xFF;
+        // S7-B: arm Busy-Pacing only after a real from-head play.guess (evaluatePlay Ok).
+        stallArmed_ = true;
+        stallLeadLeft_ = stall_.leadBytes;
         setPhase(Phase::Play, f->name);
         if (events_ && millis() - lastEventMs_ > 400) {
             lastEventMs_ = millis();
@@ -1450,6 +1466,7 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
             snprintf(d, sizeof(d), "from=%u +%luB", (unsigned)seqStartLba_,
                      (unsigned long)seqBytes_);
             events_->push("msc.stream", d);
+            if (stall_.enable) events_->push("msc.stall_armed", f->uid);
         }
         if (playHandler_) playHandler_(f->uid);
     } else {
@@ -1583,6 +1600,8 @@ void UsbMscGadget::toJson(JsonObject obj) const {
         st["retryMs"] = stall_.retryMs;
         st["leadBytes"] = stall_.leadBytes;
         st["underrunCursorHold"] = stall_.underrunCursorHold;
+        st["armed"] = stallArmed_;
+        st["skipNotArmed"] = stallSkipNotArmed_;
         st["cmds"] = stallCmds_;
         st["retries"] = stallRetries_;
         st["partials"] = stallPartials_;

@@ -62,7 +62,8 @@ struct PlayDetectParams {
 /** Stall / E7 runtime knobs (STALL-BUILD-SPEC). Default = off → 0.4.46 behaviour. */
 struct StallParams {
     bool enable = false;
-    uint8_t scope = 1;          // 0 off, 1 sequential after head, 2 all live
+    /** 0=off, 1=BUSY only after MSC play.guess from head (S7-B), 2=all live body reads. */
+    uint8_t scope = 1;
     uint8_t timer = 0;          // 0=cmd, 1=cb
     uint16_t maxMs = 500;
     uint16_t chunkBytes = 4096;
@@ -268,6 +269,9 @@ private:
     uint32_t stallKeyOff_ = 0xFFFFFFFFu;
     bool stallCmdActive_ = false;
     uint32_t stallLeadLeft_ = 0;
+    /** Scope-1 gate: set on play.guess from head; cleared on plug/stream change. */
+    bool stallArmed_ = false;
+    uint32_t stallSkipNotArmed_ = 0;
 
     /** Which slot's payload is live audio — does NOT change FAT/dir geometry. */
     int streamSlot_ = -1;
