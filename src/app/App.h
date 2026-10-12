@@ -60,6 +60,7 @@ private:
     void handleOtaUpload();
     void handleRestart();
     void applyPlayDetectFromConfig();
+    void applyStallFromConfig();
 
     WebServer server_{80};
     unsigned long bootMs_ = 0;

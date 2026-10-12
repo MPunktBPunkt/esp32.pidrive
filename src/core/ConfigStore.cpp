@@ -24,6 +24,16 @@ void ConfigStore::applyDefaults() {
     playHeadLbaSlop = 12;
     playCooldownMs = 5000;
     playPrefetchLbaSlop = 2;
+    stallEnable = false;
+    stallScope = 1;
+    stallTimer = 0;
+    stallMaxMs = 500;
+    stallChunkBytes = 4096;
+    stallRetryMs = 2;
+    leadBytes = 0;
+    underrunCursorHold = false;
+    silenceMatchLive = false;
+    volumeLabel = "";
 }
 
 void ConfigStore::begin() {
@@ -61,6 +71,18 @@ void ConfigStore::load() {
     playHeadLbaSlop = prefs.getUChar("play_head", playHeadLbaSlop);
     playCooldownMs = prefs.getUShort("play_cd", playCooldownMs);
     playPrefetchLbaSlop = prefs.getUChar("play_pf", playPrefetchLbaSlop);
+    if (ver >= 5) {
+        stallEnable = prefs.getBool("stall_en", stallEnable);
+        stallScope = prefs.getUChar("stall_sc", stallScope);
+        stallTimer = prefs.getUChar("stall_tm", stallTimer);
+        stallMaxMs = prefs.getUShort("stall_ms", stallMaxMs);
+        stallChunkBytes = prefs.getUShort("stall_ch", stallChunkBytes);
+        stallRetryMs = prefs.getUChar("stall_rt", stallRetryMs);
+        leadBytes = prefs.getUShort("lead_b", leadBytes);
+        underrunCursorHold = prefs.getBool("stall_hold", underrunCursorHold);
+        silenceMatchLive = prefs.getBool("sil_live", silenceMatchLive);
+        volumeLabel = prefs.getString("vol_lab", volumeLabel);
+    }
     prefs.end();
     if (heartbeatIntervalS < 5) heartbeatIntervalS = 5;
     if (bufferTargetMs < 500) bufferTargetMs = 500;
@@ -70,6 +92,16 @@ void ConfigStore::load() {
     if (playNavMinSeqBytes < 512) playNavMinSeqBytes = 512;
     if (playHeadLbaSlop > 64) playHeadLbaSlop = 64;
     if (playPrefetchLbaSlop > 32) playPrefetchLbaSlop = 32;
+    if (stallMaxMs > 15000) stallMaxMs = 15000;
+    if (stallChunkBytes != 512 && stallChunkBytes != 1024 && stallChunkBytes != 2048 &&
+        stallChunkBytes != 4096) {
+        stallChunkBytes = 4096;
+    }
+    if (stallRetryMs < 1) stallRetryMs = 1;
+    if (stallRetryMs > 20) stallRetryMs = 20;
+    if (stallScope > 2) stallScope = 1;
+    if (stallTimer > 1) stallTimer = 0;
+    if (volumeLabel.length() > 11) volumeLabel = volumeLabel.substring(0, 11);
 }
 
 void ConfigStore::save() {
@@ -98,6 +130,16 @@ void ConfigStore::save() {
     prefs.putUChar("play_head", playHeadLbaSlop);
     prefs.putUShort("play_cd", playCooldownMs);
     prefs.putUChar("play_pf", playPrefetchLbaSlop);
+    prefs.putBool("stall_en", stallEnable);
+    prefs.putUChar("stall_sc", stallScope);
+    prefs.putUChar("stall_tm", stallTimer);
+    prefs.putUShort("stall_ms", stallMaxMs);
+    prefs.putUShort("stall_ch", stallChunkBytes);
+    prefs.putUChar("stall_rt", stallRetryMs);
+    prefs.putUShort("lead_b", leadBytes);
+    prefs.putBool("stall_hold", underrunCursorHold);
+    prefs.putBool("sil_live", silenceMatchLive);
+    prefs.putString("vol_lab", volumeLabel);
     prefs.end();
 }
 
@@ -130,6 +172,16 @@ void ConfigStore::toJson(JsonObject obj) const {
     obj["playHeadLbaSlop"] = playHeadLbaSlop;
     obj["playCooldownMs"] = playCooldownMs;
     obj["playPrefetchLbaSlop"] = playPrefetchLbaSlop;
+    obj["stallEnable"] = stallEnable;
+    obj["stallScope"] = stallScope;
+    obj["stallTimer"] = stallTimer;
+    obj["stallMaxMs"] = stallMaxMs;
+    obj["stallChunkBytes"] = stallChunkBytes;
+    obj["stallRetryMs"] = stallRetryMs;
+    obj["leadBytes"] = leadBytes;
+    obj["underrunCursorHold"] = underrunCursorHold;
+    obj["silenceMatchLive"] = silenceMatchLive;
+    obj["volumeLabel"] = volumeLabel;
 }
 
 bool ConfigStore::fromJson(JsonVariantConst obj) {
@@ -153,6 +205,16 @@ bool ConfigStore::fromJson(JsonVariantConst obj) {
     if (!obj["playHeadLbaSlop"].isNull()) playHeadLbaSlop = obj["playHeadLbaSlop"].as<uint8_t>();
     if (!obj["playCooldownMs"].isNull()) playCooldownMs = obj["playCooldownMs"].as<uint16_t>();
     if (!obj["playPrefetchLbaSlop"].isNull()) playPrefetchLbaSlop = obj["playPrefetchLbaSlop"].as<uint8_t>();
+    if (!obj["stallEnable"].isNull()) stallEnable = obj["stallEnable"].as<bool>();
+    if (!obj["stallScope"].isNull()) stallScope = obj["stallScope"].as<uint8_t>();
+    if (!obj["stallTimer"].isNull()) stallTimer = obj["stallTimer"].as<uint8_t>();
+    if (!obj["stallMaxMs"].isNull()) stallMaxMs = obj["stallMaxMs"].as<uint16_t>();
+    if (!obj["stallChunkBytes"].isNull()) stallChunkBytes = obj["stallChunkBytes"].as<uint16_t>();
+    if (!obj["stallRetryMs"].isNull()) stallRetryMs = obj["stallRetryMs"].as<uint8_t>();
+    if (!obj["leadBytes"].isNull()) leadBytes = obj["leadBytes"].as<uint16_t>();
+    if (!obj["underrunCursorHold"].isNull()) underrunCursorHold = obj["underrunCursorHold"].as<bool>();
+    if (!obj["silenceMatchLive"].isNull()) silenceMatchLive = obj["silenceMatchLive"].as<bool>();
+    if (obj["volumeLabel"].is<const char*>()) volumeLabel = obj["volumeLabel"].as<String>();
     if (deviceName.length() == 0) deviceName = DEVICE_NAME_DEFAULT;
     if (hubPort <= 0 || hubPort > 65535) hubPort = HUB_PORT_DEFAULT;
     if (heartbeatIntervalS < 5) heartbeatIntervalS = 5;
@@ -163,5 +225,15 @@ bool ConfigStore::fromJson(JsonVariantConst obj) {
     if (playNavMinSeqBytes < 512) playNavMinSeqBytes = 512;
     if (playHeadLbaSlop > 64) playHeadLbaSlop = 64;
     if (playPrefetchLbaSlop > 32) playPrefetchLbaSlop = 32;
+    if (stallMaxMs > 15000) stallMaxMs = 15000;
+    if (stallChunkBytes != 512 && stallChunkBytes != 1024 && stallChunkBytes != 2048 &&
+        stallChunkBytes != 4096) {
+        stallChunkBytes = 4096;
+    }
+    if (stallRetryMs < 1) stallRetryMs = 1;
+    if (stallRetryMs > 20) stallRetryMs = 20;
+    if (stallScope > 2) stallScope = 1;
+    if (stallTimer > 1) stallTimer = 0;
+    if (volumeLabel.length() > 11) volumeLabel = volumeLabel.substring(0, 11);
     return true;
 }

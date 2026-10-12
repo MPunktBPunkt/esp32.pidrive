@@ -89,6 +89,10 @@ PAGE_HOME_UID = "pump:page_home"
 STOP_UID = "pump:stop"
 FAVORITEN_UID = "pump:favoriten"
 ROOT_UID = "pump:root"
+# Station submenu: Play arms stream without reading the Live slot (hen-egg fix).
+ARM_UID_PREFIX = "pump:arm:"
+# When set (e.g. "fav2"), root page 0 = Play / Live / Stop / Menue instead of 3 stations.
+STATION_SUBMENU_UID: str | None = None
 # Default MSC stubs before menu_set — map to root favorite presets
 DEMO_UID_TO_FAV = {
     "demo:rock_fm": "fav0",
@@ -653,13 +657,67 @@ def find_favoriten_uid() -> str | None:
     return None
 
 
+def station_submenu_page(presets: list[dict], page: int) -> tuple[list[dict], int, dict[str, dict]]:
+    """One station per page: Play (arm) / Live / Stop / Menue(next station)."""
+    extra: dict[str, dict] = {}
+    if not presets:
+        return [], 0, extra
+    page = max(0, min(page, len(presets) - 1))
+    n = presets[page]
+    uid = str(n["uid"])
+    label = n.get("label") or n.get("id") or uid
+    short = fat_safe_name(str(label), limit=16)
+    extra[uid] = n
+    # Slot0 is the large FAT file — Live must sit there. Play/Stop are short nav stubs.
+    items = [
+        {
+            "uid": uid,
+            "name": fat_safe_name(str(label)),
+            "kind": "station",
+        },
+        {
+            "uid": f"{ARM_UID_PREFIX}{uid}",
+            "name": fat_safe_name(f"Play {short}"),
+            "kind": "action",
+        },
+        {"uid": STOP_UID, "name": "Stop", "kind": "action"},
+    ]
+    if page < len(presets) - 1:
+        items.append(
+            {
+                "uid": PAGE_NEXT_UID,
+                "name": fat_safe_name("Menue"),
+                "kind": "action",
+            }
+        )
+    else:
+        items.append(
+            {
+                "uid": PAGE_HOME_UID,
+                "name": "Seite 1",
+                "kind": "action",
+            }
+        )
+    return items, page, extra
+
+
 def menu_nodes_for_page(path_ids: list | None, nodes: list[dict], page: int) -> tuple[list[dict], int, dict[str, dict]]:
     """Root page 0 = favorite presets as MSC slots (BMW hears stations, not demos once streamed).
 
     Further pages / non-root = normal soft-paged tree. SoftAP can still navigate via lab/play.
+    With STATION_SUBMENU_UID set, root is Play/Live/Stop per station (product path).
     """
     global _PRESET_BY_UID
     extra: dict[str, dict] = {}
+    # Product Play/Live/Stop map — ignore SoftAP path_ids (e.g. stuck "calib").
+    if STATION_SUBMENU_UID:
+        presets = load_preset_stations(limit=6)
+        if presets:
+            _PRESET_BY_UID = {str(p["uid"]): p for p in presets}
+            focus = str(STATION_SUBMENU_UID)
+            ordered = [p for p in presets if str(p["uid"]) == focus]
+            ordered += [p for p in presets if str(p["uid"]) != focus]
+            return station_submenu_page(ordered or presets, page)
     if is_root_menu(path_ids):
         presets = load_preset_stations(limit=6)
         if presets:
@@ -1573,7 +1631,18 @@ def main() -> int:
         default=int(cfg.get("usb_esp_port") or os.environ.get("PUMP_HTTP_PORT") or 80),
         help="ESP SoftAP/STA HTTP port for plugged poll",
     )
+    ap.add_argument(
+        "--station-submenu",
+        default="",
+        metavar="UID",
+        help="Root MSC = Play/Live/Stop per station (product path). "
+        "UID (e.g. fav2) is shown first; Menue flips stations. Empty = classic 3-station root.",
+    )
     args = ap.parse_args()
+    global STATION_SUBMENU_UID
+    STATION_SUBMENU_UID = (args.station_submenu or "").strip() or None
+    if STATION_SUBMENU_UID:
+        print(f"[menu] station-submenu focus={STATION_SUBMENU_UID}", flush=True)
 
     def connect() -> tuple[PumpIO, str]:
         return open_pump_link(
@@ -1941,6 +2010,50 @@ def main() -> int:
                             audio.stop(status_cover=False)
                             print("[audio] stop (SoftAP/Remote)", flush=True)
                             continue
+                        if uid.startswith(ARM_UID_PREFIX):
+                            # Play-button: prefill Live stream; do not navigate/stop.
+                            arm_uid = uid[len(ARM_UID_PREFIX) :].strip()
+                            if not arm_uid:
+                                print("[audio] arm: empty uid", flush=True)
+                                continue
+                            if args.no_audio:
+                                continue
+                            if audio.uid == arm_uid and audio.started_at:
+                                print(
+                                    f"[audio] arm skip — already live {arm_uid}",
+                                    flush=True,
+                                )
+                                continue
+                            _, _nodes_arm, by_uid_arm = read_menu_nodes()
+                            remember_uid_nodes(uid_grace, by_uid_arm)
+                            if not _PRESET_BY_UID:
+                                for p in load_preset_stations(limit=6):
+                                    _PRESET_BY_UID[str(p["uid"])] = p
+                            node = (
+                                by_uid_arm.get(arm_uid)
+                                or _PRESET_BY_UID.get(arm_uid)
+                                or grace_lookup(uid_grace, arm_uid)
+                                or {}
+                            )
+                            if not node and arm_uid.startswith("fav"):
+                                for p in load_preset_stations(limit=6):
+                                    _PRESET_BY_UID[str(p["uid"])] = p
+                                node = _PRESET_BY_UID.get(arm_uid) or {}
+                            src, media_path = (
+                                resolve_stream_target(node) if node else (None, None)
+                            )
+                            if src:
+                                print(
+                                    f"[audio] ARM {arm_uid} (Play) → prefill",
+                                    flush=True,
+                                )
+                                audio.start(arm_uid, src, node, media_path)
+                            else:
+                                print(
+                                    f"[audio] arm {arm_uid}: no stream target",
+                                    flush=True,
+                                )
+                            continue
                         if uid == ROOT_UID:
                             inject("goto:root")
                             page = 0
@@ -1982,6 +2095,13 @@ def main() -> int:
                                     _PRESET_BY_UID[str(p["uid"])] = p
                                 node = _PRESET_BY_UID.get(uid) or {}
                             if args.no_audio:
+                                continue
+                            # Already armed/live: keep ring+ID3 (Play→Live tip must not restart).
+                            if audio.uid == uid and audio.started_at:
+                                print(
+                                    f"[audio] live tip keep stream {uid} (no re-start)",
+                                    flush=True,
+                                )
                                 continue
                             # Debounce only right after a start — not while streaming
                             # (last_audio_log is a 2s forward heartbeat; using it blocked

@@ -60,6 +60,7 @@ public:
     size_t push(const uint8_t* data, size_t n) {
         if (!active_ || !data || !n) return 0;
         size_t written = 0;
+        portENTER_CRITICAL(&mux_);
         while (written < n) {
             if (size_ == kCapacity) {
                 head_ = (head_ + 1) % kCapacity;
@@ -70,6 +71,7 @@ public:
             size_++;
             absEnd_++;
         }
+        portEXIT_CRITICAL(&mux_);
         return written;
     }
 
@@ -273,6 +275,33 @@ public:
     uint32_t absBase() const { return absBase_; }
     uint32_t headResyncs() const { return headResyncs_; }
     uint32_t hostAbsCursor() const { return hostAbsCursor_; }
+    bool cursorArmed() const { return cursorArmed_; }
+
+    /** Snap host cursor to absBase (head path) without copying bytes. */
+    void armCursorAtLiveHead() {
+        portENTER_CRITICAL(&mux_);
+        hostAbsCursor_ = absBase_;
+        cursorArmed_ = true;
+        portEXIT_CRITICAL(&mux_);
+    }
+
+    /**
+     * Live bytes ready at the host cursor (stall decision). 0 if inactive or cursor past absEnd.
+     * Does not advance the cursor.
+     */
+    uint32_t liveAvail() const {
+        portENTER_CRITICAL(&mux_);
+        const bool act = active_;
+        const bool armed = cursorArmed_;
+        uint32_t cur = hostAbsCursor_;
+        const uint32_t base = absBase_;
+        const uint32_t end = absEnd_;
+        portEXIT_CRITICAL(&mux_);
+        if (!act || !armed) return 0;
+        if (cur < base) cur = base;
+        if (cur >= end) return 0;
+        return end - cur;
+    }
 
     void toJson(JsonObject obj) const {
         obj["active"] = active_;
@@ -304,4 +333,5 @@ private:
     uint32_t hostExpectFileOff_ = 0;
     bool active_ = false;
     char uid_[24] = {0};
+    mutable portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
 };

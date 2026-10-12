@@ -37,6 +37,7 @@ void App::begin() {
     msc.begin(&events, &menu);
     msc.setStreamBuffer(&stream);
     applyPlayDetectFromConfig();
+    applyStallFromConfig();
     // Apply last-known / demo names; present immediately if restored from NVS.
     msc.applyMenuSlots(menu);
     if (menu.fromNvs()) {
@@ -362,6 +363,7 @@ void App::handleApiConfigPost() {
     else config.fromJson(body.as<JsonVariantConst>());
     config.save();
     applyPlayDetectFromConfig();
+    applyStallFromConfig();
     events.push("config.save", config.deviceName.c_str());
     JsonDocument doc;
     doc["ok"] = true;
@@ -419,11 +421,30 @@ void App::handleApiLabRemount() {
         NetUtil::sendError(server_, 403, "labMode aus");
         return;
     }
-    msc.remountMedia("lab");
-    events.push("lab.remount", "softap");
+    // Optional JSON body — empty POST remains valid (legacy clients).
+    bool keepId = false;
+    String plain = server_.arg("plain");
+    if (plain.length() > 0) {
+        JsonDocument body;
+        if (!deserializeJson(body, plain)) {
+            keepId = body["keepIdentity"] | false;
+            if (body["volumeLabel"].is<const char*>()) {
+                config.volumeLabel = body["volumeLabel"].as<String>();
+                if (config.volumeLabel.length() > 11) {
+                    config.volumeLabel = config.volumeLabel.substring(0, 11);
+                }
+                config.save();
+                applyStallFromConfig();
+            }
+        }
+    }
+    if (keepId) msc.remountMediaKeepIdentity("lab");
+    else msc.remountMedia("lab");
+    events.push("lab.remount", keepId ? "keepId" : "softap");
     JsonDocument doc;
     doc["ok"] = true;
     doc["otg"] = msc.plugged();
+    doc["keepIdentity"] = keepId;
     NetUtil::sendJson(server_, 200, doc);
 }
 
@@ -656,4 +677,22 @@ void App::applyPlayDetectFromConfig() {
     Serial.printf("[MSC] playDetect plug=%ums seq=%u nav=%u head=%u cd=%ums pf=%u\n",
                   (unsigned)p.plugWindowMs, (unsigned)p.minSeqBytes, (unsigned)p.navMinSeqBytes,
                   (unsigned)p.headLbaSlop, (unsigned)p.cooldownMs, (unsigned)p.prefetchLbaSlop);
+}
+
+void App::applyStallFromConfig() {
+    StallParams s;
+    s.enable = config.stallEnable;
+    s.scope = config.stallScope;
+    s.timer = config.stallTimer;
+    s.maxMs = config.stallMaxMs;
+    s.chunkBytes = config.stallChunkBytes;
+    s.retryMs = config.stallRetryMs;
+    s.leadBytes = config.leadBytes;
+    s.underrunCursorHold = config.underrunCursorHold;
+    s.silenceMatchLive = config.silenceMatchLive;
+    msc.setStallParams(s);
+    msc.setVolumeLabelOverride(config.volumeLabel.c_str());
+    Serial.printf("[MSC] stall en=%d scope=%u timer=%u max=%ums chunk=%u retry=%ums vol='%s'\n",
+                  (int)s.enable, (unsigned)s.scope, (unsigned)s.timer, (unsigned)s.maxMs,
+                  (unsigned)s.chunkBytes, (unsigned)s.retryMs, config.volumeLabel.c_str());
 }

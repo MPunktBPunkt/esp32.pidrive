@@ -59,6 +59,19 @@ struct PlayDetectParams {
     uint8_t prefetchLbaSlop = 2;
 };
 
+/** Stall / E7 runtime knobs (STALL-BUILD-SPEC). Default = off → 0.4.46 behaviour. */
+struct StallParams {
+    bool enable = false;
+    uint8_t scope = 1;          // 0 off, 1 sequential after head, 2 all live
+    uint8_t timer = 0;          // 0=cmd, 1=cb
+    uint16_t maxMs = 500;
+    uint16_t chunkBytes = 4096;
+    uint8_t retryMs = 2;
+    uint16_t leadBytes = 0;
+    bool underrunCursorHold = false;
+    bool silenceMatchLive = false;  // reserved; silence fill still kSil for now
+};
+
 class UsbMscGadget {
 public:
     static constexpr size_t kTraceSize = 96;
@@ -96,6 +109,8 @@ public:
     void presentMedia(const char* reason);
     /** Hide briefly so host re-reads DIR after menu name changes. */
     void remountMedia(const char* reason);
+    /** Like remountMedia but keep USB serial / remountGen (Volume-Label-Isolationstest). */
+    void remountMediaKeepIdentity(const char* reason);
     bool mediaPresented() const { return mediaPresented_; }
     void setPlayHandler(PlayHandler h) { playHandler_ = h; }
     void setDiagHandler(DiagHandler h) { diagHandler_ = h; }
@@ -103,6 +118,11 @@ public:
     void setStreamBuffer(StreamBuffer* s) { stream_ = s; }
     void setPlayDetectParams(const PlayDetectParams& p) { playDetect_ = p; }
     PlayDetectParams playDetectParams() const { return playDetect_; }
+    void setStallParams(const StallParams& p) { stall_ = p; }
+    StallParams stallParams() const { return stall_; }
+    /** Empty = FAT label follows remountGen (PD%04u). Non-empty ≤11 chars overrides label only. */
+    void setVolumeLabelOverride(const char* label);
+    const char* volumeLabelOverride() const { return volumeLabelOverride_; }
     uint32_t readOverflowCount() const { return readOverflowCount_; }
     void noteReadsEmitted() { readsEmitCount_++; }
     void startStream(const char* uid);
@@ -185,9 +205,13 @@ private:
     void loadDefaultSlots();
     /** Bump USB serialNumber + productRevision (HU MediaStore cache key). */
     void applyUsbIdentity();
+    void remountMediaInternal(const char* reason, bool bumpIdentity);
     void loadRemountGenNvs();
     void saveRemountGenNvs() const;
     static void formatPdSerial(uint16_t gen, char* ser, size_t n);
+    void formatVolumeLabel(char* vol, size_t n) const;
+    int32_t onReadLiveStall(uint32_t lba, uint32_t offset, uint8_t* out, uint32_t bufsize,
+                           uint32_t fileOff);
     /** Patch boot BPB to virtual geometry; synthesize root; STATIONS/SETTINGS LFNs. */
     void patchBoot(uint8_t* sector) const;
     void patchRootDir(uint8_t* sector, uint32_t lba) const;
@@ -225,6 +249,25 @@ private:
     MscFileMap slots_[kSlots];
     MscSlotStats slotStats_[kSlots];
     PlayDetectParams playDetect_;
+    StallParams stall_;
+    char volumeLabelOverride_[12] = {0};
+
+    /** Stall telemetry / wait state (usbd task). */
+    uint32_t stallCmds_ = 0;
+    uint32_t stallRetries_ = 0;
+    uint32_t stallPartials_ = 0;
+    uint32_t stallPartialBytes_ = 0;
+    uint32_t stallTimeouts_ = 0;
+    uint32_t stallWaitMsMax_ = 0;
+    uint32_t stallWaitMsLast_ = 0;
+    uint32_t stallWaitMsSum_ = 0;
+    uint32_t stallWaitHist_[5] = {0, 0, 0, 0, 0};  // <100 <500 <1000 <2000 ≥2000
+    uint32_t stallCmdT0_ = 0;
+    uint32_t stallCbT0_ = 0;
+    uint32_t stallKeyLba_ = 0;
+    uint32_t stallKeyOff_ = 0xFFFFFFFFu;
+    bool stallCmdActive_ = false;
+    uint32_t stallLeadLeft_ = 0;
 
     /** Which slot's payload is live audio — does NOT change FAT/dir geometry. */
     int streamSlot_ = -1;

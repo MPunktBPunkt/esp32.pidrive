@@ -38,6 +38,19 @@ public:
     /** Mid-file prefetch if seq start > fileStart + this. */
     uint8_t playPrefetchLbaSlop = 2;
 
+    // Stall / E7 (STALL-BUILD-SPEC) — defaults keep 0.4.46 behaviour
+    bool stallEnable = false;
+    uint8_t stallScope = 1;       // 0 off, 1 sequential after head, 2 all live
+    uint8_t stallTimer = 0;       // 0=cmd, 1=cb (inactivity)
+    uint16_t stallMaxMs = 500;
+    uint16_t stallChunkBytes = 4096;
+    uint8_t stallRetryMs = 2;
+    uint16_t leadBytes = 0;
+    bool underrunCursorHold = false;
+    bool silenceMatchLive = false;
+    /** FAT volume label override (≤11). Empty = coupled to remountGen (PD%04u). */
+    String volumeLabel = "";
+
     void begin();
     void load();
     void save();
@@ -47,5 +60,5 @@ public:
     bool fromJson(JsonVariantConst obj);
 
 private:
-    static constexpr uint8_t kConfigVersion = 4;
+    static constexpr uint8_t kConfigVersion = 5;
 };

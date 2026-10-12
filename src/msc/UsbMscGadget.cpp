@@ -7,6 +7,8 @@
 #include "USBMSC.h"
 #include <Preferences.h>
 #include <cstring>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #if !ARDUINO_USB_MODE
 
@@ -191,14 +193,24 @@ void UsbMscGadget::applyUsbIdentity() {
 }
 
 void UsbMscGadget::remountMedia(const char* reason) {
+    remountMediaInternal(reason, true);
+}
+
+void UsbMscGadget::remountMediaKeepIdentity(const char* reason) {
+    remountMediaInternal(reason, false);
+}
+
+void UsbMscGadget::remountMediaInternal(const char* reason, bool bumpIdentity) {
     if (!ready_) return;
     // Never yank the medium while live overlay is armed — kills TCP + host reads.
     if (stream_ && stream_->active()) {
         if (events_) events_->push("msc.remount_skip", "streaming");
         return;
     }
-    // New USB identity so NBT MediaStore treats this as a different stick.
-    applyUsbIdentity();
+    if (bumpIdentity) {
+        // New USB identity so NBT MediaStore treats this as a different stick.
+        applyUsbIdentity();
+    }
     char ser[12];
     formatPdSerial(remountGen_, ser, sizeof(ser));
     MSC.mediaPresent(false);
@@ -209,11 +221,38 @@ void UsbMscGadget::remountMedia(const char* reason) {
     remountHoldUntilMs_ = millis() + 600;
     presentDeadlineMs_ = remountHoldUntilMs_;
     if (events_) {
-        char d[40];
-        snprintf(d, sizeof(d), "%s ser=%s", reason ? reason : "", ser);
+        char d[48];
+        snprintf(d, sizeof(d), "%s ser=%s%s", reason ? reason : "", ser,
+                 bumpIdentity ? "" : " keepId");
         events_->push("msc.remount", d);
     }
-    Serial.printf("[MSC] remount scheduled (%s) ser=%s\n", reason ? reason : "", ser);
+    Serial.printf("[MSC] remount scheduled (%s) ser=%s%s\n", reason ? reason : "", ser,
+                  bumpIdentity ? "" : " keepId");
+}
+
+void UsbMscGadget::setVolumeLabelOverride(const char* label) {
+    volumeLabelOverride_[0] = 0;
+    if (!label || !label[0]) return;
+    size_t n = 0;
+    while (label[n] && n < 11) {
+        char c = label[n];
+        if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
+        volumeLabelOverride_[n++] = c;
+    }
+    volumeLabelOverride_[n] = 0;
+}
+
+void UsbMscGadget::formatVolumeLabel(char* vol, size_t n) const {
+    if (!vol || n < 2) return;
+    if (volumeLabelOverride_[0]) {
+        snprintf(vol, n, "%s", volumeLabelOverride_);
+        return;
+    }
+    if (remountGen_ == 0) {
+        snprintf(vol, n, "PIDRIVE");
+    } else {
+        snprintf(vol, n, "PD%04u", (unsigned)(remountGen_ % 10000));
+    }
 }
 
 void UsbMscGadget::presentMedia(const char* reason) {
@@ -283,6 +322,8 @@ size_t UsbMscGadget::labBodyRead(int slot, uint32_t fileOff, uint8_t* out, size_
 
 void UsbMscGadget::startStream(const char* uid) {
     streamSlot_ = -1;
+    stallLeadLeft_ = stall_.leadBytes;
+    stallCmdActive_ = false;
     if (!uid || !uid[0]) return;
     for (size_t i = 0; i < kSlots; i++) {
         if (slots_[i].active && strcmp(slots_[i].uid, uid) == 0) {
@@ -402,14 +443,10 @@ void UsbMscGadget::patchBoot(uint8_t* sector) const {
 void UsbMscGadget::patchRootDir(uint8_t* sector, uint32_t lba) const {
     memset(sector, 0, 512);
     if (lba != kRootLba0) return;
-    // Volume label — include remount gen so HU cache key changes (PIDRIVE / PD0001 …).
+    // Volume label — default coupled to remountGen; override via setVolumeLabelOverride (P2).
     memset(sector, ' ', 11);
     char vol[12];
-    if (remountGen_ == 0) {
-        snprintf(vol, sizeof(vol), "PIDRIVE");
-    } else {
-        snprintf(vol, sizeof(vol), "PD%04u", (unsigned)(remountGen_ % 10000));
-    }
+    formatVolumeLabel(vol, sizeof(vol));
     size_t vl = strlen(vol);
     if (vl > 11) vl = 11;
     memcpy(sector, vol, vl);
@@ -739,6 +776,14 @@ int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32
             const bool live =
                 stream_ && stream_->active() && streamSlot_ >= 0 && f == &slots_[streamSlot_];
             if (live) {
+                if (stall_.enable && stall_.scope != 0) {
+                    int32_t n = onReadLiveStall(lba, offset, out, bufsize, fileOff);
+                    if (n > 0) {
+                        streamBytesServed_ += (uint32_t)n;
+                        noteDataRead(lba, (uint32_t)n);
+                    }
+                    return n;
+                }
                 stream_->readAt(fileOff, out, bufsize);
                 streamBytesServed_ += bufsize;
             } else if (f >= &slots_[0] && f <= &slots_[2]) {
@@ -757,6 +802,97 @@ int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32
     return (int32_t)bufsize;
 }
 
+int32_t UsbMscGadget::onReadLiveStall(uint32_t lba, uint32_t offset, uint8_t* out, uint32_t bufsize,
+                                      uint32_t fileOff) {
+    // Never stall ID3/cover head.
+    if (fileOff < stream_->id3Len()) {
+        stream_->readAt(fileOff, out, bufsize);
+        stallCmdActive_ = false;
+        return (int32_t)bufsize;
+    }
+
+    // Lead-bytes: ungebremst nach Kopf (Tap-Pfad Vorsprung).
+    if (stallLeadLeft_ > 0) {
+        uint32_t n = bufsize;
+        if (n > stallLeadLeft_) n = stallLeadLeft_;
+        stream_->readAt(fileOff, out, n);
+        stallLeadLeft_ -= n;
+        return (int32_t)n;
+    }
+
+    // Arm cursor for availability check (head snap path).
+    if (!stream_->cursorArmed()) {
+        stream_->armCursorAtLiveHead();
+    }
+
+    // Scope 1: only sequential after head (offset==0 starts / sequential hostExpect).
+    // First cut: scope 1 and 2 both stall live; Tap-out-of-order stays silence via readAt fallback.
+    const bool keyChanged = (lba != stallKeyLba_) || (offset != stallKeyOff_);
+    if (offset == 0 || keyChanged) {
+        if (offset == 0) {
+            stallCmdT0_ = millis();
+            stallCmdActive_ = true;
+            stallCmds_++;
+            if (stall_.leadBytes && stallLeadLeft_ == 0 && !stream_->cursorArmed()) {
+                stallLeadLeft_ = stall_.leadBytes;
+            }
+        }
+        if (stall_.timer == 1 || !stallCmdActive_) {
+            stallCbT0_ = millis();
+        }
+        stallKeyLba_ = lba;
+        stallKeyOff_ = offset;
+    }
+
+    const uint32_t t0 = (stall_.timer == 0) ? stallCmdT0_ : stallCbT0_;
+    const uint32_t waited = millis() - t0;
+    uint32_t avail = stream_->liveAvail();
+
+    if (avail >= bufsize) {
+        stream_->readAt(fileOff, out, bufsize);
+        stallWaitMsLast_ = waited;
+        if (waited > stallWaitMsMax_) stallWaitMsMax_ = waited;
+        stallWaitMsSum_ += waited;
+        if (waited < 100) stallWaitHist_[0]++;
+        else if (waited < 500) stallWaitHist_[1]++;
+        else if (waited < 1000) stallWaitHist_[2]++;
+        else if (waited < 2000) stallWaitHist_[3]++;
+        else stallWaitHist_[4]++;
+        stallCmdActive_ = (offset + bufsize) != 0;  // TinyUSB continues if more
+        if (stall_.timer == 1) stallCbT0_ = millis();
+        return (int32_t)bufsize;
+    }
+
+    if (waited >= stall_.maxMs) {
+        // Fallback: silence like today.
+        stream_->readAt(fileOff, out, bufsize);
+        stallTimeouts_++;
+        stallWaitMsLast_ = waited;
+        if (waited > stallWaitMsMax_) stallWaitMsMax_ = waited;
+        stallCmdActive_ = false;
+        return (int32_t)bufsize;
+    }
+
+    const uint16_t chunk = stall_.chunkBytes ? stall_.chunkBytes : 4096;
+    if (avail >= chunk) {
+        uint32_t n = (avail / chunk) * chunk;
+        if (n > bufsize) n = bufsize;
+        n = (n / 512u) * 512u;
+        if (n == 0) n = avail >= 512 ? 512 : 0;
+        if (n > 0) {
+            stream_->readAt(fileOff, out, n);
+            stallPartials_++;
+            stallPartialBytes_ += n;
+            if (stall_.timer == 1) stallCbT0_ = millis();
+            return (int32_t)n;
+        }
+    }
+
+    // Busy-Retry: never return <0 (USB STALL). Yield so producer/WiFi can run.
+    stallRetries_++;
+    vTaskDelay(pdMS_TO_TICKS(stall_.retryMs ? stall_.retryMs : 2));
+    return 0;
+}
 
 bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
     events_ = events;
@@ -1418,6 +1554,10 @@ void UsbMscGadget::toJson(JsonObject obj) const {
         char ser[12];
         formatPdSerial(remountGen_, ser, sizeof(ser));
         obj["usbSerial"] = ser;
+        char vol[12];
+        formatVolumeLabel(vol, sizeof(vol));
+        obj["volumeLabel"] = vol;
+        obj["volumeLabelOverride"] = volumeLabelOverride_;
     }
     obj["mediaWaitMs"] = (!mediaPresented_ && presentDeadlineMs_)
                              ? (int32_t)(presentDeadlineMs_ - millis())
@@ -1430,6 +1570,27 @@ void UsbMscGadget::toJson(JsonObject obj) const {
         pd["headLbaSlop"] = playDetect_.headLbaSlop;
         pd["cooldownMs"] = playDetect_.cooldownMs;
         pd["prefetchLbaSlop"] = playDetect_.prefetchLbaSlop;
+    }
+    {
+        JsonObject st = obj["stall"].to<JsonObject>();
+        st["enable"] = stall_.enable;
+        st["scope"] = stall_.scope;
+        st["timer"] = stall_.timer;
+        st["maxMs"] = stall_.maxMs;
+        st["chunkBytes"] = stall_.chunkBytes;
+        st["retryMs"] = stall_.retryMs;
+        st["leadBytes"] = stall_.leadBytes;
+        st["underrunCursorHold"] = stall_.underrunCursorHold;
+        st["cmds"] = stallCmds_;
+        st["retries"] = stallRetries_;
+        st["partials"] = stallPartials_;
+        st["partialBytes"] = stallPartialBytes_;
+        st["timeouts"] = stallTimeouts_;
+        st["waitMsMax"] = stallWaitMsMax_;
+        st["waitMsLast"] = stallWaitMsLast_;
+        st["waitMsSum"] = stallWaitMsSum_;
+        JsonArray h = st["waitHist"].to<JsonArray>();
+        for (int i = 0; i < 5; i++) h.add(stallWaitHist_[i]);
     }
     {
         JsonObject x = obj["xfer"].to<JsonObject>();
@@ -1489,6 +1650,15 @@ void UsbMscGadget::loop() {}
 void UsbMscGadget::applyMenuSlots(const MenuStore&) {}
 void UsbMscGadget::presentMedia(const char*) {}
 void UsbMscGadget::remountMedia(const char*) {}
+void UsbMscGadget::remountMediaKeepIdentity(const char*) {}
+void UsbMscGadget::remountMediaInternal(const char*, bool) {}
+void UsbMscGadget::setVolumeLabelOverride(const char*) {}
+void UsbMscGadget::formatVolumeLabel(char* vol, size_t n) const {
+    if (vol && n) vol[0] = '\0';
+}
+int32_t UsbMscGadget::onReadLiveStall(uint32_t, uint32_t, uint8_t*, uint32_t, uint32_t) {
+    return -1;
+}
 void UsbMscGadget::applyUsbIdentity() {}
 void UsbMscGadget::loadRemountGenNvs() {}
 void UsbMscGadget::saveRemountGenNvs() const {}
