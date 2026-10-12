@@ -827,8 +827,10 @@ int32_t UsbMscGadget::onReadLiveStall(uint32_t lba, uint32_t offset, uint8_t* ou
 
     // Scope 1: only sequential after head (offset==0 starts / sequential hostExpect).
     // First cut: scope 1 and 2 both stall live; Tap-out-of-order stays silence via readAt fallback.
+    // Busy-Retry re-enters with the SAME (lba,offset) — must NOT reset cmd/cb timers or cmds++
+    // (Lab 2026-10-12: offset==0 on every return-0 cleared stallCmdT0_ → maxMs never fired).
     const bool keyChanged = (lba != stallKeyLba_) || (offset != stallKeyOff_);
-    if (offset == 0 || keyChanged) {
+    if (keyChanged) {
         if (offset == 0) {
             stallCmdT0_ = millis();
             stallCmdActive_ = true;
