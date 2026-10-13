@@ -164,6 +164,11 @@ void UsbMscGadget::formatPdSerial(uint16_t gen, char* ser, size_t n) {
     }
 }
 
+void UsbMscGadget::formatProductRevision(uint16_t gen, char* rev, size_t n) {
+    snprintf(rev, n, "%02u%02u", (unsigned)((gen / 100) % 100),
+             (unsigned)(gen % 100));
+}
+
 void UsbMscGadget::loadRemountGenNvs() {
     Preferences prefs;
     if (!prefs.begin("pidrive", true)) return;
@@ -186,8 +191,7 @@ void UsbMscGadget::applyUsbIdentity() {
     formatPdSerial(remountGen_, ser, sizeof(ser));
     USB.serialNumber(ser);
     char rev[5];
-    snprintf(rev, sizeof(rev), "%02u%02u", (unsigned)((remountGen_ / 100) % 100),
-             (unsigned)(remountGen_ % 100));
+    formatProductRevision(remountGen_, rev, sizeof(rev));
     MSC.productRevision(rev);
     saveRemountGenNvs();
 }
@@ -214,6 +218,7 @@ void UsbMscGadget::remountMediaInternal(const char* reason, bool bumpIdentity) {
     char ser[12];
     formatPdSerial(remountGen_, ser, sizeof(ser));
     MSC.mediaPresent(false);
+    transportEpoch_++;
     mediaPresented_ = false;
     indexSettled_ = false;
     quietEmitted_ = false;
@@ -253,6 +258,12 @@ void UsbMscGadget::formatVolumeLabel(char* vol, size_t n) const {
     } else {
         snprintf(vol, n, "PD%04u", (unsigned)(remountGen_ % 10000));
     }
+}
+
+uint32_t UsbMscGadget::effectiveFatVolumeId() const {
+    if (fatVolumeIdOverride_ != 0) return fatVolumeIdOverride_;
+    // "PD" marker in the high bytes plus generation gives a stable, visible rotation.
+    return 0x50440000u | (uint32_t)remountGen_;
 }
 
 void UsbMscGadget::presentMedia(const char* reason) {
@@ -436,6 +447,18 @@ void UsbMscGadget::patchBoot(uint8_t* sector) const {
     }
     sector[22] = kFatSpf;
     sector[23] = 0;
+    // FAT12/16 extended BPB identity. Keep BPB and root-directory labels identical.
+    const uint32_t volumeId = effectiveFatVolumeId();
+    sector[39] = (uint8_t)(volumeId & 0xFF);
+    sector[40] = (uint8_t)((volumeId >> 8) & 0xFF);
+    sector[41] = (uint8_t)((volumeId >> 16) & 0xFF);
+    sector[42] = (uint8_t)((volumeId >> 24) & 0xFF);
+    memset(sector + 43, ' ', 11);
+    char vol[12];
+    formatVolumeLabel(vol, sizeof(vol));
+    size_t vl = strlen(vol);
+    if (vl > 11) vl = 11;
+    memcpy(sector + 43, vol, vl);
     // OEM / FS type string (offset 54, 8 bytes)
     if (MscGeo::kFat16) {
         memcpy(sector + 54, "FAT16   ", 8);
@@ -447,7 +470,7 @@ void UsbMscGadget::patchBoot(uint8_t* sector) const {
 void UsbMscGadget::patchRootDir(uint8_t* sector, uint32_t lba) const {
     memset(sector, 0, 512);
     if (lba != kRootLba0) return;
-    // Volume label — default coupled to remountGen; override via setVolumeLabelOverride (P2).
+    // Root volume label mirrors the BPB label unless an explicit future divergence test says otherwise.
     memset(sector, ' ', 11);
     char vol[12];
     formatVolumeLabel(vol, sizeof(vol));
@@ -928,8 +951,7 @@ bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
         formatPdSerial(remountGen_, ser, sizeof(ser));
         USB.serialNumber(ser);
         char rev[5];
-        snprintf(rev, sizeof(rev), "%02u%02u", (unsigned)((remountGen_ / 100) % 100),
-                 (unsigned)(remountGen_ % 100));
+        formatProductRevision(remountGen_, rev, sizeof(rev));
         MSC.productRevision(rev);
         if (events_) {
             char d[24];
@@ -965,6 +987,7 @@ void UsbMscGadget::onUsbPlugged(bool on) {
     suspended_ = false;
     changeMs_ = millis();
     if (on) {
+        transportEpoch_++;
         plugMs_ = changeMs_;
         firstReadMs_ = 0;
         playGuessMs_ = 0;
@@ -1573,8 +1596,15 @@ void UsbMscGadget::toJson(JsonObject obj) const {
         char ser[12];
         formatPdSerial(remountGen_, ser, sizeof(ser));
         obj["usbSerial"] = ser;
+        char rev[5];
+        formatProductRevision(remountGen_, rev, sizeof(rev));
+        obj["productRevision"] = rev;
         char vol[12];
         formatVolumeLabel(vol, sizeof(vol));
+        obj["bpbVolumeId"] = effectiveFatVolumeId();
+        obj["bpbVolumeIdOverride"] = fatVolumeIdOverride_;
+        obj["bpbLabel"] = vol;
+        obj["rootLabel"] = vol;
         obj["volumeLabel"] = vol;
         obj["volumeLabelOverride"] = volumeLabelOverride_;
     }
@@ -1634,6 +1664,10 @@ void UsbMscGadget::toJson(JsonObject obj) const {
     obj["msPlugToPlayGuess"] = msPlugToPlayGuess_;
     obj["plugCount"] = plugCount_;
     obj["unplugCount"] = unplugCount_;
+    obj["transportEpoch"] = transportEpoch_;
+    // Arduino USBMSC does not expose the TinyUSB BOT-reset request here.
+    // Keep this explicit so transport epochs are never cited as BOT resets.
+    obj["botResetObservable"] = false;
     obj["sectorCount"] = kVirtSectorCount;
     obj["imageBytes"] = DEMO_FAT_SIZE;
     obj["dataStartLba"] = kDataStartLba;
@@ -1646,9 +1680,12 @@ void UsbMscGadget::toJson(JsonObject obj) const {
         o["i"] = (int)i;
         o["uid"] = slots_[i].uid;
         o["name"] = slots_[i].name;
+        o["path"] = slots_[i].path;
         o["kind"] = slots_[i].kind;
         o["lba0"] = slots_[i].lbaStart;
         o["lba1"] = slots_[i].lbaEnd;
+        o["startCluster"] = lbaToCluster(slots_[i].lbaStart);
+        o["fileBytes"] = slotBytes(slots_[i]);
         o["active"] = slots_[i].active;
         o["bytes"] = slotStats_[i].bytes;
         o["fromHead"] = slotStats_[i].fromHeadHits;
@@ -1688,6 +1725,10 @@ void UsbMscGadget::formatPdSerial(uint16_t, char* ser, size_t n) {
         ser[0] = '\0';
     }
 }
+void UsbMscGadget::formatProductRevision(uint16_t, char* rev, size_t n) {
+    if (rev && n) rev[0] = '\0';
+}
+uint32_t UsbMscGadget::effectiveFatVolumeId() const { return fatVolumeIdOverride_; }
 void UsbMscGadget::startStream(const char*) {}
 void UsbMscGadget::stopStream() {}
 void UsbMscGadget::beginPreWarmWatch(const char*) {}

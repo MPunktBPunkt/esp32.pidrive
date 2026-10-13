@@ -9,6 +9,22 @@
 #include <esp_system.h>
 #include <cstring>
 
+static const char* resetReasonName(esp_reset_reason_t reason) {
+    switch (reason) {
+        case ESP_RST_POWERON: return "power_on";
+        case ESP_RST_EXT: return "external";
+        case ESP_RST_SW: return "software";
+        case ESP_RST_PANIC: return "panic";
+        case ESP_RST_INT_WDT: return "interrupt_watchdog";
+        case ESP_RST_TASK_WDT: return "task_watchdog";
+        case ESP_RST_WDT: return "watchdog";
+        case ESP_RST_DEEPSLEEP: return "deep_sleep";
+        case ESP_RST_BROWNOUT: return "brownout";
+        case ESP_RST_SDIO: return "sdio";
+        default: return "unknown";
+    }
+}
+
 App& App::instance() {
     static App app;
     return app;
@@ -206,6 +222,9 @@ void App::buildHeartbeat(JsonDocument& doc) {
     doc["ip"] = WiFi.status() == WL_CONNECTED ? NetUtil::localIp() : softApIp;
     doc["rssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
     doc["uptime"] = (millis() - bootMs_) / 1000UL;
+    doc["uptimeMs"] = millis() - bootMs_;
+    doc["resetReason"] = resetReasonName(esp_reset_reason());
+    doc["resetReasonCode"] = (int)esp_reset_reason();
     doc["freeHeap"] = ESP.getFreeHeap();
     doc["freeSketch"] = ESP.getFreeSketchSpace();
 
@@ -239,6 +258,9 @@ void App::buildStatus(JsonDocument& doc) {
     doc["softApPass"] = config.softApPass;
     doc["mac"] = NetUtil::macNoColon();
     doc["uptime"] = NetUtil::fmtUptime((millis() - bootMs_) / 1000UL);
+    doc["uptimeMs"] = millis() - bootMs_;
+    doc["resetReason"] = resetReasonName(esp_reset_reason());
+    doc["resetReasonCode"] = (int)esp_reset_reason();
     doc["freeHeap"] = ESP.getFreeHeap();
     doc["wifiRssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
     doc["hubOk"] = hub.lastOk();
@@ -433,9 +455,12 @@ void App::handleApiLabRemount() {
                 if (config.volumeLabel.length() > 11) {
                     config.volumeLabel = config.volumeLabel.substring(0, 11);
                 }
-                config.save();
-                applyStallFromConfig();
             }
+            if (!body["fatVolumeId"].isNull()) {
+                config.fatVolumeId = body["fatVolumeId"].as<uint32_t>();
+            }
+            config.save();
+            applyStallFromConfig();
         }
     }
     if (keepId) msc.remountMediaKeepIdentity("lab");
@@ -692,7 +717,9 @@ void App::applyStallFromConfig() {
     s.silenceMatchLive = config.silenceMatchLive;
     msc.setStallParams(s);
     msc.setVolumeLabelOverride(config.volumeLabel.c_str());
-    Serial.printf("[MSC] stall en=%d scope=%u timer=%u max=%ums chunk=%u retry=%ums vol='%s'\n",
+    msc.setFatVolumeIdOverride(config.fatVolumeId);
+    Serial.printf("[MSC] stall en=%d scope=%u timer=%u max=%ums chunk=%u retry=%ums vol='%s' id=%08lX\n",
                   (int)s.enable, (unsigned)s.scope, (unsigned)s.timer, (unsigned)s.maxMs,
-                  (unsigned)s.chunkBytes, (unsigned)s.retryMs, config.volumeLabel.c_str());
+                  (unsigned)s.chunkBytes, (unsigned)s.retryMs, config.volumeLabel.c_str(),
+                  (unsigned long)config.fatVolumeId);
 }

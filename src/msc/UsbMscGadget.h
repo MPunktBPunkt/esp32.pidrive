@@ -121,9 +121,12 @@ public:
     PlayDetectParams playDetectParams() const { return playDetect_; }
     void setStallParams(const StallParams& p) { stall_ = p; }
     StallParams stallParams() const { return stall_; }
-    /** Empty = FAT label follows remountGen (PD%04u). Non-empty ≤11 chars overrides label only. */
+    /** Empty = FAT BPB + root label follow remountGen. Non-empty ≤11 chars overrides both. */
     void setVolumeLabelOverride(const char* label);
     const char* volumeLabelOverride() const { return volumeLabelOverride_; }
+    /** 0 = FAT BPB Volume-ID follows remountGen; non-zero freezes/overrides it. */
+    void setFatVolumeIdOverride(uint32_t id) { fatVolumeIdOverride_ = id; }
+    uint32_t fatVolumeIdOverride() const { return fatVolumeIdOverride_; }
     uint32_t readOverflowCount() const { return readOverflowCount_; }
     void noteReadsEmitted() { readsEmitCount_++; }
     void startStream(const char* uid);
@@ -210,7 +213,9 @@ private:
     void loadRemountGenNvs();
     void saveRemountGenNvs() const;
     static void formatPdSerial(uint16_t gen, char* ser, size_t n);
+    static void formatProductRevision(uint16_t gen, char* rev, size_t n);
     void formatVolumeLabel(char* vol, size_t n) const;
+    uint32_t effectiveFatVolumeId() const;
     int32_t onReadLiveStall(uint32_t lba, uint32_t offset, uint8_t* out, uint32_t bufsize,
                            uint32_t fileOff);
     /** Patch boot BPB to virtual geometry; synthesize root; STATIONS/SETTINGS LFNs. */
@@ -252,6 +257,7 @@ private:
     PlayDetectParams playDetect_;
     StallParams stall_;
     char volumeLabelOverride_[12] = {0};
+    uint32_t fatVolumeIdOverride_ = 0;
 
     /** Stall telemetry / wait state (usbd task). */
     uint32_t stallCmds_ = 0;
@@ -307,6 +313,8 @@ private:
     uint8_t lastRejectEval_ = 0xFF;
     uint32_t plugCount_ = 0;
     uint32_t unplugCount_ = 0;
+    /** Application-visible USB/media epoch; not a TinyUSB BOT-reset counter. */
+    uint32_t transportEpoch_ = 0;
     uint32_t prefetchHits_ = 0;
     uint32_t playRejectCount_ = 0;
     uint32_t playGuessCount_ = 0;
@@ -337,7 +345,7 @@ private:
     bool mediaPresented_ = false;
     uint32_t presentDeadlineMs_ = 0;
     uint32_t remountHoldUntilMs_ = 0;
-    uint16_t remountGen_ = 0;  // bumps USB serial + volume label (BMW MediaStore cache)
+    uint16_t remountGen_ = 0;  // bumps USB serial/revision and default FAT identity
     Phase phase_ = Phase::Idle;
     bool quietEmitted_ = false;
     /** Set on first msc.quiet after plug — blocks play.guess during deep 512KiB index. */
