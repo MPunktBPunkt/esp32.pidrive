@@ -222,6 +222,12 @@ void UsbMscGadget::remountMediaInternal(const char* reason, bool bumpIdentity) {
     mediaPresented_ = false;
     indexSettled_ = false;
     quietEmitted_ = false;
+    // Soft remount is not a USB plug event — leave Play so msc.quiet can
+    // settle the index again (evaluatePlay rejects plug_window while !settled).
+    phase_ = Phase::Idle;
+    stallArmed_ = false;
+    stallCmdActive_ = false;
+    playGuessMs_ = 0;
     // Longer not-ready: BMW needs time to drop the auto-play queue / DIR cache.
     remountHoldUntilMs_ = millis() + 600;
     presentDeadlineMs_ = remountHoldUntilMs_;
