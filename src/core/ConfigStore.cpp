@@ -34,6 +34,7 @@ void ConfigStore::applyDefaults() {
     underrunCursorHold = false;
     silenceMatchLive = false;
     volumeLabel = "";
+    fatVolumeId = 0;
 }
 
 void ConfigStore::begin() {
@@ -82,6 +83,9 @@ void ConfigStore::load() {
         underrunCursorHold = prefs.getBool("stall_hold", underrunCursorHold);
         silenceMatchLive = prefs.getBool("sil_live", silenceMatchLive);
         volumeLabel = prefs.getString("vol_lab", volumeLabel);
+        if (ver >= 6) {
+            fatVolumeId = prefs.getUInt("fat_vid", fatVolumeId);
+        }
     }
     prefs.end();
     if (heartbeatIntervalS < 5) heartbeatIntervalS = 5;
@@ -140,6 +144,7 @@ void ConfigStore::save() {
     prefs.putBool("stall_hold", underrunCursorHold);
     prefs.putBool("sil_live", silenceMatchLive);
     prefs.putString("vol_lab", volumeLabel);
+    prefs.putUInt("fat_vid", fatVolumeId);
     prefs.end();
 }
 
@@ -182,6 +187,7 @@ void ConfigStore::toJson(JsonObject obj) const {
     obj["underrunCursorHold"] = underrunCursorHold;
     obj["silenceMatchLive"] = silenceMatchLive;
     obj["volumeLabel"] = volumeLabel;
+    obj["fatVolumeId"] = fatVolumeId;
 }
 
 bool ConfigStore::fromJson(JsonVariantConst obj) {
@@ -215,6 +221,7 @@ bool ConfigStore::fromJson(JsonVariantConst obj) {
     if (!obj["underrunCursorHold"].isNull()) underrunCursorHold = obj["underrunCursorHold"].as<bool>();
     if (!obj["silenceMatchLive"].isNull()) silenceMatchLive = obj["silenceMatchLive"].as<bool>();
     if (obj["volumeLabel"].is<const char*>()) volumeLabel = obj["volumeLabel"].as<String>();
+    if (!obj["fatVolumeId"].isNull()) fatVolumeId = obj["fatVolumeId"].as<uint32_t>();
     if (deviceName.length() == 0) deviceName = DEVICE_NAME_DEFAULT;
     if (hubPort <= 0 || hubPort > 65535) hubPort = HUB_PORT_DEFAULT;
     if (heartbeatIntervalS < 5) heartbeatIntervalS = 5;

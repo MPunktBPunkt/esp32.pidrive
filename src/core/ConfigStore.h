@@ -50,6 +50,8 @@ public:
     bool silenceMatchLive = false;
     /** FAT volume label override (≤11). Empty = coupled to remountGen (PD%04u). */
     String volumeLabel = "";
+    /** FAT BPB Volume-ID override. 0 = follow remountGen (0x5044 | gen). */
+    uint32_t fatVolumeId = 0;
 
     void begin();
     void load();
@@ -60,5 +62,5 @@ public:
     bool fromJson(JsonVariantConst obj);
 
 private:
-    static constexpr uint8_t kConfigVersion = 5;
+    static constexpr uint8_t kConfigVersion = 6;
 };
