@@ -1,6 +1,7 @@
 #include "App.h"
 #include "core/NetUtil.h"
 #include "msc/LabBodySeed.h"
+#include "msc/MessCapture.h"
 #include "web/UiPages.h"
 #include <WiFi.h>
 #include <WiFiManager.h>
@@ -66,6 +67,16 @@ void App::begin() {
         [](const char* code, const char* detail) { App::instance().pump.sendDiag(code, detail); });
     msc.setReadsHandler(
         [](const MscReadBurst& b) { App::instance().pump.sendMscReads(b); });
+    {
+        auto& mess = MessCapture::instance();
+#if defined(PIDRIVE_MESS) && PIDRIVE_MESS
+        mess.setEnabled(true);
+#else
+        mess.setEnabled(false);
+#endif
+        mess.setEmitHandler(
+            [](const MessCmd& c) { App::instance().pump.sendMessCmd(c); });
+    }
 
     setupWifi();
 
@@ -170,6 +181,10 @@ void App::setupWeb() {
     server_.on("/api/lab/body_read", HTTP_GET, [this]() { handleApiLabBodyRead(); });
     server_.on("/api/lab/listen", HTTP_GET, [this]() { handleApiLabListen(); });
     server_.on("/api/lab/cover", HTTP_GET, [this]() { handleApiLabCover(); });
+    server_.on("/api/lab/usb", HTTP_POST, [this]() { handleApiLabUsb(); });
+    server_.on("/api/lab/mess", HTTP_GET, [this]() { handleApiLabMess(); });
+    server_.on("/api/lab/mess", HTTP_POST, [this]() { handleApiLabMess(); });
+    server_.on("/api/lab/situation", HTTP_POST, [this]() { handleApiLabSituation(); });
     server_.on("/api/metrics", HTTP_GET, [this]() { handleApiMetrics(); });
     server_.on("/api/restart", HTTP_POST, [this]() { handleRestart(); });
     server_.on(
@@ -195,6 +210,7 @@ void App::loop() {
     server_.handleClient();
     hub.loop();
     msc.loop();
+    MessCapture::instance().loop();
     uart.loop();
     pump.loop();
     pumpUp = pump.up();
@@ -298,6 +314,8 @@ void App::buildStatus(JsonDocument& doc) {
     doc["led"] = led.modeName();
     JsonObject m = doc["msc"].to<JsonObject>();
     msc.toJson(m);
+    JsonObject mess = doc["mess"].to<JsonObject>();
+    MessCapture::instance().toJson(mess);
     JsonArray tr = doc["mscTrace"].to<JsonArray>();
     msc.traceToJson(tr);
     JsonObject u = doc["uart"].to<JsonObject>();
@@ -311,6 +329,7 @@ void App::buildStatus(JsonDocument& doc) {
     otg["msSinceChange"] = msc.msSinceChange();
     otg["plugCount"] = msc.plugCount();
     otg["unplugCount"] = msc.unplugCount();
+    otg["softUsbAttached"] = MessCapture::instance().usbAttached();
     otg["sense"] = "tinyusb-mount";
     JsonObject pi = ports["uart"].to<JsonObject>();
     pi["label"] = "PI";
@@ -609,6 +628,194 @@ void App::handleApiLabCover() {
     server_.client().write(jpeg, n);
 }
 
+bool App::requireLabMode() {
+    if (!config.labMode) {
+        NetUtil::sendError(server_, 403, "labMode aus");
+        return false;
+    }
+    return true;
+}
+
+/** Soft USB bus attach/detach (D+ pull-up via TinyUSB). NOT VBUS / physical OTG power.
+ *  POST {"attach":true|false, "holdMs":0..5000}  holdMs>0 auto-reattach after detach. */
+void App::handleApiLabUsb() {
+    if (!requireLabMode()) return;
+    JsonDocument body;
+    if (!NetUtil::readJsonBody(server_, body)) return;
+    auto& mess = MessCapture::instance();
+    bool ok = true;
+    const char* action = "noop";
+    if (!body["attach"].isNull()) {
+        bool attach = body["attach"] | true;
+        uint16_t holdMs = (uint16_t)(body["holdMs"] | 0);
+        if (attach) {
+            ok = mess.usbAttach();
+            action = "attach";
+        } else {
+            if (holdMs > 5000) holdMs = 5000;
+            ok = mess.usbDetach(holdMs);
+            action = holdMs ? "cycle" : "detach";
+        }
+    } else if (!body["cycleMs"].isNull()) {
+        uint16_t holdMs = (uint16_t)(body["cycleMs"] | 600);
+        if (holdMs < 50) holdMs = 50;
+        if (holdMs > 5000) holdMs = 5000;
+        ok = mess.usbDetach(holdMs);
+        action = "cycle";
+    } else {
+        NetUtil::sendError(server_, 400, "attach bool or cycleMs");
+        return;
+    }
+    events.push("lab.usb", action);
+    mess.mark(action);
+    JsonDocument doc;
+    doc["ok"] = ok;
+    doc["action"] = action;
+    doc["usbAttached"] = mess.usbAttached();
+    doc["otgPlugged"] = msc.plugged();
+    doc["note"] = "soft_usb=D+_pullup_not_VBUS";
+    NetUtil::sendJson(server_, ok ? 200 : 500, doc);
+}
+
+/** GET: ring dump. POST: {"enable":bool,"reset":bool,"mark":"label"} */
+void App::handleApiLabMess() {
+    if (!requireLabMode()) return;
+    auto& mess = MessCapture::instance();
+    if (server_.method() == HTTP_POST) {
+        JsonDocument body;
+        if (!NetUtil::readJsonBody(server_, body)) return;
+        if (!body["enable"].isNull()) mess.setEnabled(body["enable"] | true);
+        if (body["reset"] | false) mess.reset();
+        if (body["mark"].is<const char*>()) mess.mark(body["mark"].as<const char*>());
+    }
+    JsonDocument doc;
+    doc["ok"] = true;
+    JsonObject meta = doc["mess"].to<JsonObject>();
+    mess.toJson(meta);
+#if defined(PIDRIVE_MESS) && PIDRIVE_MESS
+    doc["cmdCapture"] = true;
+#else
+    doc["cmdCapture"] = false;
+    doc["hint"] = "flash env pidrive-s3-mess for READ10 cmd capture";
+#endif
+    MessCmd buf[64];
+    size_t n = mess.copyRecent(buf, 64);
+    JsonArray arr = doc["cmds"].to<JsonArray>();
+    for (size_t i = 0; i < n; i++) {
+        JsonObject o = arr.add<JsonObject>();
+        o["t0_us"] = buf[i].t0Us;
+        o["dur_us"] = (buf[i].t1Us >= buf[i].t0Us) ? (buf[i].t1Us - buf[i].t0Us) : 0;
+        o["gap_us"] = buf[i].gapUs;
+        o["op"] = buf[i].op;
+        o["lba"] = buf[i].lba;
+        o["bytes"] = buf[i].bytes;
+        o["blocks"] = buf[i].bytes / 512u;
+        o["chunks"] = buf[i].chunks;
+        o["busy"] = buf[i].busyN;
+        o["st"] = buf[i].status;
+        if (buf[i].tag[0]) o["tag"] = buf[i].tag;
+    }
+    NetUtil::sendJson(server_, 200, doc);
+}
+
+/** POST {"name":"usb_cycle"|"media_remount"|"stop"|"stall_on"|"stall_off"|"identity"|"mark",
+ *         "holdMs":600,"keepIdentity":false,"mark":"...","maxMs":500} */
+void App::handleApiLabSituation() {
+    if (!requireLabMode()) return;
+    JsonDocument body;
+    if (!NetUtil::readJsonBody(server_, body)) return;
+    const char* name = body["name"] | "";
+    if (!name[0]) {
+        NetUtil::sendError(server_, 400, "name required");
+        return;
+    }
+    auto& mess = MessCapture::instance();
+    bool ok = true;
+    String detail = name;
+
+    if (strcmp(name, "usb_cycle") == 0) {
+        uint16_t holdMs = (uint16_t)(body["holdMs"] | 600);
+        if (holdMs < 50) holdMs = 50;
+        if (holdMs > 5000) holdMs = 5000;
+        if (stream.active()) {
+            stream.stop();
+            msc.stopStream();
+            menu.clearPlaying();
+        }
+        ok = mess.usbDetach(holdMs);
+        mess.mark("usb_cycle");
+    } else if (strcmp(name, "usb_detach") == 0) {
+        if (stream.active()) {
+            stream.stop();
+            msc.stopStream();
+            menu.clearPlaying();
+        }
+        ok = mess.usbDetach(0);
+        mess.mark("usb_detach");
+    } else if (strcmp(name, "usb_attach") == 0) {
+        ok = mess.usbAttach();
+        mess.mark("usb_attach");
+    } else if (strcmp(name, "media_remount") == 0) {
+        if (stream.active()) {
+            stream.stop();
+            msc.stopStream();
+            menu.clearPlaying();
+        }
+        bool keepId = body["keepIdentity"] | false;
+        if (keepId) msc.remountMediaKeepIdentity("sit");
+        else msc.remountMedia("sit");
+        mess.mark("media_remount");
+    } else if (strcmp(name, "stop") == 0) {
+        stream.stop();
+        msc.stopStream();
+        menu.clearPlaying();
+        mess.mark("stop");
+    } else if (strcmp(name, "stall_on") == 0) {
+        config.stallEnable = true;
+        if (!body["maxMs"].isNull()) config.stallMaxMs = (uint16_t)(body["maxMs"] | 500);
+        if (!body["scope"].isNull()) config.stallScope = (uint8_t)(body["scope"] | 1);
+        config.save();
+        applyStallFromConfig();
+        mess.mark("stall_on");
+    } else if (strcmp(name, "stall_off") == 0) {
+        config.stallEnable = false;
+        config.save();
+        applyStallFromConfig();
+        mess.mark("stall_off");
+    } else if (strcmp(name, "identity") == 0) {
+        if (stream.active()) {
+            stream.stop();
+            msc.stopStream();
+            menu.clearPlaying();
+        }
+        msc.remountMedia("identity");
+        mess.mark("identity");
+    } else if (strcmp(name, "mark") == 0) {
+        const char* tag = body["mark"] | "mark";
+        mess.mark(tag);
+        detail = tag;
+    } else if (strcmp(name, "reset_capture") == 0) {
+        mess.reset();
+        mess.mark("reset");
+    } else {
+        NetUtil::sendError(server_, 400,
+                           "name: usb_cycle|usb_detach|usb_attach|media_remount|stop|"
+                           "stall_on|stall_off|identity|mark|reset_capture");
+        return;
+    }
+
+    events.push("lab.situation", detail.c_str());
+    JsonDocument doc;
+    doc["ok"] = ok;
+    doc["name"] = name;
+    doc["usbAttached"] = mess.usbAttached();
+    doc["otgPlugged"] = msc.plugged();
+    doc["mediaPresented"] = msc.mediaPresented();
+    doc["streamActive"] = stream.active();
+    doc["note"] = "soft_usb≠VBUS; media_remount≠usb_cycle";
+    NetUtil::sendJson(server_, ok ? 200 : 500, doc);
+}
+
 void App::handleApiLabListen() {
     if (!stream.active() || stream.size() < 2048) {
         server_.send(503, F("text/plain"), F("kein Live-Stream — Station per Menü/Play starten"));
@@ -659,6 +866,8 @@ void App::handleApiMetrics() {
     doc["freeHeap"] = ESP.getFreeHeap();
     JsonObject m = doc["msc"].to<JsonObject>();
     msc.toJson(m);
+    JsonObject mess = doc["mess"].to<JsonObject>();
+    MessCapture::instance().toJson(mess);
     JsonArray tr = doc["mscTrace"].to<JsonArray>();
     msc.traceToJson(tr);
     JsonObject u = doc["uart"].to<JsonObject>();

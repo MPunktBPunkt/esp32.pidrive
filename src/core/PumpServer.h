@@ -8,6 +8,7 @@
 #include "core/UartLinkMonitor.h"
 #include "core/StreamBuffer.h"
 #include "msc/UsbMscGadget.h"
+#include "msc/MessCapture.h"
 
 /** PUMP over UART and/or TCP: line-JSON control + binary audio frames.
  *
@@ -32,6 +33,8 @@ public:
     void sendDiag(const char* code, const char* detail = "");
     /** Batched MSC read timeline (drained from UsbMscGadget::loop). */
     void sendMscReads(const MscReadBurst& burst);
+    /** Per-READ10/WRITE10 command (mess-fw MessCapture). */
+    void sendMessCmd(const MessCmd& cmd);
     void sendJson(const JsonDocument& doc);
     StreamBuffer* stream() { return stream_; }
 

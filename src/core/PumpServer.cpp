@@ -124,6 +124,25 @@ void PumpServer::sendMscReads(const MscReadBurst& burst) {
     if (msc_) msc_->noteReadsEmitted();
 }
 
+void PumpServer::sendMessCmd(const MessCmd& cmd) {
+    if (!tcpLinked_ && !up_) return;
+    if (tcpLinked_) active_ = Link::Tcp;
+    else active_ = Link::SerialLink;
+    char line[256];
+    const uint32_t durUs =
+        (cmd.t1Us >= cmd.t0Us) ? (cmd.t1Us - cmd.t0Us) : 0;
+    const uint32_t blocks = cmd.bytes / 512u;
+    snprintf(line, sizeof(line),
+             "{\"t\":\"event\",\"op\":\"msc.cmd\",\"t0_us\":%lu,\"dur_us\":%lu,\"gap_us\":%lu,"
+             "\"op\":%u,\"lba\":%lu,\"bytes\":%lu,\"blocks\":%lu,\"chunks\":%u,\"busy\":%u,"
+             "\"st\":%u,\"tag\":\"%s\"}",
+             (unsigned long)cmd.t0Us, (unsigned long)durUs, (unsigned long)cmd.gapUs,
+             (unsigned)cmd.op, (unsigned long)cmd.lba, (unsigned long)cmd.bytes,
+             (unsigned long)blocks, (unsigned)cmd.chunks, (unsigned)cmd.busyN,
+             (unsigned)cmd.status, cmd.tag[0] ? cmd.tag : "");
+    sendRaw(line);
+}
+
 void PumpServer::setCoverMeta(const char* src, const char* path, const char* tryList) {
     coverSrc_[0] = coverPath_[0] = coverTry_[0] = 0;
     if (src && src[0]) {

@@ -11,6 +11,7 @@
 #include "core/PumpServer.h"
 #include "core/StreamBuffer.h"
 #include "msc/UsbMscGadget.h"
+#include "msc/MessCapture.h"
 
 class App {
 public:
@@ -56,11 +57,15 @@ private:
     void handleApiLabBodyRead();
     void handleApiLabListen();
     void handleApiLabCover();
+    void handleApiLabUsb();
+    void handleApiLabMess();
+    void handleApiLabSituation();
     void handleApiMetrics();
     void handleOtaUpload();
     void handleRestart();
     void applyPlayDetectFromConfig();
     void applyStallFromConfig();
+    bool requireLabMode();
 
     WebServer server_{80};
     unsigned long bootMs_ = 0;
