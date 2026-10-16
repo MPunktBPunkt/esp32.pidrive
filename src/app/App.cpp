@@ -668,6 +668,7 @@ void App::handleApiLabUsb() {
             action = "attach";
         } else {
             if (holdMs > 5000) holdMs = 5000;
+            msc.armSoftUsbKeepIdentity();
             ok = mess.usbDetach(holdMs);
             action = holdMs ? "cycle" : "detach";
         }
@@ -675,6 +676,7 @@ void App::handleApiLabUsb() {
         uint16_t holdMs = (uint16_t)(body["cycleMs"] | 600);
         if (holdMs < 50) holdMs = 50;
         if (holdMs > 5000) holdMs = 5000;
+        msc.armSoftUsbKeepIdentity();
         ok = mess.usbDetach(holdMs);
         action = "cycle";
     } else {
@@ -810,6 +812,7 @@ void App::handleApiLabSituation() {
             msc.stopStream();
             menu.clearPlaying();
         }
+        msc.armSoftUsbKeepIdentity();
         ok = mess.usbDetach(holdMs);
         mess.mark("usb_cycle");
     } else if (strcmp(name, "usb_detach") == 0) {
@@ -818,6 +821,7 @@ void App::handleApiLabSituation() {
             msc.stopStream();
             menu.clearPlaying();
         }
+        msc.armSoftUsbKeepIdentity();
         ok = mess.usbDetach(0);
         mess.mark("usb_detach");
     } else if (strcmp(name, "usb_attach") == 0) {

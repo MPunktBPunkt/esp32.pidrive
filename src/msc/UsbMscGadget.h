@@ -119,6 +119,8 @@ public:
     void remountMedia(const char* reason);
     /** Like remountMedia but keep USB serial / remountGen (Volume-Label-Isolationstest). */
     void remountMediaKeepIdentity(const char* reason);
+    /** Next TinyUSB unplug (soft D+ cycle) must not bump remountGen/serial. */
+    void armSoftUsbKeepIdentity() { softUsbKeepIdentityArm_ = true; }
     bool mediaPresented() const { return mediaPresented_; }
     void setPlayHandler(PlayHandler h) { playHandler_ = h; }
     void setDiagHandler(DiagHandler h) { diagHandler_ = h; }
@@ -312,6 +314,8 @@ private:
     bool ready_ = false;
     bool plugged_ = false;
     bool suspended_ = false;
+    /** Consumed on next unplug: soft D+ cycle keeps USB serial (orchestrator soft-usb). */
+    bool softUsbKeepIdentityArm_ = false;
     uint32_t plugMs_ = 0;
     uint32_t changeMs_ = 0;
     uint32_t firstReadMs_ = 0;

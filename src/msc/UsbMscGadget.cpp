@@ -1125,19 +1125,21 @@ void UsbMscGadget::onUsbPlugged(bool on) {
         setPhase(Phase::Scan, "plug");
     } else {
         unplugCount_++;
-        // Bump serial for the *next* attach so HU MediaStore cannot reuse PD0001 cache.
-        // Persisted in NVS — survives ESP reboot when OTG unplug cuts board power.
-        applyUsbIdentity();
+        // Physical / power-loss unplug: bump serial so HU MediaStore cannot reuse PD0001.
+        // Soft D+ cycle (lab/orchestrator): keep identity — soft-usb cell forbids serial drift.
+        const bool keepId = softUsbKeepIdentityArm_;
+        softUsbKeepIdentityArm_ = false;
+        if (!keepId) applyUsbIdentity();
         char ser[12];
         formatPdSerial(remountGen_, ser, sizeof(ser));
         if (events_) {
-            char d[24];
-            snprintf(d, sizeof(d), "next=%s", ser);
+            char d[32];
+            snprintf(d, sizeof(d), keepId ? "soft keep=%s" : "next=%s", ser);
             events_->push("usb.otg.down", d);
         }
         if (menu_) menu_->clearPlaying();
         setPhase(Phase::Idle, "unplug");
-        Serial.printf("[MSC] unplug — next serial %s\n", ser);
+        Serial.printf("[MSC] unplug — %s serial %s\n", keepId ? "keep" : "next", ser);
     }
 }
 
