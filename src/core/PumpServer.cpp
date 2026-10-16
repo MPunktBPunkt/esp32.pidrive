@@ -129,17 +129,21 @@ void PumpServer::sendMessCmd(const MessCmd& cmd) {
     if (tcpLinked_) active_ = Link::Tcp;
     else active_ = Link::SerialLink;
     char line[256];
-    const uint32_t durUs =
+    const ProbeClock durUs =
         (cmd.t1Us >= cmd.t0Us) ? (cmd.t1Us - cmd.t0Us) : 0;
     const uint32_t blocks = cmd.bytes / 512u;
     snprintf(line, sizeof(line),
-             "{\"t\":\"event\",\"op\":\"msc.cmd\",\"t0_us\":%lu,\"dur_us\":%lu,\"gap_us\":%lu,"
+             "{\"t\":\"event\",\"op\":\"msc.cmd\",\"seq\":%llu,\"t0_us\":%lld,\"dur_us\":%lld,\"gap_us\":%lld,"
              "\"op\":%u,\"lba\":%lu,\"bytes\":%lu,\"blocks\":%lu,\"chunks\":%u,\"busy\":%u,"
-             "\"st\":%u,\"tag\":\"%s\"}",
-             (unsigned long)cmd.t0Us, (unsigned long)durUs, (unsigned long)cmd.gapUs,
+             "\"st\":%u,\"source\":\"%s\",\"synthesized\":%s,\"tag\":\"%s\"}",
+             (unsigned long long)cmd.seq, (long long)cmd.t0Us, (long long)durUs,
+             (long long)cmd.gapUs,
              (unsigned)cmd.op, (unsigned long)cmd.lba, (unsigned long)cmd.bytes,
              (unsigned long)blocks, (unsigned)cmd.chunks, (unsigned)cmd.busyN,
-             (unsigned)cmd.status, cmd.tag[0] ? cmd.tag : "");
+             (unsigned)cmd.status,
+             cmd.source == MessSource::Synthesized ? "synthesized" : "marker",
+             cmd.synthesized ? "true" : "false",
+             cmd.tag[0] ? cmd.tag : "");
     sendRaw(line);
 }
 
@@ -324,7 +328,9 @@ void PumpServer::handleLine(char* line) {
             pendingOverlayUid_[sizeof(pendingOverlayUid_) - 1] = 0;
         }
         if (msc_) {
-            msc_->stopStream();
+            // Internal stream replacement: preserve a matching in-flight selection barrier.
+            // Explicit audio_stop still calls stopStream() without a UID and kills it.
+            msc_->stopStream(uid);
             msc_->beginPreWarmWatch(uid);
         }
         up_ = true;

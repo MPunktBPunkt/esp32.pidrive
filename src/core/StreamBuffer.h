@@ -303,6 +303,12 @@ public:
         return end - cur;
     }
 
+    /** Honest consumable audio at the MSC cursor; 48 kbit/s is the current CBR contract. */
+    uint32_t liveAvailBytes() const { return liveAvail(); }
+    uint32_t liveAvailMs() const {
+        return (uint32_t)(((uint64_t)liveAvail() * 8u * 1000u) / 48000u);
+    }
+
     void toJson(JsonObject obj) const {
         obj["active"] = active_;
         obj["uid"] = uid_;
@@ -315,6 +321,9 @@ public:
         obj["headResyncs"] = headResyncs_;
         obj["cursorArmed"] = cursorArmed_;
         obj["hostAbsCursor"] = hostAbsCursor_;
+        obj["hostExpectFileOff"] = hostExpectFileOff_;
+        obj["liveAvailBytes"] = liveAvailBytes();
+        obj["liveAvailMs"] = liveAvailMs();
         obj["hasCover"] = id3Len_ >= 20 && id3_[0] == 'I' && id3_[1] == 'D' && id3_[2] == '3';
     }
 

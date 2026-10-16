@@ -48,6 +48,12 @@ public:
     uint16_t leadBytes = 0;
     bool underrunCursorHold = false;
     bool silenceMatchLive = false;
+    /** Experimental selection barrier. Production default MUST remain false. */
+    bool selectionBarrierEnable = false;
+    /** Hard kill for BUSY while the selected stream is being prepared. */
+    uint16_t selectionBarrierMaxMs = 1200;
+    /** Audio bytes required in addition to a non-empty ID3 header. */
+    uint16_t selectionBarrierLeadBytes = 8192;
     /** FAT volume label override (≤11). Empty = coupled to remountGen (PD%04u). */
     String volumeLabel = "";
     /** FAT BPB Volume-ID override. 0 = follow remountGen (0x5044 | gen). */
@@ -62,5 +68,5 @@ public:
     bool fromJson(JsonVariantConst obj);
 
 private:
-    static constexpr uint8_t kConfigVersion = 6;
+    static constexpr uint8_t kConfigVersion = 7;
 };

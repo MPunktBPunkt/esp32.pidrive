@@ -205,6 +205,7 @@ void UsbMscGadget::remountMediaKeepIdentity(const char* reason) {
 }
 
 void UsbMscGadget::remountMediaInternal(const char* reason, bool bumpIdentity) {
+    killSelectionBarrier();
     if (!ready_) return;
     // Never yank the medium while live overlay is armed — kills TCP + host reads.
     if (stream_ && stream_->active()) {
@@ -357,7 +358,11 @@ void UsbMscGadget::startStream(const char* uid) {
     Serial.printf("[MSC] stream uid not in slots: %s\n", uid);
 }
 
-void UsbMscGadget::stopStream() {
+void UsbMscGadget::stopStream(const char* nextUid) {
+    const bool preserveBarrier =
+        selectionBarrierActive_ && nextUid && nextUid[0] && selectionBarrierUid_[0] &&
+        strcmp(nextUid, selectionBarrierUid_) == 0;
+    if (!preserveBarrier) killSelectionBarrier();
     if (streamSlot_ >= 0 && events_) events_->push("msc.stream_off", "");
     streamSlot_ = -1;
     stallArmed_ = false;
@@ -751,6 +756,16 @@ int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32
     if (lba >= kVirtSectorCount) return -1;
     uint8_t* out = (uint8_t*)buffer;
     if (bufsize > 4096) bufsize = 4096;  // TinyUSB practical cap
+
+    // Experimental selection barrier runs before any payload bytes are synthesized.
+    // A return of 0 is TinyUSB BUSY; -2 means continue through the normal payload path.
+    if (selectionBarrier_.enable) {
+        const MscFileMap* candidate = fileForLba(lba);
+        const int32_t barrier =
+            selectionBarrierRead(candidate, lba, offset, bufsize);
+        if (barrier >= 0) return barrier;
+    }
+
     // Base: demo image for low LBAs (stub MP3 payloads), else zeros.
     if (lba < DEMO_FAT_SECTOR_COUNT && offset < DEMO_FAT_SECTOR_SIZE) {
         uint32_t pos = lba * DEMO_FAT_SECTOR_SIZE + offset;
@@ -830,6 +845,7 @@ int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32
                 // Full-slot CBR silence + Info/Xing — HU keeps the track instead of
                 // skipping through 0xFF junk after a short demo stub (field 2026-09-28).
                 Mp3Silence::fill(out, bufsize, fileOff, slotBytes(*f));
+                if (si >= 0 && si < 3) silenceBytesServed_[si] += bufsize;
                 // Pending-overlay window: HU may already be consuming — Mistral ~6s suspicion.
                 if (preWarmUid_[0] && f->uid[0] && strcmp(f->uid, preWarmUid_) == 0) {
                     preWarmHostBytes_ += bufsize;
@@ -840,6 +856,82 @@ int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32
 
     noteDataRead(lba, bufsize);
     return (int32_t)bufsize;
+}
+
+int32_t UsbMscGadget::selectionBarrierRead(const MscFileMap* f, uint32_t lba, uint32_t offset,
+                                           uint32_t bufsize) {
+    if (!selectionBarrier_.enable) return -2;
+    const int si = slotIndex(f);
+    const bool headCandidate =
+        f && si >= 0 && si <= 2 && !isNavSlot(f) && indexSettled_ &&
+        lba <= f->lbaStart + playDetect_.headLbaSlop;
+
+    if (!selectionBarrierActive_) {
+        if (!headCandidate) return -2;
+        const bool alreadyLive =
+            stream_ && stream_->active() && strcmp(stream_->uid(), f->uid) == 0;
+        if (alreadyLive) return -2;
+
+        selectionBarrierActive_ = true;
+        selectionBarrierSlot_ = si;
+        selectionBarrierT0Ms_ = millis();
+        strncpy(selectionBarrierUid_, f->uid, sizeof(selectionBarrierUid_) - 1);
+        selectionBarrierUid_[sizeof(selectionBarrierUid_) - 1] = 0;
+        // Main loop performs menu/event/network work. USB callback only publishes POD state.
+        selectionBarrierDispatchPending_ = true;
+    }
+
+    if (si != selectionBarrierSlot_) return -2;
+    const uint32_t waited = millis() - selectionBarrierT0Ms_;
+    const bool ready = stream_ && stream_->active() && f &&
+                       strcmp(stream_->uid(), f->uid) == 0 && stream_->id3Len() > 0 &&
+                       stream_->size() >= selectionBarrier_.audioLeadBytes;
+    if (ready) {
+        selectionBarrierReadyN_++;
+        releaseSelectionBarrier();
+        return -2;
+    }
+    if (waited >= selectionBarrier_.maxMs) {
+        selectionBarrierTimeoutN_++;
+        killSelectionBarrier();
+        return -2;
+    }
+
+    (void)offset;
+    (void)bufsize;
+    selectionBarrierBusyN_++;
+    vTaskDelay(pdMS_TO_TICKS(2));
+    return 0;
+}
+
+void UsbMscGadget::releaseSelectionBarrier() {
+    // Callback-safe state only. User-visible telemetry is emitted from loop().
+    stallArmed_ = true;
+    stallLeadLeft_ = stall_.leadBytes;
+    stallCmdActive_ = false;
+    if (plugMs_) {
+        playGuessMs_ = millis();
+        msPlugToPlayGuess_ = playGuessMs_ - plugMs_;
+    } else {
+        playGuessMs_ = millis();
+    }
+    playGuessCount_++;
+    selectionBarrierActive_ = false;
+    selectionBarrierDispatchPending_ = false;
+    selectionBarrierReadyPending_ = true;
+    selectionBarrierSlot_ = -1;
+    selectionBarrierT0Ms_ = 0;
+}
+
+void UsbMscGadget::killSelectionBarrier() {
+    if (selectionBarrierActive_) selectionBarrierKillN_++;
+    selectionBarrierActive_ = false;
+    selectionBarrierDispatchPending_ = false;
+    selectionBarrierReadyPending_ = false;
+    selectionBarrierDispatched_ = false;
+    selectionBarrierUid_[0] = 0;
+    selectionBarrierSlot_ = -1;
+    selectionBarrierT0Ms_ = 0;
 }
 
 int32_t UsbMscGadget::onReadLiveStall(uint32_t lba, uint32_t offset, uint8_t* out, uint32_t bufsize,
@@ -988,6 +1080,7 @@ bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
 }
 
 void UsbMscGadget::onUsbPlugged(bool on) {
+    killSelectionBarrier();
     if (plugged_ == on) return;
     plugged_ = on;
     suspended_ = false;
@@ -1025,6 +1118,7 @@ void UsbMscGadget::onUsbPlugged(bool on) {
         traceHead_ = 0;
         traceCount_ = 0;
         streamBytesServed_ = 0;
+        memset(silenceBytesServed_, 0, sizeof(silenceBytesServed_));
         plugCount_++;
         HostScsiProbe::instance().onPlug(plugMs_);
         if (events_) events_->push("usb.otg.up", "car-host");
@@ -1504,6 +1598,25 @@ void UsbMscGadget::noteDataRead(uint32_t lba, uint32_t bufsize) {
 }
 
 void UsbMscGadget::loop() {
+    if (selectionBarrierDispatchPending_ && selectionBarrierActive_) {
+        selectionBarrierDispatchPending_ = false;
+        selectionBarrierDispatched_ = true;
+        if (menu_) menu_->playByUid(selectionBarrierUid_);
+        if (events_) events_->push("selection_barrier.arm", selectionBarrierUid_);
+        if (playHandler_) playHandler_(selectionBarrierUid_);
+    }
+    if (selectionBarrierReadyPending_) {
+        selectionBarrierReadyPending_ = false;
+        setPhase(Phase::Play, selectionBarrierUid_);
+        if (events_) {
+            events_->push("play.guess", selectionBarrierUid_);
+            events_->push("selection_barrier.ready", selectionBarrierUid_);
+            if (stall_.enable && stall_.scope == 1)
+                events_->push("msc.stall_armed", selectionBarrierUid_);
+        }
+        selectionBarrierDispatched_ = false;
+        selectionBarrierUid_[0] = 0;
+    }
     if (!mediaPresented_ && presentDeadlineMs_ && (int32_t)(millis() - presentDeadlineMs_) >= 0) {
         presentMedia(remountHoldUntilMs_ ? "remount" : "timeout");
     }
@@ -1581,6 +1694,8 @@ void UsbMscGadget::toJson(JsonObject obj) const {
     obj["playGuessCount"] = playGuessCount_;
     obj["streamSlot"] = streamSlot_;
     obj["streamBytes"] = streamBytesServed_;
+    JsonArray silenceBytes = obj["silenceBytes"].to<JsonArray>();
+    for (uint32_t bytes : silenceBytesServed_) silenceBytes.add(bytes);
     obj["preWarmHostBytes"] = preWarmHostBytes_;
     obj["preWarmUid"] = preWarmUid_;
     {
@@ -1625,6 +1740,19 @@ void UsbMscGadget::toJson(JsonObject obj) const {
         pd["headLbaSlop"] = playDetect_.headLbaSlop;
         pd["cooldownMs"] = playDetect_.cooldownMs;
         pd["prefetchLbaSlop"] = playDetect_.prefetchLbaSlop;
+    }
+    {
+        JsonObject sb = obj["selectionBarrier"].to<JsonObject>();
+        sb["enabled"] = selectionBarrier_.enable;
+        sb["active"] = selectionBarrierActive_;
+        sb["slot"] = selectionBarrierSlot_;
+        sb["maxMs"] = selectionBarrier_.maxMs;
+        sb["audioLeadBytes"] = selectionBarrier_.audioLeadBytes;
+        sb["waitMs"] = selectionBarrierActive_ ? millis() - selectionBarrierT0Ms_ : 0;
+        sb["busy"] = selectionBarrierBusyN_;
+        sb["ready"] = selectionBarrierReadyN_;
+        sb["timeouts"] = selectionBarrierTimeoutN_;
+        sb["kills"] = selectionBarrierKillN_;
     }
     {
         JsonObject st = obj["stall"].to<JsonObject>();
@@ -1723,6 +1851,11 @@ void UsbMscGadget::formatVolumeLabel(char* vol, size_t n) const {
 int32_t UsbMscGadget::onReadLiveStall(uint32_t, uint32_t, uint8_t*, uint32_t, uint32_t) {
     return -1;
 }
+int32_t UsbMscGadget::selectionBarrierRead(const MscFileMap*, uint32_t, uint32_t, uint32_t) {
+    return -2;
+}
+void UsbMscGadget::releaseSelectionBarrier() {}
+void UsbMscGadget::killSelectionBarrier() {}
 void UsbMscGadget::applyUsbIdentity() {}
 void UsbMscGadget::loadRemountGenNvs() {}
 void UsbMscGadget::saveRemountGenNvs() const {}
@@ -1736,7 +1869,7 @@ void UsbMscGadget::formatProductRevision(uint16_t, char* rev, size_t n) {
 }
 uint32_t UsbMscGadget::effectiveFatVolumeId() const { return fatVolumeIdOverride_; }
 void UsbMscGadget::startStream(const char*) {}
-void UsbMscGadget::stopStream() {}
+void UsbMscGadget::stopStream(const char*) {}
 void UsbMscGadget::beginPreWarmWatch(const char*) {}
 void UsbMscGadget::clearPreWarmWatch() {}
 bool UsbMscGadget::setLabBodySeed(int, char, uint32_t) { return false; }

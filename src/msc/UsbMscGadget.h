@@ -73,6 +73,13 @@ struct StallParams {
     bool silenceMatchLive = false;  // reserved; silence fill still kSil for now
 };
 
+/** Experimental pre-payload selection gate. Disabled unless explicitly configured. */
+struct SelectionBarrierParams {
+    bool enable = false;
+    uint16_t maxMs = 1200;
+    uint16_t audioLeadBytes = 8192;
+};
+
 class UsbMscGadget {
 public:
     static constexpr size_t kTraceSize = 96;
@@ -121,6 +128,8 @@ public:
     PlayDetectParams playDetectParams() const { return playDetect_; }
     void setStallParams(const StallParams& p) { stall_ = p; }
     StallParams stallParams() const { return stall_; }
+    void setSelectionBarrierParams(const SelectionBarrierParams& p) { selectionBarrier_ = p; }
+    SelectionBarrierParams selectionBarrierParams() const { return selectionBarrier_; }
     /** Empty = FAT BPB + root label follow remountGen. Non-empty ≤11 chars overrides both. */
     void setVolumeLabelOverride(const char* label);
     const char* volumeLabelOverride() const { return volumeLabelOverride_; }
@@ -130,7 +139,8 @@ public:
     uint32_t readOverflowCount() const { return readOverflowCount_; }
     void noteReadsEmitted() { readsEmitCount_++; }
     void startStream(const char* uid);
-    void stopStream();
+    /** nextUid preserves an in-flight selection barrier only for that exact internal switch. */
+    void stopStream(const char* nextUid = nullptr);
     /** Heimabend/Mistral: count host file-bytes on uid while overlay still pending (B2 silence). */
     void beginPreWarmWatch(const char* uid);
     void clearPreWarmWatch();
@@ -218,6 +228,10 @@ private:
     uint32_t effectiveFatVolumeId() const;
     int32_t onReadLiveStall(uint32_t lba, uint32_t offset, uint8_t* out, uint32_t bufsize,
                            uint32_t fileOff);
+    int32_t selectionBarrierRead(const MscFileMap* f, uint32_t lba, uint32_t offset,
+                                 uint32_t bufsize);
+    void releaseSelectionBarrier();
+    void killSelectionBarrier();
     /** Patch boot BPB to virtual geometry; synthesize root; STATIONS/SETTINGS LFNs. */
     void patchBoot(uint8_t* sector) const;
     void patchRootDir(uint8_t* sector, uint32_t lba) const;
@@ -256,6 +270,7 @@ private:
     MscSlotStats slotStats_[kSlots];
     PlayDetectParams playDetect_;
     StallParams stall_;
+    SelectionBarrierParams selectionBarrier_;
     char volumeLabelOverride_[12] = {0};
     uint32_t fatVolumeIdOverride_ = 0;
 
@@ -278,6 +293,18 @@ private:
     /** Scope-1 gate: set on play.guess from head; cleared on plug/stream change. */
     bool stallArmed_ = false;
     uint32_t stallSkipNotArmed_ = 0;
+
+    bool selectionBarrierActive_ = false;
+    volatile bool selectionBarrierDispatchPending_ = false;
+    volatile bool selectionBarrierReadyPending_ = false;
+    bool selectionBarrierDispatched_ = false;
+    char selectionBarrierUid_[24] = {0};
+    int selectionBarrierSlot_ = -1;
+    uint32_t selectionBarrierT0Ms_ = 0;
+    uint32_t selectionBarrierBusyN_ = 0;
+    uint32_t selectionBarrierReadyN_ = 0;
+    uint32_t selectionBarrierTimeoutN_ = 0;
+    uint32_t selectionBarrierKillN_ = 0;
 
     /** Which slot's payload is live audio — does NOT change FAT/dir geometry. */
     int streamSlot_ = -1;
@@ -319,6 +346,8 @@ private:
     uint32_t playRejectCount_ = 0;
     uint32_t playGuessCount_ = 0;
     uint32_t streamBytesServed_ = 0;
+    /** Bytes synthesized as Mp3Silence per user slot; diagnostic only, never policy. */
+    uint32_t silenceBytesServed_[3] = {0, 0, 0};
     /** Host reads of watched slot while live overlay not yet armed (silence window). */
     char preWarmUid_[24] = {0};
     uint32_t preWarmHostBytes_ = 0;

@@ -33,6 +33,9 @@ void ConfigStore::applyDefaults() {
     leadBytes = 0;
     underrunCursorHold = false;
     silenceMatchLive = false;
+    selectionBarrierEnable = false;
+    selectionBarrierMaxMs = 1200;
+    selectionBarrierLeadBytes = 8192;
     volumeLabel = "";
     fatVolumeId = 0;
 }
@@ -86,6 +89,11 @@ void ConfigStore::load() {
         if (ver >= 6) {
             fatVolumeId = prefs.getUInt("fat_vid", fatVolumeId);
         }
+        if (ver >= 7) {
+            selectionBarrierEnable = prefs.getBool("selbar_en", selectionBarrierEnable);
+            selectionBarrierMaxMs = prefs.getUShort("selbar_ms", selectionBarrierMaxMs);
+            selectionBarrierLeadBytes = prefs.getUShort("selbar_lead", selectionBarrierLeadBytes);
+        }
     }
     prefs.end();
     if (heartbeatIntervalS < 5) heartbeatIntervalS = 5;
@@ -106,6 +114,9 @@ void ConfigStore::load() {
     if (stallScope > 2) stallScope = 1;
     if (stallTimer > 1) stallTimer = 0;
     if (volumeLabel.length() > 11) volumeLabel = volumeLabel.substring(0, 11);
+    if (selectionBarrierMaxMs < 50) selectionBarrierMaxMs = 50;
+    if (selectionBarrierMaxMs > 5000) selectionBarrierMaxMs = 5000;
+    if (selectionBarrierLeadBytes > 32768) selectionBarrierLeadBytes = 32768;
 }
 
 void ConfigStore::save() {
@@ -145,6 +156,9 @@ void ConfigStore::save() {
     prefs.putBool("sil_live", silenceMatchLive);
     prefs.putString("vol_lab", volumeLabel);
     prefs.putUInt("fat_vid", fatVolumeId);
+    prefs.putBool("selbar_en", selectionBarrierEnable);
+    prefs.putUShort("selbar_ms", selectionBarrierMaxMs);
+    prefs.putUShort("selbar_lead", selectionBarrierLeadBytes);
     prefs.end();
 }
 
@@ -188,6 +202,9 @@ void ConfigStore::toJson(JsonObject obj) const {
     obj["silenceMatchLive"] = silenceMatchLive;
     obj["volumeLabel"] = volumeLabel;
     obj["fatVolumeId"] = fatVolumeId;
+    obj["selectionBarrierEnable"] = selectionBarrierEnable;
+    obj["selectionBarrierMaxMs"] = selectionBarrierMaxMs;
+    obj["selectionBarrierLeadBytes"] = selectionBarrierLeadBytes;
 }
 
 bool ConfigStore::fromJson(JsonVariantConst obj) {
@@ -222,6 +239,12 @@ bool ConfigStore::fromJson(JsonVariantConst obj) {
     if (!obj["silenceMatchLive"].isNull()) silenceMatchLive = obj["silenceMatchLive"].as<bool>();
     if (obj["volumeLabel"].is<const char*>()) volumeLabel = obj["volumeLabel"].as<String>();
     if (!obj["fatVolumeId"].isNull()) fatVolumeId = obj["fatVolumeId"].as<uint32_t>();
+    if (!obj["selectionBarrierEnable"].isNull())
+        selectionBarrierEnable = obj["selectionBarrierEnable"].as<bool>();
+    if (!obj["selectionBarrierMaxMs"].isNull())
+        selectionBarrierMaxMs = obj["selectionBarrierMaxMs"].as<uint16_t>();
+    if (!obj["selectionBarrierLeadBytes"].isNull())
+        selectionBarrierLeadBytes = obj["selectionBarrierLeadBytes"].as<uint16_t>();
     if (deviceName.length() == 0) deviceName = DEVICE_NAME_DEFAULT;
     if (hubPort <= 0 || hubPort > 65535) hubPort = HUB_PORT_DEFAULT;
     if (heartbeatIntervalS < 5) heartbeatIntervalS = 5;
@@ -242,5 +265,8 @@ bool ConfigStore::fromJson(JsonVariantConst obj) {
     if (stallScope > 2) stallScope = 1;
     if (stallTimer > 1) stallTimer = 0;
     if (volumeLabel.length() > 11) volumeLabel = volumeLabel.substring(0, 11);
+    if (selectionBarrierMaxMs < 50) selectionBarrierMaxMs = 50;
+    if (selectionBarrierMaxMs > 5000) selectionBarrierMaxMs = 5000;
+    if (selectionBarrierLeadBytes > 32768) selectionBarrierLeadBytes = 32768;
     return true;
 }

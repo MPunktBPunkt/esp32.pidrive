@@ -30,7 +30,6 @@ public:
     PumpServer pump;
 
     bool pumpUp = false;
-    uint16_t bufferMs = 0;
     String softApSsid;
     String softApIp = "192.168.4.1";
 
@@ -65,8 +64,13 @@ private:
     void handleRestart();
     void applyPlayDetectFromConfig();
     void applyStallFromConfig();
+    void beginCaptureWifiOff(uint16_t durationMs);
+    void serviceCaptureWifiOff();
     bool requireLabMode();
 
     WebServer server_{80};
     unsigned long bootMs_ = 0;
+    uint32_t captureWifiOffAtMs_ = 0;
+    uint32_t captureWifiOnAtMs_ = 0;
+    bool captureWifiOff_ = false;
 };

@@ -8,6 +8,7 @@
 #include <ESPmDNS.h>
 #include <Update.h>
 #include <esp_system.h>
+#include <cstdlib>
 #include <cstring>
 
 static const char* resetReasonName(esp_reset_reason_t reason) {
@@ -63,10 +64,13 @@ void App::begin() {
     uart.begin(&events);
     pump.begin(&events, &menu, &msc, &uart, &stream);
     msc.setPlayHandler([](const char* uid) { App::instance().pump.sendPlayUid(uid); });
-    msc.setDiagHandler(
-        [](const char* code, const char* detail) { App::instance().pump.sendDiag(code, detail); });
-    msc.setReadsHandler(
-        [](const MscReadBurst& b) { App::instance().pump.sendMscReads(b); });
+    msc.setDiagHandler([](const char* code, const char* detail) {
+        if (!MessCapture::instance().captureActive())
+            App::instance().pump.sendDiag(code, detail);
+    });
+    msc.setReadsHandler([](const MscReadBurst& b) {
+        if (!MessCapture::instance().captureActive()) App::instance().pump.sendMscReads(b);
+    });
     {
         auto& mess = MessCapture::instance();
 #if defined(PIDRIVE_MESS) && PIDRIVE_MESS
@@ -207,6 +211,7 @@ void App::setupWeb() {
 }
 
 void App::loop() {
+    serviceCaptureWifiOff();
     server_.handleClient();
     hub.loop();
     msc.loop();
@@ -252,7 +257,8 @@ void App::buildHeartbeat(JsonDocument& doc) {
     ios["uartState"] = uart.stateName();
     ios["mscReady"] = msc.ready();
     ios["pumpState"] = pumpUp ? "up" : "down";
-    ios["bufferMs"] = bufferMs;
+    ios["liveAvailBytes"] = stream.liveAvailBytes();
+    ios["liveAvailMs"] = stream.liveAvailMs();
     ios["activeName"] = menu.playingName();
     ios["otaState"] = hub.otaPending() ? "pending" : "idle";
     ios["labMode"] = config.labMode;
@@ -291,7 +297,8 @@ void App::buildStatus(JsonDocument& doc) {
     doc["pumpTcpPort"] = (int)pump.tcpPort();
     doc["pumpTcpUp"] = pump.tcpClientUp();
     doc["pumpTcpPeer"] = pump.tcpClientIp();
-    doc["bufferMs"] = bufferMs;
+    doc["liveAvailBytes"] = stream.liveAvailBytes();
+    doc["liveAvailMs"] = stream.liveAvailMs();
     doc["bufferTargetMs"] = config.bufferTargetMs;
     doc["playingUid"] = menu.playingUid();
     doc["playingName"] = menu.playingName();
@@ -460,6 +467,10 @@ void App::handleApiLabStop() {
 void App::handleApiLabRemount() {
     if (!config.labMode) {
         NetUtil::sendError(server_, 403, "labMode aus");
+        return;
+    }
+    if (captureWifiOff_ || captureWifiOffAtMs_) {
+        NetUtil::sendError(server_, 409, "capture control owns offline window");
         return;
     }
     // Optional JSON body — empty POST remains valid (legacy clients).
@@ -640,6 +651,10 @@ bool App::requireLabMode() {
  *  POST {"attach":true|false, "holdMs":0..5000}  holdMs>0 auto-reattach after detach. */
 void App::handleApiLabUsb() {
     if (!requireLabMode()) return;
+    if (captureWifiOff_ || captureWifiOffAtMs_) {
+        NetUtil::sendError(server_, 409, "capture control owns offline window");
+        return;
+    }
     JsonDocument body;
     if (!NetUtil::readJsonBody(server_, body)) return;
     auto& mess = MessCapture::instance();
@@ -677,7 +692,8 @@ void App::handleApiLabUsb() {
     NetUtil::sendJson(server_, ok ? 200 : 500, doc);
 }
 
-/** GET: ring dump. POST: {"enable":bool,"reset":bool,"mark":"label"} */
+/** GET: health/replay. POST: {"mode":"ram_local"|"ram_wifi_off","wifiOffMs":...} or
+ *  {"stop":true,"reason":"..."}. Active RAM capture suppresses command HTTP output. */
 void App::handleApiLabMess() {
     if (!requireLabMode()) return;
     auto& mess = MessCapture::instance();
@@ -685,35 +701,83 @@ void App::handleApiLabMess() {
         JsonDocument body;
         if (!NetUtil::readJsonBody(server_, body)) return;
         if (!body["enable"].isNull()) mess.setEnabled(body["enable"] | true);
+        // Reset must happen before starting a new capture; otherwise reset()
+        // immediately tears down the capture that was just armed.
         if (body["reset"] | false) mess.reset();
+        const char* mode = body["mode"] | "";
+        if (strcmp(mode, "ram_local") == 0) {
+            if (!mess.beginCapture(MessCaptureMode::RamLocal)) {
+                NetUtil::sendError(server_, 409, "capture already active");
+                return;
+            }
+            events.push("capture.start", "ram_local");
+        } else if (strcmp(mode, "ram_wifi_off") == 0) {
+            uint16_t ms = body["wifiOffMs"] | 5000;
+            if (ms < 50 || ms > 60000) {
+                NetUtil::sendError(server_, 400, "wifiOffMs 50..60000");
+                return;
+            }
+            if (!mess.beginCapture(MessCaptureMode::RamWifiOff)) {
+                NetUtil::sendError(server_, 409, "capture already active");
+                return;
+            }
+            beginCaptureWifiOff(ms);
+        } else if (mode[0]) {
+            NetUtil::sendError(server_, 400, "mode ram_local|ram_wifi_off");
+            return;
+        }
+        if (body["stop"] | false) {
+            if (!mess.captureActive()) {
+                NetUtil::sendError(server_, 409, "no active capture");
+                return;
+            }
+            if (captureWifiOff_ || captureWifiOffAtMs_) {
+                NetUtil::sendError(server_, 409, "ram_wifi_off ends on timer");
+                return;
+            }
+            mess.endCapture(body["reason"] | "api_stop");
+            events.push("capture.stop", mess.captureModeName());
+        }
         if (body["mark"].is<const char*>()) mess.mark(body["mark"].as<const char*>());
     }
     JsonDocument doc;
     doc["ok"] = true;
     JsonObject meta = doc["mess"].to<JsonObject>();
     mess.toJson(meta);
+    meta["wifiOff"] = captureWifiOff_;
+    meta["wifiOffPending"] = captureWifiOffAtMs_ != 0;
 #if defined(PIDRIVE_MESS) && PIDRIVE_MESS
     doc["cmdCapture"] = true;
 #else
     doc["cmdCapture"] = false;
     doc["hint"] = "flash env pidrive-s3-mess for READ10 cmd capture";
 #endif
-    MessCmd buf[64];
-    size_t n = mess.copyRecent(buf, 64);
-    JsonArray arr = doc["cmds"].to<JsonArray>();
-    for (size_t i = 0; i < n; i++) {
-        JsonObject o = arr.add<JsonObject>();
-        o["t0_us"] = buf[i].t0Us;
-        o["dur_us"] = (buf[i].t1Us >= buf[i].t0Us) ? (buf[i].t1Us - buf[i].t0Us) : 0;
-        o["gap_us"] = buf[i].gapUs;
-        o["op"] = buf[i].op;
-        o["lba"] = buf[i].lba;
-        o["bytes"] = buf[i].bytes;
-        o["blocks"] = buf[i].bytes / 512u;
-        o["chunks"] = buf[i].chunks;
-        o["busy"] = buf[i].busyN;
-        o["st"] = buf[i].status;
-        if (buf[i].tag[0]) o["tag"] = buf[i].tag;
+    if (!mess.captureActive()) {
+        MessCmd buf[64];
+        uint64_t after =
+            server_.hasArg("after") ? strtoull(server_.arg("after").c_str(), nullptr, 10) : 0;
+        size_t n = after ? mess.copyAfter(after, buf, 64) : mess.copyRecent(buf, 64);
+        JsonArray arr = doc["cmds"].to<JsonArray>();
+        for (size_t i = 0; i < n; i++) {
+            JsonObject o = arr.add<JsonObject>();
+            o["seq"] = buf[i].seq;
+            o["t0_us"] = buf[i].t0Us;
+            o["dur_us"] =
+                (buf[i].t1Us >= buf[i].t0Us) ? (buf[i].t1Us - buf[i].t0Us) : 0;
+            o["gap_us"] = buf[i].gapUs;
+            o["op"] = buf[i].op;
+            o["lba"] = buf[i].lba;
+            o["bytes"] = buf[i].bytes;
+            o["blocks"] = buf[i].bytes / 512u;
+            o["chunks"] = buf[i].chunks;
+            o["busy"] = buf[i].busyN;
+            o["st"] = buf[i].status;
+            o["source"] = buf[i].source == MessSource::Synthesized ? "synthesized" : "marker";
+            o["synthesized"] = buf[i].synthesized;
+            if (buf[i].tag[0]) o["tag"] = buf[i].tag;
+        }
+    } else {
+        doc["telemetrySuppressed"] = true;
     }
     NetUtil::sendJson(server_, 200, doc);
 }
@@ -722,6 +786,10 @@ void App::handleApiLabMess() {
  *         "holdMs":600,"keepIdentity":false,"mark":"...","maxMs":500} */
 void App::handleApiLabSituation() {
     if (!requireLabMode()) return;
+    if (captureWifiOff_ || captureWifiOffAtMs_) {
+        NetUtil::sendError(server_, 409, "capture control owns offline window");
+        return;
+    }
     JsonDocument body;
     if (!NetUtil::readJsonBody(server_, body)) return;
     const char* name = body["name"] | "";
@@ -877,6 +945,8 @@ void App::handleApiMetrics() {
     doc["playingUid"] = menu.playingUid();
     doc["playingName"] = menu.playingName();
     doc["eventCount"] = events.count();
+    doc["liveAvailBytes"] = stream.liveAvailBytes();
+    doc["liveAvailMs"] = stream.liveAvailMs();
     NetUtil::sendJson(server_, 200, doc);
 }
 
@@ -925,10 +995,45 @@ void App::applyStallFromConfig() {
     s.underrunCursorHold = config.underrunCursorHold;
     s.silenceMatchLive = config.silenceMatchLive;
     msc.setStallParams(s);
+    SelectionBarrierParams b;
+    b.enable = config.selectionBarrierEnable;
+    b.maxMs = config.selectionBarrierMaxMs;
+    b.audioLeadBytes = config.selectionBarrierLeadBytes;
+    msc.setSelectionBarrierParams(b);
     msc.setVolumeLabelOverride(config.volumeLabel.c_str());
     msc.setFatVolumeIdOverride(config.fatVolumeId);
     Serial.printf("[MSC] stall en=%d scope=%u timer=%u max=%ums chunk=%u retry=%ums vol='%s' id=%08lX\n",
                   (int)s.enable, (unsigned)s.scope, (unsigned)s.timer, (unsigned)s.maxMs,
                   (unsigned)s.chunkBytes, (unsigned)s.retryMs, config.volumeLabel.c_str(),
                   (unsigned long)config.fatVolumeId);
+}
+
+void App::beginCaptureWifiOff(uint16_t durationMs) {
+    // Delay shutdown until the HTTP response has left. App is the sole transition owner;
+    // the TinyUSB callback only appends POD records to MessCapture.
+    captureWifiOffAtMs_ = millis() + 100;
+    captureWifiOnAtMs_ = captureWifiOffAtMs_ + durationMs;
+    events.push("capture.offline.arm", String(durationMs).c_str());
+}
+
+void App::serviceCaptureWifiOff() {
+    const uint32_t now = millis();
+    if (captureWifiOffAtMs_ && (int32_t)(now - captureWifiOffAtMs_) >= 0) {
+        captureWifiOffAtMs_ = 0;
+        WiFi.mode(WIFI_OFF);
+        captureWifiOff_ = true;
+    }
+    if (captureWifiOff_ && captureWifiOnAtMs_ &&
+        (int32_t)(now - captureWifiOnAtMs_) >= 0) {
+        captureWifiOnAtMs_ = 0;
+        captureWifiOff_ = false;
+        if (config.enableSoftAp && config.enableSta) WiFi.mode(WIFI_AP_STA);
+        else if (config.enableSoftAp) WiFi.mode(WIFI_AP);
+        else WiFi.mode(WIFI_STA);
+        if (config.enableSoftAp) startSoftAp();
+        if (config.enableSta) WiFi.begin();  // reconnect using stored credentials, non-blocking
+        if (config.enablePumpTcp) pump.startTcp(config.pumpTcpPort);
+        MessCapture::instance().endCapture("wifi_window_complete");
+        events.push("capture.offline.done", "");
+    }
 }
