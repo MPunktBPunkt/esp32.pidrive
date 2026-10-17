@@ -22,7 +22,7 @@ extern "C" bool tud_msc_is_writable_cb(uint8_t lun) {
 }
 
 static bool isDirLba(uint32_t lba) {
-    // Root 17-48; STATIONS/SETTINGS clusters 49-56.
+    // Root 17-48; Favoriten/Menue clusters (legacy kStationsLba/kSettingsLba) 49-56.
     if (lba >= UsbMscGadget::kRootLba0 &&
         lba < UsbMscGadget::kRootLba0 + UsbMscGadget::kRootSectors)
         return true;
@@ -73,11 +73,12 @@ static void usb_event_cb(void* arg, esp_event_base_t event_base, int32_t event_i
 
 void UsbMscGadget::loadDefaultSlots() {
     // Fixed disjoint geometry — never mutated by startStream/stopStream.
-    const char* names[] = {"ROCK FM", "Antenne 1", "SWR3", "About"};
+    const char* names[] = {"ROCK FM", "Antenne 1", "SWR3", "Menue"};
     const char* uids[] = {"demo:rock_fm", "demo:antenne", "demo:swr3", "action:about"};
     const char* kinds[] = {"station", "station", "station", "action"};
+    // Root lists only folders (Favoriten, Menue); playable live files sit under Favoriten/.
     const char* paths[] = {
-        "STATIONS/01ROCK.MP3", "STATIONS/02ANTENN.MP3", "STATIONS/03SWR3.MP3", "SETTINGS/ABOUT.MP3"};
+        "FAVORITEN/01ROCK.MP3", "FAVORITEN/02ANTENN.MP3", "FAVORITEN/03SWR3.MP3", "MENUE/ABOUT.MP3"};
     uint32_t ranges[kSlots][2];
     slotRanges(ranges);
     for (size_t i = 0; i < kSlots; i++) {
@@ -128,6 +129,15 @@ void UsbMscGadget::applyMenuSlots(const MenuStore& menu) {
                 slots_[i].name[sizeof(slots_[i].name) - 1] = 0;
                 strncpy(slots_[i].kind, it->kind, sizeof(slots_[i].kind) - 1);
                 slots_[i].kind[sizeof(slots_[i].kind) - 1] = 0;
+                if (it->path[0]) {
+                    strncpy(slots_[i].path, it->path, sizeof(slots_[i].path) - 1);
+                } else if (strcmp(it->kind, "action") == 0 || strncmp(it->uid, "pump:", 5) == 0) {
+                    snprintf(slots_[i].path, sizeof(slots_[i].path), "MENUE/%02u.MP3", (unsigned)(i + 1));
+                } else {
+                    snprintf(slots_[i].path, sizeof(slots_[i].path), "FAVORITEN/%02u.MP3",
+                             (unsigned)(i + 1));
+                }
+                slots_[i].path[sizeof(slots_[i].path) - 1] = 0;
                 slots_[i].active = true;
             } else {
                 slots_[i].active = false;
@@ -478,31 +488,6 @@ void UsbMscGadget::patchBoot(uint8_t* sector) const {
     }
 }
 
-void UsbMscGadget::patchRootDir(uint8_t* sector, uint32_t lba) const {
-    memset(sector, 0, 512);
-    if (lba != kRootLba0) return;
-    // Root volume label mirrors the BPB label unless an explicit future divergence test says otherwise.
-    memset(sector, ' ', 11);
-    char vol[12];
-    formatVolumeLabel(vol, sizeof(vol));
-    size_t vl = strlen(vol);
-    if (vl > 11) vl = 11;
-    memcpy(sector, vol, vl);
-    sector[11] = 0x08;
-    // STATIONS
-    memset(sector + 32, ' ', 11);
-    memcpy(sector + 32, "STATIONS", 8);
-    sector[32 + 11] = 0x10;
-    sector[32 + 26] = 2;
-    sector[32 + 27] = 0;
-    // SETTINGS
-    memset(sector + 64, ' ', 11);
-    memcpy(sector + 64, "SETTINGS", 8);
-    sector[64 + 11] = 0x10;
-    sector[64 + 26] = 3;
-    sector[64 + 27] = 0;
-}
-
 static uint8_t fat83Checksum(const uint8_t name83[11]) {
     uint8_t sum = 0;
     for (int i = 0; i < 11; i++) {
@@ -654,6 +639,51 @@ static void write83File(uint8_t* ent, const uint8_t name83[11], uint16_t startCl
     ent[30] = (uint8_t)((size >> 16) & 0xFF);
     ent[31] = (uint8_t)((size >> 24) & 0xFF);
 }
+void UsbMscGadget::patchRootDir(uint8_t* sector, uint32_t lba) const {
+    memset(sector, 0, 512);
+    if (lba != kRootLba0) return;
+    // Product-like first page: folders only (no playable MP3 at root → no autoplay fodder).
+    //   Favoriten/  (cluster 2, live stations — Stall/ID3 targets)
+    //   Menue/      (cluster 3, action stubs)
+    memset(sector, ' ', 11);
+    char vol[12];
+    formatVolumeLabel(vol, sizeof(vol));
+    size_t vl = strlen(vol);
+    if (vl > 11) vl = 11;
+    memcpy(sector, vol, vl);
+    sector[11] = 0x08;
+
+    auto writeRootDir = [](uint8_t* ent, const char* name83_8, uint16_t cl) {
+        memset(ent, ' ', 11);
+        size_t n = strlen(name83_8);
+        if (n > 8) n = 8;
+        memcpy(ent, name83_8, n);
+        ent[11] = 0x10;
+        ent[26] = (uint8_t)(cl & 0xFF);
+        ent[27] = (uint8_t)(cl >> 8);
+    };
+
+    // Favoriten first (product root order). 8.3 = FAVORITE + LFN.
+    uint8_t fav83[11];
+    memset(fav83, ' ', 11);
+    memcpy(fav83, "FAVORITE", 8);
+    uint8_t favSum = fat83Checksum(fav83);
+    uint16_t favU16[16];
+    int favLen = labelToUtf16("Favoriten", favU16, 15);
+    writeLfnEntry(sector + 32, 1, true, favU16, favLen, favSum);
+    writeRootDir(sector + 64, "FAVORITE", 2);
+
+    // Menue second. 8.3 = MENUE + LFN.
+    uint8_t menu83[11];
+    memset(menu83, ' ', 11);
+    memcpy(menu83, "MENUE", 5);
+    uint8_t menuSum = fat83Checksum(menu83);
+    uint16_t menuU16[16];
+    int menuLen = labelToUtf16("Menue", menuU16, 15);
+    writeLfnEntry(sector + 96, 1, true, menuU16, menuLen, menuSum);
+    writeRootDir(sector + 128, "MENUE", 3);
+}
+
 
 static void writeDotDirs(uint8_t* sector, uint16_t selfCl) {
     memset(sector, 0, 512);
@@ -671,17 +701,17 @@ static void writeDotDirs(uint8_t* sector, uint16_t selfCl) {
 }
 
 void UsbMscGadget::patchDirNames(uint8_t* sector, uint32_t lba) const {
-    // STATIONS = cluster 2 (kSpc sectors); SETTINGS = cluster 3.
+    // Favoriten = cluster 2 (kStationsLba); Menue = cluster 3 (kSettingsLba).
     // Only the first sector of each dir holds entries; the rest of the cluster
     // MUST be zero — otherwise demo_fat leftovers look like extra/corrupt ents
     // (especially with L0 spc=8). BMW then often shows a single file.
-    const bool stationsCl =
+    const bool favoritesCl =
         (lba >= kStationsLba && lba < kStationsLba + kSpc);
-    const bool settingsCl =
+    const bool menuCl =
         (lba >= kSettingsLba && lba < kSettingsLba + kSpc);
-    if (!stationsCl && !settingsCl) return;
+    if (!favoritesCl && !menuCl) return;
 
-    if (stationsCl) {
+    if (favoritesCl) {
         if (lba != kStationsLba) {
             memset(sector, 0, 512);
             return;
@@ -720,7 +750,7 @@ void UsbMscGadget::patchDirNames(uint8_t* sector, uint32_t lba) const {
         return;
     }
 
-    if (settingsCl) {
+    if (menuCl) {
         if (lba != kSettingsLba) {
             memset(sector, 0, 512);
             return;

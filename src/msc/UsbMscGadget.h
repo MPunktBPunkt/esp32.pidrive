@@ -234,14 +234,14 @@ private:
                                  uint32_t bufsize);
     void releaseSelectionBarrier();
     void killSelectionBarrier();
-    /** Patch boot BPB to virtual geometry; synthesize root; STATIONS/SETTINGS LFNs. */
+    /** Patch boot BPB to virtual geometry; synthesize root; Favoriten/Menue LFNs. */
     void patchBoot(uint8_t* sector) const;
     void patchRootDir(uint8_t* sector, uint32_t lba) const;
     void patchDirNames(uint8_t* sector, uint32_t lba) const;
     void patchFatFixed(uint8_t* sector, uint32_t lba) const;
     void patchFatChain(uint8_t* sector, uint32_t lba, uint16_t cl0, uint16_t cl1) const;
     static void slotRanges(uint32_t out[kSlots][2]) {
-        // After STATIONS/SETTINGS clusters: three station file ranges (sizes from MscGeo) + page.
+        // After Favoriten/Menue clusters: three station file ranges (sizes from MscGeo) + page.
         const uint32_t a0 = kSettingsLba + kSpc;
         out[0][0] = a0;
         out[0][1] = a0 + MscGeo::kSlotSectors0 - 1;

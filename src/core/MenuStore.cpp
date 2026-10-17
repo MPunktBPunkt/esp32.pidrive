@@ -25,10 +25,10 @@ void MenuStore::loadDemo() {
         strncpy(it.kind, kind, sizeof(it.kind) - 1);
         it.playing = false;
     };
-    add("STATIONS/01ROCK.MP3", "ROCK FM", "demo:rock_fm", "station");
-    add("STATIONS/02ANTENN.MP3", "Antenne 1", "demo:antenne", "station");
-    add("STATIONS/03SWR3.MP3", "SWR3", "demo:swr3", "station");
-    add("SETTINGS/ABOUT.MP3", "About", "action:about", "action");
+    add("FAVORITEN/01ROCK.MP3", "ROCK FM", "demo:rock_fm", "station");
+    add("FAVORITEN/02ANTENN.MP3", "Antenne 1", "demo:antenne", "station");
+    add("FAVORITEN/03SWR3.MP3", "SWR3", "demo:swr3", "station");
+    add("MENUE/ABOUT.MP3", "Menue", "action:about", "action");
 }
 
 bool MenuStore::loadFromNvs() {
@@ -57,7 +57,13 @@ bool MenuStore::loadFromNvs() {
         strncpy(it.uid, uid, sizeof(it.uid) - 1);
         strncpy(it.kind, kind, sizeof(it.kind) - 1);
         char path[48];
-        snprintf(path, sizeof(path), "STATIONS/%02u.MP3", (unsigned)count_);
+        // Live stations live under Favoriten/; actions under Menue/ (root = folders only).
+        if (strcmp(kind, "action") == 0 || strncmp(uid, "pump:", 5) == 0 ||
+            strncmp(uid, "action:", 7) == 0) {
+            snprintf(path, sizeof(path), "MENUE/%02u.MP3", (unsigned)count_);
+        } else {
+            snprintf(path, sizeof(path), "FAVORITEN/%02u.MP3", (unsigned)count_);
+        }
         strncpy(it.path, path, sizeof(it.path) - 1);
         it.playing = false;
     }
@@ -106,7 +112,12 @@ bool MenuStore::setFromJson(JsonArrayConst items, uint32_t rev) {
         strncpy(it.uid, uidBuf, sizeof(it.uid) - 1);
         strncpy(it.kind, kind, sizeof(it.kind) - 1);
         char path[48];
-        snprintf(path, sizeof(path), "STATIONS/%02u.MP3", (unsigned)n);
+        if (strcmp(kind, "action") == 0 || strncmp(uidBuf, "pump:", 5) == 0 ||
+            strncmp(uidBuf, "action:", 7) == 0) {
+            snprintf(path, sizeof(path), "MENUE/%02u.MP3", (unsigned)n);
+        } else {
+            snprintf(path, sizeof(path), "FAVORITEN/%02u.MP3", (unsigned)n);
+        }
         strncpy(it.path, path, sizeof(it.path) - 1);
         it.playing = (playingUid_[0] && strcmp(playingUid_, it.uid) == 0);
     }
