@@ -19,6 +19,7 @@ Planung für `esp32.pidrive` (USB-MSC-Medienpfad für PiDrive).
 | [COVER-ID3.md](COVER-ID3.md) | **Cover/APIC Spec** — embedded + stations + generiert |
 | [LAB-2026-09-18.md](LAB-2026-09-18.md) | Lab: Paging, Webradio, Library-APIC, Spotify |
 | [LAB-2026-09-18-REALTIME.md](LAB-2026-09-18-REALTIME.md) | Lab vs Auto: Lücken, Latenz, 60s-UART, MSC-Host-Blocker |
+| [Lab Cross-Check usb-analyzer 2026-11-02](../lab/2026-11-02-lab-usb-analyzer-crosscheck.md) | Bugs/Lücken/Messungen vs Analyzer-Host |
 | [OFFENE-PUNKTE.md](OFFENE-PUNKTE.md) | Q-USB-*, Entscheidungen, Risiken |
 | [PLAY-DETECTION.md](PLAY-DETECTION.md) | Problem B: looksLikePlay / play.reject / Config |
 
