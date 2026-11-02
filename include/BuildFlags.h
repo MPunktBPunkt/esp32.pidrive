@@ -3,7 +3,11 @@
 #include <Arduino.h>
 
 #ifndef FW_VERSION
-#define FW_VERSION "0.0.0"
+#define FW_VERSION "0.4.61-dev"
+#endif
+/* Force a compile-time string even if -DFW_VERSION is stripped by env unflags. */
+#ifndef FW_VERSION_STR
+#define FW_VERSION_STR FW_VERSION
 #endif
 #ifndef HUB_HOST_DEFAULT
 #define HUB_HOST_DEFAULT "192.168.178.113"

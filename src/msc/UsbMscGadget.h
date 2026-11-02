@@ -5,6 +5,8 @@
 #include "core/EventLog.h"
 #include "core/MenuStore.h"
 #include "core/StreamBuffer.h"
+#include "core/Id3Store.h"
+#include "BuildFlags.h"
 #include "MscGeometry.h"
 #include <functional>
 
@@ -68,7 +70,8 @@ struct StallParams {
     uint16_t maxMs = 500;
     uint16_t chunkBytes = 4096;
     uint8_t retryMs = 2;
-    uint16_t leadBytes = 0;
+    /** Unthrottled body bytes after head before Busy (Ziel: ≥1 CBW = 120 KiB). */
+    uint32_t leadBytes = 0;
     bool underrunCursorHold = false;
     bool silenceMatchLive = false;  // reserved; silence fill still kSil for now
 };
@@ -88,8 +91,9 @@ public:
     /** Merge consecutive samples into one PUMP event while gap ≤ this (ms). */
     static constexpr uint16_t kBurstGapMs = 50;
     static constexpr uint16_t kBurstMaxN = 32;
-    static constexpr size_t kSlots = 4;
-    /** Virtual MSC capacity — see MscGeometry.h (legacy 2 MiB FAT12 / L0 4 MiB FAT16). */
+    /** FULLMENU: all MENU_MAX_ITEMS; legacy/L*: 3 stations + 1 Menue action. */
+    static constexpr size_t kSlots = MscGeo::kFullMenu ? (size_t)MENU_MAX_ITEMS : 4u;
+    /** Virtual MSC capacity — see MscGeometry.h. */
     static constexpr uint32_t kVirtSectorCount = MscGeo::kVirtSectorCount;
     static constexpr uint8_t kFatSpf = MscGeo::kFatSpf;
     static constexpr uint32_t kFat0Lba = MscGeo::kFat0Lba;
@@ -98,9 +102,27 @@ public:
     static constexpr uint32_t kRootSectors = MscGeo::kRootSectors;
     static constexpr uint32_t kDataStartLba = MscGeo::kDataStartLba;
     static constexpr uint8_t kSpc = MscGeo::kSpc;
+    static constexpr uint8_t kFavDirClusters = MscGeo::kFavDirClusters;
+    static constexpr uint8_t kMenuDirClusters = MscGeo::kMenuDirClusters;
     static constexpr uint32_t kStationsLba = MscGeo::kStationsLba;
     static constexpr uint32_t kSettingsLba = MscGeo::kSettingsLba;
+    static constexpr uint32_t kFilesLba = MscGeo::kFilesLba;
     static constexpr uint32_t kSlotSectors = MscGeo::kSlotSectors;
+#if defined(PIDRIVE_GEO_FULLMENU) && PIDRIVE_GEO_FULLMENU
+    static constexpr uint8_t kFolderCount = MscGeo::kFolderCount;
+    static constexpr uint32_t folderLba(uint8_t idx) { return MscGeo::folderLba(idx); }
+    static constexpr uint8_t folderClusters(uint8_t idx) {
+        return idx < kFolderCount ? MscGeo::kFolderClustersArr[idx] : 0;
+    }
+#else
+    static constexpr uint8_t kFolderCount = 2;
+    static constexpr uint32_t folderLba(uint8_t idx) {
+        return idx == 0 ? kStationsLba : kSettingsLba;
+    }
+    static constexpr uint8_t folderClusters(uint8_t idx) {
+        return idx == 0 ? kFavDirClusters : kMenuDirClusters;
+    }
+#endif
     /** Wait for menu_set before mediaPresent; then show last-known/demo. */
     static constexpr uint32_t kMediaPresentTimeoutMs = 7000;
     static constexpr uint32_t kQuietAfterFileMs = 2000;
@@ -111,14 +133,32 @@ public:
 
     bool begin(EventLog* events, MenuStore* menu);
     void loop();
+    /**
+     * HU Media-Leiter contract (2026-10-22/23): Fresh scan head ≈ 32+128 = 160 blocks.
+     * Producer must keep the first ~80 KiB of each station file valid (ID3/Player);
+     * bodies may be dynamic. Soft-Remount (NOT READY) does not force host re-read.
+     */
+    static constexpr uint32_t kHuScanHeadBlocks = 160;
+    static constexpr uint32_t kHuScanHeadBytes = kHuScanHeadBlocks * 512u;  // 81920
+
     /** Apply menu names to slots; presents media on first apply / after wait. */
     void applyMenuSlots(const MenuStore& menu);
     /** Show MSC medium to host (idempotent). */
     void presentMedia(const char* reason);
-    /** Hide briefly so host re-reads DIR after menu name changes. */
+    /**
+     * Soft-Remount (MSC NOT READY / media_hide). Lab/API only — NBT treats this as
+     * practically no-op for Fresh/Resume/Browse flush (hu-probe R37). Prefer
+     * requestHostReread() for menu/DIR updates.
+     */
     void remountMedia(const char* reason);
-    /** Like remountMedia but keep USB serial / remountGen (Volume-Label-Isolationstest). */
+    /** Like remountMedia but keep USB serial / remountGen (lab isolation). */
     void remountMediaKeepIdentity(const char* reason);
+    /**
+     * Soft D+ USB cycle (tud_disconnect/connect), identity kept. Forces FS-Enum +
+     * body/title re-read without needing Fresh library scan (R38/R45).
+     * @return false if skipped (not ready / streaming / detach failed).
+     */
+    bool requestHostReread(const char* reason, uint16_t holdMs = 400);
     /** Next TinyUSB unplug (soft D+ cycle) must not bump remountGen/serial. */
     void armSoftUsbKeepIdentity() { softUsbKeepIdentityArm_ = true; }
     bool mediaPresented() const { return mediaPresented_; }
@@ -126,6 +166,7 @@ public:
     void setDiagHandler(DiagHandler h) { diagHandler_ = h; }
     void setReadsHandler(ReadsHandler h) { readsHandler_ = h; }
     void setStreamBuffer(StreamBuffer* s) { stream_ = s; }
+    void setId3Store(Id3Store* s) { id3Store_ = s; }
     void setPlayDetectParams(const PlayDetectParams& p) { playDetect_ = p; }
     PlayDetectParams playDetectParams() const { return playDetect_; }
     void setStallParams(const StallParams& p) { stall_ = p; }
@@ -143,6 +184,9 @@ public:
     void startStream(const char* uid);
     /** nextUid preserves an in-flight selection barrier only for that exact internal switch. */
     void stopStream(const char* nextUid = nullptr);
+    /** Lab: arm Busy-Pacing as if from-head play.guess happened. */
+    void armStallAfterPlayGuess();
+    bool stallArmed() const { return stallArmed_; }
     /** Heimabend/Mistral: count host file-bytes on uid while overlay still pending (B2 silence). */
     void beginPreWarmWatch(const char* uid);
     void clearPreWarmWatch();
@@ -198,6 +242,8 @@ private:
     };
 
     void noteDataRead(uint32_t lba, uint32_t bufsize);
+    /** Classify + count which path filled a host file READ (rate-limited DiagLog). */
+    void noteToneSource(const char* src, uint32_t bytes);
     void pushTrace(uint32_t lba, uint32_t bufsize, uint8_t kind, const char* tag);
     void enqueuePendingRead(const MscReadSample& s);
     void drainPendingReads();
@@ -241,16 +287,25 @@ private:
     void patchFatFixed(uint8_t* sector, uint32_t lba) const;
     void patchFatChain(uint8_t* sector, uint32_t lba, uint16_t cl0, uint16_t cl1) const;
     static void slotRanges(uint32_t out[kSlots][2]) {
-        // After Favoriten/Menue clusters: three station file ranges (sizes from MscGeo) + page.
-        const uint32_t a0 = kSettingsLba + kSpc;
-        out[0][0] = a0;
-        out[0][1] = a0 + MscGeo::kSlotSectors0 - 1;
+#if defined(PIDRIVE_GEO_FULLMENU) && PIDRIVE_GEO_FULLMENU
+        // Equal file ranges after Favoriten+Menue dir clusters (structure stable).
+        uint32_t a = kFilesLba;
+        for (size_t i = 0; i < kSlots; i++) {
+            out[i][0] = a;
+            out[i][1] = a + MscGeo::kSlotSectorsEqual - 1;
+            a = out[i][1] + 1;
+        }
+#else
+        // Legacy: three station ranges + short Menue/page stub.
+        out[0][0] = kFilesLba;
+        out[0][1] = kFilesLba + MscGeo::kSlotSectors0 - 1;
         out[1][0] = out[0][1] + 1;
         out[1][1] = out[1][0] + MscGeo::kSlotSectors1 - 1;
         out[2][0] = out[1][1] + 1;
         out[2][1] = out[2][0] + MscGeo::kSlotSectors2 - 1;
         out[3][0] = out[2][1] + 1;
         out[3][1] = out[3][0] + 12;
+#endif
     }
     static uint16_t lbaToCluster(uint32_t lba) {
         if (lba < kDataStartLba) return 0;
@@ -264,6 +319,7 @@ private:
     EventLog* events_ = nullptr;
     MenuStore* menu_ = nullptr;
     StreamBuffer* stream_ = nullptr;
+    Id3Store* id3Store_ = nullptr;
     PlayHandler playHandler_;
     DiagHandler diagHandler_;
     ReadsHandler readsHandler_;
@@ -350,8 +406,23 @@ private:
     uint32_t playRejectCount_ = 0;
     uint32_t playGuessCount_ = 0;
     uint32_t streamBytesServed_ = 0;
-    /** Bytes synthesized as Mp3Silence per user slot; diagnostic only, never policy. */
-    uint32_t silenceBytesServed_[3] = {0, 0, 0};
+    /** Bytes synthesized as Mp3Silence per slot; diagnostic only, never policy. */
+    uint32_t silenceBytesServed_[kSlots] = {0};
+    /**
+     * Tone-source accounting (which path filled host READ10) — for Lab/Feld
+     * discrimination of audible window vs silence/cache.
+     */
+    uint32_t toneLiveRing_ = 0;
+    uint32_t toneLiveId3_ = 0;
+    uint32_t toneUnderrun_ = 0;
+    uint32_t toneStallLead_ = 0;
+    uint32_t toneStallOk_ = 0;
+    uint32_t toneStallPartial_ = 0;
+    uint32_t toneStallTimeout_ = 0;
+    uint32_t toneSilenceSlot_ = 0;
+    uint32_t toneSeed_ = 0;
+    char lastToneSource_[16] = {0};
+    uint32_t lastToneLogMs_ = 0;
     /** Host reads of watched slot while live overlay not yet armed (silence window). */
     char preWarmUid_[24] = {0};
     uint32_t preWarmHostBytes_ = 0;

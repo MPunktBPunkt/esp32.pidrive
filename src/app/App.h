@@ -10,6 +10,7 @@
 #include "core/StatusLed.h"
 #include "core/PumpServer.h"
 #include "core/StreamBuffer.h"
+#include "core/Id3Store.h"
 #include "msc/UsbMscGadget.h"
 #include "msc/MessCapture.h"
 
@@ -27,6 +28,7 @@ public:
     UartLinkMonitor uart;
     StatusLed led;
     StreamBuffer stream;
+    Id3Store id3Store;
     PumpServer pump;
 
     bool pumpUp = false;
@@ -59,7 +61,10 @@ private:
     void handleApiLabUsb();
     void handleApiLabMess();
     void handleApiLabSituation();
+    /** Prefill ID3+body into ring, arm stall — Lab tone-path smoke without Pi pump. */
+    void handleApiLabToneSmoke();
     void handleApiMetrics();
+    void handleApiDiagLog();
     void handleOtaUpload();
     void handleRestart();
     void applyPlayDetectFromConfig();

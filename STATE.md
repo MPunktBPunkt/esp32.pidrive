@@ -1,27 +1,27 @@
 # STATE — esp32.pidrive
 
-Lebender Projektstand. Kurz halten; Details in `docs/planung/` und Feldbericht.
+Lebender Projektstand. Kurz halten; Details in `docs/planung/` und pidrive-Feldberichten.
 
 | Feld | Wert |
 |------|------|
-| Stand | 2026-10-03 |
-| Phase | **Lab 0.4.37-dev L0** (FAT16/4 MiB) auf `.88` · **Auto `.89` bleibt 0.4.36** bis B7 |
+| Stand | 2026-10-24 |
+| Phase | **0.4.59-dev** — Lead-BUSY ohne Underrun + `lab/tone_smoke`; Lab-Smoke PASS |
 | Repo | `MPunktBPunkt/esp32.pidrive` |
-| Build | `pio run -e pidrive-s3` (0.4.36) · **Lab L0:** `pio run -e pidrive-s3-l0` (0.4.37) |
-| Dist | `dist/pidrive.0.4.37-dev.ota.esp32s3.bin` (L0) · `0.4.36` weiter für Auto |
-| Hub-Depot | nicht für L0-Auto pushen |
-| Hardware | ESP32-S3-DevKitC-1 (OTG + UART) |
-| Pi-Link | [PUMP.md](docs/planung/PUMP.md) · Bridge `tools/pump_bridge.py` |
-| Feldbericht | [FELDTEST-ESP-MSC-BMW-2026-09-28](https://github.com/MPunktBPunkt/pidrive/blob/main/docs/betrieb/FELDTEST-ESP-MSC-BMW-2026-09-28.md) |
-| Auftrag | [AUFTRAG-L0-GEOMETRIE](docs/auftraege/AUFTRAG-L0-GEOMETRIE.md) · pidrive Host-Read-Nachweis M2 |
+| Build | `pio run -e pidrive-s3` (`PIDRIVE_GEO_FULLMENU=1`) |
+| Hardware | ESP32-S3-DevKitC-1 **N8R2** (OTG + UART) |
+| Pi-Docs | `pidrive/docs/planung/MASSNAHMEN-HU-PROBE-2026-10-23.md` |
 
 ## Aktueller Fokus
 
-1. **B7 am Auto** auf 0.4.36 — kein L0-OTA auf `.89`.
-2. **L0 Lab** `.88`: FAT16, `sectorCount=8192`, Slots ~1 MiB — Smoke OK 2026-10-03.
-3. Danach: L0_16M + statische Zeitmarker-MP3 (M3), nicht Ring.
+1. Lab `.88`: Zielbaum per OTA 0.4.57 + Bridge `menu_set` mit `path`.
+2. Struktur stabil; nur Body/Live-Overlay ändern; Menü-Namen → `msc.cycle`.
+3. Größenleiter ≫160 KiB / Option-b weiter offen.
 
 ## Letzte Änderung
 
-- 2026-10-03: **0.4.37-dev / PIDRIVE_GEO_L0** — FAT16 4 MiB; env `pidrive-s3-l0`; OTA nur Lab `.88`
-- 2026-10-02: Feld §11.10; gegen Probe-FW-Fork; Fokus B7
+- 2026-10-24: **0.4.59-dev** — Lead wartet auf Ring (BUSY+maxMs); `/api/lab/tone_smoke`; `tools/lab_tone_smoke.py` PASS (id3+lead+stall_ok, underrun=0)
+- 2026-10-24: **0.4.58-dev** — `leadBytes` uint32 (120 KiB); `msc.tone.*` + DiagLog `[TONE]`; Stall Lab-Default scharf
+- 2026-10-24: **0.4.57-dev** — Zielbild-FAT (Root `0ZULETZT` + 7 Quellordner); MenuStore/`path` aus JSON
+- 2026-10-23: **0.4.56-dev** — `PIDRIVE_GEO_FULLMENU` (FAT16 8 MiB, 32×160 KiB); multi-sector Dir; bridge ohne Mehr…
+- 2026-10-23: **0.4.55-dev** — `requestHostReread` (D+ Cycle); Soft-Remount demoted
+- 2026-10-22: **0.4.54-dev** — PSRAM + R13 Mutex + PanicTail/PhaseGate/DiagLog

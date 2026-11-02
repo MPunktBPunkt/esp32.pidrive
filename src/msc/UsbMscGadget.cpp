@@ -1,8 +1,12 @@
 #include "UsbMscGadget.h"
 #include "DemoFatImage.h"
 #include "HostScsiProbe.h"
+#include "MessCapture.h"
 #include "Mp3Silence.h"
 #include "LabBodySeed.h"
+#include "core/PanicTail.h"
+#include "core/PhaseGate.h"
+#include "core/DiagLog.h"
 #include "USB.h"
 #include "USBMSC.h"
 #include <Preferences.h>
@@ -22,12 +26,69 @@ extern "C" bool tud_msc_is_writable_cb(uint8_t lun) {
 }
 
 static bool isDirLba(uint32_t lba) {
-    // Root 17-48; Favoriten/Menue clusters (legacy kStationsLba/kSettingsLba) 49-56.
     if (lba >= UsbMscGadget::kRootLba0 &&
         lba < UsbMscGadget::kRootLba0 + UsbMscGadget::kRootSectors)
         return true;
-    return (lba >= UsbMscGadget::kStationsLba && lba < UsbMscGadget::kStationsLba + UsbMscGadget::kSpc) ||
-           (lba >= UsbMscGadget::kSettingsLba && lba < UsbMscGadget::kSettingsLba + UsbMscGadget::kSpc);
+    for (uint8_t i = 0; i < UsbMscGadget::kFolderCount; i++) {
+        const uint32_t base = UsbMscGadget::folderLba(i);
+        const uint32_t nSec =
+            (uint32_t)UsbMscGadget::kSpc * UsbMscGadget::folderClusters(i);
+        if (lba >= base && lba < base + nSec) return true;
+    }
+    return false;
+}
+
+/** Zielbild folder 8.3 + LFN (FULLMENU) / Favoriten+Menue (legacy). */
+struct FolderName {
+    const char* name83;
+    const char* lfn;
+};
+
+#if defined(PIDRIVE_GEO_FULLMENU) && PIDRIVE_GEO_FULLMENU
+static const FolderName kFolderNames[UsbMscGadget::kFolderCount] = {
+    {"FAVORIT", "Favorit"},   {"DAB", "DAB"},         {"FM", "FM"},
+    {"MP3", "MP3"},           {"SCANNER", "Scanner"}, {"AIRBAND", "Airband"},
+    {"STEUER", "Steuer"},
+};
+#else
+static const FolderName kFolderNames[UsbMscGadget::kFolderCount] = {
+    {"FAVORITE", "Favoriten"},
+    {"MENUE", "Menue"},
+};
+#endif
+
+/** Folder index from path prefix; -1 = root play (no slash); -2 = unknown. */
+static int folderIndexFromPath(const char* path) {
+    if (!path || !path[0]) return -2;
+    if (!strchr(path, '/')) return -1;  // 0ZULETZT.MP3
+    auto match = [](const char* path, const char* pref) -> bool {
+        size_t n = strlen(pref);
+        return strncmp(path, pref, n) == 0 && path[n] == '/';
+    };
+    // Compat aliases
+    if (match(path, "FAVORITEN") || match(path, "FAVORIT") || match(path, "FAVORITE"))
+        return 0;
+    if (match(path, "MENUE") || match(path, "STEUER"))
+        return (int)UsbMscGadget::kFolderCount - 1;
+#if defined(PIDRIVE_GEO_FULLMENU) && PIDRIVE_GEO_FULLMENU
+    if (match(path, "DAB")) return 1;
+    if (match(path, "FM")) return 2;
+    if (match(path, "MP3")) return 3;
+    if (match(path, "SCANNER")) return 4;
+    if (match(path, "AIRBAND")) return 5;
+#endif
+    return -2;
+}
+
+static int folderIndexForSlot(const MscFileMap& s) {
+    if (!s.active || !s.name[0]) return -2;
+    int fromPath = folderIndexFromPath(s.path);
+    if (fromPath >= -1) return fromPath;
+    // Fallback by kind (legacy menu_set without path)
+    if (strncmp(s.uid, "pump:", 5) == 0 || strcmp(s.kind, "action") == 0 ||
+        strcmp(s.kind, "folder") == 0)
+        return (int)UsbMscGadget::kFolderCount - 1;  // STEUER / MENUE
+    return 0;  // FAVORIT
 }
 
 /** Virtual FAT layout — see MscGeometry.h. */
@@ -73,17 +134,33 @@ static void usb_event_cb(void* arg, esp_event_base_t event_base, int32_t event_i
 
 void UsbMscGadget::loadDefaultSlots() {
     // Fixed disjoint geometry — never mutated by startStream/stopStream.
+#if defined(PIDRIVE_GEO_FULLMENU) && PIDRIVE_GEO_FULLMENU
+    const char* names[] = {"Zuletzt", "ROCK FM", "Antenne 1", "SWR3", "Stop"};
+    const char* uids[] = {"zuletzt", "demo:rock_fm", "demo:antenne", "demo:swr3", "pump:stop"};
+    const char* kinds[] = {"station", "station", "station", "station", "action"};
+    const char* paths[] = {"0ZULETZT.MP3", "FAVORIT/01.MP3", "FAVORIT/02.MP3", "FAVORIT/03.MP3",
+                           "STEUER/STOP.MP3"};
+    const size_t nDemo = 5;
+#else
     const char* names[] = {"ROCK FM", "Antenne 1", "SWR3", "Menue"};
     const char* uids[] = {"demo:rock_fm", "demo:antenne", "demo:swr3", "action:about"};
     const char* kinds[] = {"station", "station", "station", "action"};
-    // Root lists only folders (Favoriten, Menue); playable live files sit under Favoriten/.
     const char* paths[] = {
         "FAVORITEN/01ROCK.MP3", "FAVORITEN/02ANTENN.MP3", "FAVORITEN/03SWR3.MP3", "MENUE/ABOUT.MP3"};
+    const size_t nDemo = kSlots < 4u ? kSlots : 4u;
+#endif
     uint32_t ranges[kSlots][2];
     slotRanges(ranges);
     for (size_t i = 0; i < kSlots; i++) {
         slots_[i].lbaStart = ranges[i][0];
         slots_[i].lbaEnd = ranges[i][1];
+        slots_[i].uid[0] = 0;
+        slots_[i].name[0] = 0;
+        slots_[i].path[0] = 0;
+        slots_[i].kind[0] = 0;
+        slots_[i].active = false;
+    }
+    for (size_t i = 0; i < nDemo; i++) {
         strncpy(slots_[i].name, names[i], sizeof(slots_[i].name) - 1);
         strncpy(slots_[i].uid, uids[i], sizeof(slots_[i].uid) - 1);
         strncpy(slots_[i].path, paths[i], sizeof(slots_[i].path) - 1);
@@ -131,11 +208,23 @@ void UsbMscGadget::applyMenuSlots(const MenuStore& menu) {
                 slots_[i].kind[sizeof(slots_[i].kind) - 1] = 0;
                 if (it->path[0]) {
                     strncpy(slots_[i].path, it->path, sizeof(slots_[i].path) - 1);
+#if defined(PIDRIVE_GEO_FULLMENU) && PIDRIVE_GEO_FULLMENU
+                } else if (strcmp(it->uid, "zuletzt") == 0 || strcmp(it->uid, "last") == 0) {
+                    snprintf(slots_[i].path, sizeof(slots_[i].path), "0ZULETZT.MP3");
                 } else if (strcmp(it->kind, "action") == 0 || strncmp(it->uid, "pump:", 5) == 0) {
-                    snprintf(slots_[i].path, sizeof(slots_[i].path), "MENUE/%02u.MP3", (unsigned)(i + 1));
+                    snprintf(slots_[i].path, sizeof(slots_[i].path), "STEUER/%02u.MP3",
+                             (unsigned)(i + 1));
+                } else {
+                    snprintf(slots_[i].path, sizeof(slots_[i].path), "FAVORIT/%02u.MP3",
+                             (unsigned)(i + 1));
+#else
+                } else if (strcmp(it->kind, "action") == 0 || strncmp(it->uid, "pump:", 5) == 0) {
+                    snprintf(slots_[i].path, sizeof(slots_[i].path), "MENUE/%02u.MP3",
+                             (unsigned)(i + 1));
                 } else {
                     snprintf(slots_[i].path, sizeof(slots_[i].path), "FAVORITEN/%02u.MP3",
                              (unsigned)(i + 1));
+#endif
                 }
                 slots_[i].path[sizeof(slots_[i].path) - 1] = 0;
                 slots_[i].active = true;
@@ -152,10 +241,11 @@ void UsbMscGadget::applyMenuSlots(const MenuStore& menu) {
             events_->push("msc.slots", d);
         }
         Serial.printf("[MSC] applyMenuSlots n=%u (static FAT)\n", (unsigned)n);
-        // Names live only in patched DIR sectors — host must re-read. Without remount
-        // BMW/NBT keeps the first listing (often demo 01ROCK.* / stale NVS).
+        // Names live in patched DIR sectors. Soft-Remount (NOT READY) does not make
+        // NBT re-enum (R37). Soft D+ cycle → FS-Enum + Browse flush, position often
+        // kept; no Fresh 32+128+EOF needed (R38/R45). Skip while live overlay armed.
         if (mediaPresented_ && !(stream_ && stream_->active())) {
-            remountMedia("menu");
+            requestHostReread("menu");
         }
     }
 
@@ -163,7 +253,7 @@ void UsbMscGadget::applyMenuSlots(const MenuStore& menu) {
     if (stream_ && stream_->active() && stream_->uid()[0]) {
         startStream(stream_->uid());
     }
-    // mediaPresent is NOT toggled here — see presentMedia() / remountMedia().
+    // mediaPresent is NOT toggled here — see presentMedia() / requestHostReread().
 }
 
 void UsbMscGadget::formatPdSerial(uint16_t gen, char* ser, size_t n) {
@@ -214,16 +304,53 @@ void UsbMscGadget::remountMediaKeepIdentity(const char* reason) {
     remountMediaInternal(reason, false);
 }
 
-void UsbMscGadget::remountMediaInternal(const char* reason, bool bumpIdentity) {
+bool UsbMscGadget::requestHostReread(const char* reason, uint16_t holdMs) {
     killSelectionBarrier();
-    if (!ready_) return;
+    if (!ready_ || !mediaPresented_) {
+        if (events_) events_->push("msc.cycle_skip", "not_ready");
+        return false;
+    }
+    if (stream_ && stream_->active()) {
+        if (events_) events_->push("msc.cycle_skip", "streaming");
+        return false;
+    }
+    if (holdMs < 50) holdMs = 50;
+    if (holdMs > 5000) holdMs = 5000;
+    // Keep Serial/Label/Vol — they are not a Resume-Key (R34). Cycle alone flushes
+    // Browse/Body enough for DIR + Atom re-read.
+    armSoftUsbKeepIdentity();
+    PhaseGate::enter(PhaseGate::SoftUsb, 0u);
+    PanicTail::breadcrumb(PanicTail::SoftDetach, 2u);  // 2 = D+ cycle (≠ media_hide)
+    const bool ok = MessCapture::instance().usbDetach(holdMs);
+    if (events_) {
+        char d[48];
+        snprintf(d, sizeof(d), "%s hold=%u %s", reason ? reason : "", (unsigned)holdMs,
+                 ok ? "ok" : "fail");
+        events_->push("msc.cycle", d);
+    }
+    Serial.printf("[MSC] host reread cycle (%s) hold=%ums %s\n", reason ? reason : "",
+                  (unsigned)holdMs, ok ? "ok" : "FAIL");
+    PhaseGate::pass(PhaseGate::SoftUsb);
+    return ok;
+}
+
+void UsbMscGadget::remountMediaInternal(const char* reason, bool bumpIdentity) {
+    PhaseGate::enter(PhaseGate::SoftUsb, bumpIdentity ? 1u : 0u);
+    PanicTail::breadcrumb(PanicTail::SoftDetach, bumpIdentity ? 1u : 0u);
+    killSelectionBarrier();
+    if (!ready_) {
+        PhaseGate::pass(PhaseGate::SoftUsb);
+        return;
+    }
     // Never yank the medium while live overlay is armed — kills TCP + host reads.
     if (stream_ && stream_->active()) {
         if (events_) events_->push("msc.remount_skip", "streaming");
+        PhaseGate::pass(PhaseGate::SoftUsb);
         return;
     }
     if (bumpIdentity) {
-        // New USB identity so NBT MediaStore treats this as a different stick.
+        // Lab isolation only. Serial/Label/Vol are NOT an NBT Resume-Key (R34);
+        // Soft-Remount itself does not reset HU caches (R37). Prefer requestHostReread.
         applyUsbIdentity();
     }
     char ser[12];
@@ -250,6 +377,7 @@ void UsbMscGadget::remountMediaInternal(const char* reason, bool bumpIdentity) {
     }
     Serial.printf("[MSC] remount scheduled (%s) ser=%s%s\n", reason ? reason : "", ser,
                   bumpIdentity ? "" : " keepId");
+    PhaseGate::pass(PhaseGate::SoftUsb);
 }
 
 void UsbMscGadget::setVolumeLabelOverride(const char* label) {
@@ -313,7 +441,7 @@ void UsbMscGadget::clearPreWarmWatch() {
 }
 
 bool UsbMscGadget::setLabBodySeed(int slot, char tag, uint32_t fromOff) {
-    if (slot < 0 || slot > 2) return false;
+    if (slot < 0 || slot >= (int)kSlots) return false;
     if (tag != 'A' && tag != 'B') return false;
     labBodySeedActive_ = true;
     labBodySeedSlot_ = slot;
@@ -335,7 +463,7 @@ void UsbMscGadget::clearLabBodySeed() {
 }
 
 size_t UsbMscGadget::labBodyRead(int slot, uint32_t fileOff, uint8_t* out, size_t n) const {
-    if (!out || n == 0 || slot < 0 || slot > 2) return 0;
+    if (!out || n == 0 || slot < 0 || slot >= (int)kSlots) return 0;
     if (!slots_[slot].active) return 0;
     const uint32_t sz = slotBytes(slots_[slot]);
     if (fileOff >= sz) return 0;
@@ -348,12 +476,55 @@ size_t UsbMscGadget::labBodyRead(int slot, uint32_t fileOff, uint8_t* out, size_
     return n;
 }
 
+void UsbMscGadget::noteToneSource(const char* src, uint32_t bytes) {
+    if (!src) return;
+    if (bytes == 0 && strcmp(src, "stall_timeout") != 0) return;
+    if (strcmp(src, "live") == 0) toneLiveRing_ += bytes;
+    else if (strcmp(src, "id3") == 0) toneLiveId3_ += bytes;
+    else if (strcmp(src, "underrun") == 0) toneUnderrun_ += bytes;
+    else if (strcmp(src, "lead") == 0) toneStallLead_ += bytes;
+    else if (strcmp(src, "stall_ok") == 0) toneStallOk_ += bytes;
+    else if (strcmp(src, "stall_partial") == 0) toneStallPartial_ += bytes;
+    else if (strcmp(src, "stall_timeout") == 0) toneStallTimeout_ += bytes;
+    else if (strcmp(src, "silence") == 0) {
+        toneSilenceSlot_ += bytes;
+    } else if (strcmp(src, "seed") == 0)
+        toneSeed_ += bytes;
+
+    const bool changed = !lastToneSource_[0] || strcmp(lastToneSource_, src) != 0;
+    strncpy(lastToneSource_, src, sizeof(lastToneSource_) - 1);
+    lastToneSource_[sizeof(lastToneSource_) - 1] = 0;
+    const uint32_t now = millis();
+    if (changed || (now - lastToneLogMs_) >= 500) {
+        lastToneLogMs_ = now;
+        DiagLog::printf("[TONE] src=%s +%u live=%u und=%u sil=%u lead=%u stOk=%u stTo=%u\n", src,
+                        (unsigned)bytes, (unsigned)toneLiveRing_, (unsigned)toneUnderrun_,
+                        (unsigned)toneSilenceSlot_, (unsigned)toneStallLead_,
+                        (unsigned)toneStallOk_, (unsigned)toneStallTimeout_);
+        if (events_ && changed) events_->push("tone.src", src);
+    }
+}
+
+void UsbMscGadget::armStallAfterPlayGuess() {
+    stallArmed_ = true;
+    stallLeadLeft_ = stall_.leadBytes;
+    stallCmdActive_ = false;
+    stallSkipNotArmed_ = 0;
+    if (events_) events_->push("stall.arm", "lab");
+    DiagLog::printf("[STALL] armed lead=%u maxMs=%u\n", (unsigned)stall_.leadBytes,
+                    (unsigned)stall_.maxMs);
+}
+
 void UsbMscGadget::startStream(const char* uid) {
     streamSlot_ = -1;
     stallLeadLeft_ = stall_.leadBytes;
     stallCmdActive_ = false;
     // Menu/pump may arm overlay before HU has a from-head play — do not BUSY yet (S7).
     stallArmed_ = false;
+    toneLiveRing_ = toneLiveId3_ = toneUnderrun_ = 0;
+    toneStallLead_ = toneStallOk_ = toneStallPartial_ = toneStallTimeout_ = 0;
+    toneSilenceSlot_ = toneSeed_ = 0;
+    lastToneSource_[0] = 0;
     if (!uid || !uid[0]) return;
     for (size_t i = 0; i < kSlots; i++) {
         if (slots_[i].active && strcmp(slots_[i].uid, uid) == 0) {
@@ -432,8 +603,11 @@ void UsbMscGadget::patchFatChain(uint8_t* sector, uint32_t lba, uint16_t cl0, ui
 
 void UsbMscGadget::patchFatFixed(uint8_t* sector, uint32_t lba) const {
     // Directory clusters + slot chains — independent of stream overlay.
-    patchFatChain(sector, lba, 2, 2);  // STATIONS
-    patchFatChain(sector, lba, 3, 3);  // SETTINGS
+    for (uint8_t i = 0; i < kFolderCount; i++) {
+        const uint16_t cl0 = lbaToCluster(folderLba(i));
+        const uint16_t cl1 = (uint16_t)(cl0 + folderClusters(i) - 1);
+        patchFatChain(sector, lba, cl0, cl1);
+    }
     for (size_t i = 0; i < kSlots; i++) {
         if (!slots_[i].active) continue;
         uint16_t cl0 = lbaToCluster(slots_[i].lbaStart);
@@ -642,9 +816,7 @@ static void write83File(uint8_t* ent, const uint8_t name83[11], uint16_t startCl
 void UsbMscGadget::patchRootDir(uint8_t* sector, uint32_t lba) const {
     memset(sector, 0, 512);
     if (lba != kRootLba0) return;
-    // Product-like first page: folders only (no playable MP3 at root → no autoplay fodder).
-    //   Favoriten/  (cluster 2, live stations — Stall/ID3 targets)
-    //   Menue/      (cluster 3, action stubs)
+    // Zielbild root: 0ZULETZT.MP3 + source folders (structure stable).
     memset(sector, ' ', 11);
     char vol[12];
     formatVolumeLabel(vol, sizeof(vol));
@@ -663,25 +835,32 @@ void UsbMscGadget::patchRootDir(uint8_t* sector, uint32_t lba) const {
         ent[27] = (uint8_t)(cl >> 8);
     };
 
-    // Favoriten first (product root order). 8.3 = FAVORITE + LFN.
-    uint8_t fav83[11];
-    memset(fav83, ' ', 11);
-    memcpy(fav83, "FAVORITE", 8);
-    uint8_t favSum = fat83Checksum(fav83);
-    uint16_t favU16[16];
-    int favLen = labelToUtf16("Favoriten", favU16, 15);
-    writeLfnEntry(sector + 32, 1, true, favU16, favLen, favSum);
-    writeRootDir(sector + 64, "FAVORITE", 2);
+    int ent = 1;  // after volume label at entry 0
+    // Root uses 8.3 only (≤16 ents/sector): Browse=8.3, Player=ID3 from file head.
 
-    // Menue second. 8.3 = MENUE + LFN.
-    uint8_t menu83[11];
-    memset(menu83, ' ', 11);
-    memcpy(menu83, "MENUE", 5);
-    uint8_t menuSum = fat83Checksum(menu83);
-    uint16_t menuU16[16];
-    int menuLen = labelToUtf16("Menue", menuU16, 15);
-    writeLfnEntry(sector + 96, 1, true, menuU16, menuLen, menuSum);
-    writeRootDir(sector + 128, "MENUE", 3);
+#if defined(PIDRIVE_GEO_FULLMENU) && PIDRIVE_GEO_FULLMENU
+    // Root play-anchor: prefer explicit root-path slot, else slot 0 if active.
+    const MscFileMap* rootPlay = nullptr;
+    for (size_t i = 0; i < kSlots; i++) {
+        if (folderIndexForSlot(slots_[i]) == -1) {
+            rootPlay = &slots_[i];
+            break;
+        }
+    }
+    if (rootPlay && ent < 16) {
+        uint8_t name83[11];
+        memcpy(name83, "0ZULETZTMP3", 11);  // alphabet-first resume anchor
+        write83File(sector + ent * 32, name83, lbaToCluster(rootPlay->lbaStart),
+                    slotBytes(*rootPlay));
+        ent++;
+    }
+#endif
+
+    for (uint8_t fi = 0; fi < kFolderCount && ent < 16; fi++) {
+        writeRootDir(sector + ent * 32, kFolderNames[fi].name83,
+                     lbaToCluster(folderLba(fi)));
+        ent++;
+    }
 }
 
 
@@ -700,84 +879,88 @@ static void writeDotDirs(uint8_t* sector, uint16_t selfCl) {
     sector[32 + 11] = 0x10;
 }
 
+static int lfnEntCountForName(const char* name) {
+    uint16_t u16[40];
+    int u16Len = labelToUtf16(name, u16, 39);
+    if (u16Len < 36) {
+        const char* ext = ".mp3";
+        for (int i = 0; ext[i] && u16Len < 39; i++) u16[u16Len++] = (uint16_t)ext[i];
+    }
+    int nLfn = (u16Len + 12) / 13;
+    return nLfn < 1 ? 1 : nLfn;
+}
+
 void UsbMscGadget::patchDirNames(uint8_t* sector, uint32_t lba) const {
-    // Favoriten = cluster 2 (kStationsLba); Menue = cluster 3 (kSettingsLba).
-    // Only the first sector of each dir holds entries; the rest of the cluster
-    // MUST be zero — otherwise demo_fat leftovers look like extra/corrupt ents
-    // (especially with L0 spc=8). BMW then often shows a single file.
-    const bool favoritesCl =
-        (lba >= kStationsLba && lba < kStationsLba + kSpc);
-    const bool menuCl =
-        (lba >= kSettingsLba && lba < kSettingsLba + kSpc);
-    if (!favoritesCl && !menuCl) return;
-
-    if (favoritesCl) {
-        if (lba != kStationsLba) {
-            memset(sector, 0, 512);
-            return;
+    // Which source folder does this LBA belong to?
+    int folderIdx = -1;
+    uint32_t base = 0;
+    uint32_t nSec = 0;
+    for (uint8_t i = 0; i < kFolderCount; i++) {
+        const uint32_t b = folderLba(i);
+        const uint32_t ns = (uint32_t)kSpc * folderClusters(i);
+        if (lba >= b && lba < b + ns) {
+            folderIdx = (int)i;
+            base = b;
+            nSec = ns;
+            break;
         }
-        writeDotDirs(sector, 2);
-        int ent = 2;
-        for (int slot = 0; slot < 3 && ent < 16; slot++) {
-            if (!slots_[slot].active || !slots_[slot].name[0]) continue;
+    }
+    if (folderIdx < 0) return;
 
-            uint8_t name83[11];
-            labelTo83(slots_[slot].name, name83);
-            // Unique 8.3 prefix — LFN can collide ("Rock Antenne" / "… Bayern").
-            name83[0] = (uint8_t)('1' + slot);
-            uint8_t sum = fat83Checksum(name83);
-
-            uint16_t u16[40];
-            int u16Len = labelToUtf16(slots_[slot].name, u16, 39);
-            if (u16Len < 36) {
-                const char* ext = ".mp3";
-                for (int i = 0; ext[i] && u16Len < 39; i++) u16[u16Len++] = (uint16_t)ext[i];
-            }
-            int nLfn = (u16Len + 12) / 13;
-            if (nLfn < 1) nLfn = 1;
-            if (ent + nLfn + 1 > 16) break;
-
-            for (int ord = nLfn; ord >= 1; --ord) {
-                writeLfnEntry(sector + ent * 32, (uint8_t)ord, ord == nLfn, u16, u16Len, sum);
-                ent++;
-            }
-
-            uint16_t startCl = lbaToCluster(slots_[slot].lbaStart);
-            uint32_t fileBytes = slotBytes(slots_[slot]);
-            write83File(sector + ent * 32, name83, startCl, fileBytes);
-            ent++;
-        }
+    const uint32_t secIndex = lba - base;
+    if (secIndex >= nSec) {
+        memset(sector, 0, 512);
         return;
     }
 
-    if (menuCl) {
-        if (lba != kSettingsLba) {
-            memset(sector, 0, 512);
-            return;
+    int idxs[kSlots];
+    int nIdx = 0;
+    for (size_t i = 0; i < kSlots && nIdx < (int)kSlots; i++) {
+        if (folderIndexForSlot(slots_[i]) == folderIdx) idxs[nIdx++] = (int)i;
+    }
+
+    const uint16_t selfCl = lbaToCluster(base);
+    const int entsPerSec = 16;
+    const int startEnt = (int)secIndex * entsPerSec;
+    const int endEnt = startEnt + entsPerSec;
+
+    memset(sector, 0, 512);
+    if (secIndex == 0) writeDotDirs(sector, selfCl);
+
+    int cursor = 2;  // after . and ..
+    for (int j = 0; j < nIdx; j++) {
+        const int si = idxs[j];
+        const int nLfn = lfnEntCountForName(slots_[si].name);
+        const int need = nLfn + 1;
+        const int fileStart = cursor;
+        const int fileEnd = cursor + need;
+        cursor = fileEnd;
+
+        if (fileEnd <= startEnt || fileStart >= endEnt) continue;
+
+        uint8_t name83[11];
+        labelTo83(slots_[si].name, name83);
+        name83[0] = (uint8_t)('0' + ((si + 1) % 10));
+        if (si >= 9) name83[1] = (uint8_t)('A' + ((si / 10) % 26));
+        uint8_t sum = fat83Checksum(name83);
+
+        uint16_t u16[40];
+        int u16Len = labelToUtf16(slots_[si].name, u16, 39);
+        if (u16Len < 36) {
+            const char* ext = ".mp3";
+            for (int i = 0; ext[i] && u16Len < 39; i++) u16[u16Len++] = (uint16_t)ext[i];
         }
-        if (slots_[3].active && slots_[3].name[0]) {
-            writeDotDirs(sector, 3);
-            uint8_t name83[11];
-            labelTo83(slots_[3].name, name83);
-            name83[0] = '9';
-            uint8_t sum = fat83Checksum(name83);
-            uint16_t u16[40];
-            int u16Len = labelToUtf16(slots_[3].name, u16, 39);
-            if (u16Len < 36) {
-                const char* ext = ".mp3";
-                for (int i = 0; ext[i] && u16Len < 39; i++) u16[u16Len++] = (uint16_t)ext[i];
+
+        for (int e = fileStart; e < fileEnd; e++) {
+            if (e < startEnt || e >= endEnt) continue;
+            uint8_t* ent = sector + (e - startEnt) * 32;
+            const int local = e - fileStart;
+            if (local < nLfn) {
+                const int ord = nLfn - local;
+                writeLfnEntry(ent, (uint8_t)ord, ord == nLfn, u16, u16Len, sum);
+            } else {
+                write83File(ent, name83, lbaToCluster(slots_[si].lbaStart), slotBytes(slots_[si]));
             }
-            int nLfn = (u16Len + 12) / 13;
-            if (nLfn < 1) nLfn = 1;
-            int ent = 2;
-            for (int ord = nLfn; ord >= 1 && ent < 15; --ord) {
-                writeLfnEntry(sector + ent * 32, (uint8_t)ord, ord == nLfn, u16, u16Len, sum);
-                ent++;
-            }
-            uint16_t startCl = lbaToCluster(slots_[3].lbaStart);
-            write83File(sector + ent * 32, name83, startCl, slotBytes(slots_[3]));
-        } else {
-            memset(sector, 0, 512);
         }
     }
 }
@@ -850,6 +1033,7 @@ int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32
         if (seedBody) {
             LabBodySeed::fill(out, bufsize, fileOff, labBodySeedTag_);
             seedBytesServed_ += bufsize;
+            noteToneSource("seed", bufsize);
         } else {
             const bool live =
                 stream_ && stream_->active() && streamSlot_ >= 0 && f == &slots_[streamSlot_];
@@ -869,13 +1053,45 @@ int32_t UsbMscGadget::onRead(uint32_t lba, uint32_t offset, void* buffer, uint32
                     }
                     return n;
                 }
+                const uint32_t u0 = stream_->underruns();
+                const uint32_t id3 = stream_->id3Len();
                 stream_->readAt(fileOff, out, bufsize);
                 streamBytesServed_ += bufsize;
-            } else if (f >= &slots_[0] && f <= &slots_[2]) {
-                // Full-slot CBR silence + Info/Xing — HU keeps the track instead of
-                // skipping through 0xFF junk after a short demo stub (field 2026-09-28).
-                Mp3Silence::fill(out, bufsize, fileOff, slotBytes(*f));
-                if (si >= 0 && si < 3) silenceBytesServed_[si] += bufsize;
+                const uint32_t und = stream_->underruns() - u0;
+                uint32_t id3Part = 0;
+                if (fileOff < id3) {
+                    id3Part = id3 - fileOff;
+                    if (id3Part > bufsize) id3Part = bufsize;
+                }
+                if (id3Part) noteToneSource("id3", id3Part);
+                if (und) noteToneSource("underrun", und);
+                const uint32_t livePart =
+                    bufsize > (id3Part + und) ? bufsize - id3Part - und : 0;
+                if (livePart) noteToneSource("live", livePart);
+            } else if (si >= 0 && si < (int)kSlots) {
+                // Resume head for 0ZULETZT: sticky ID3/APIC from Id3Store when idle
+                // (boot / after audio_stop). Body beyond the tag stays silence+Xing.
+                const bool zuletzt = f->uid[0] && (strcmp(f->uid, "zuletzt") == 0 ||
+                                                   strcmp(f->uid, "last") == 0);
+                const size_t stickyLen = (zuletzt && id3Store_) ? id3Store_->len() : 0;
+                if (stickyLen > 0 && fileOff < stickyLen) {
+                    size_t got = id3Store_->readAt(fileOff, out, bufsize);
+                    if (got < bufsize) {
+                        Mp3Silence::fill(out + got, bufsize - (uint32_t)got,
+                                         fileOff + (uint32_t)got, slotBytes(*f));
+                    }
+                    noteToneSource("id3", got ? got : bufsize);
+                    if (got < bufsize) {
+                        silenceBytesServed_[si] += (bufsize - (uint32_t)got);
+                        noteToneSource("silence", bufsize - (uint32_t)got);
+                    }
+                } else {
+                    // Full-slot CBR silence + Info/Xing — HU keeps the track instead of
+                    // skipping through 0xFF junk after a short demo stub (field 2026-09-28).
+                    Mp3Silence::fill(out, bufsize, fileOff, slotBytes(*f));
+                    silenceBytesServed_[si] += bufsize;
+                    noteToneSource("silence", bufsize);
+                }
                 // Pending-overlay window: HU may already be consuming — Mistral ~6s suspicion.
                 if (preWarmUid_[0] && f->uid[0] && strcmp(f->uid, preWarmUid_) == 0) {
                     preWarmHostBytes_ += bufsize;
@@ -893,7 +1109,7 @@ int32_t UsbMscGadget::selectionBarrierRead(const MscFileMap* f, uint32_t lba, ui
     if (!selectionBarrier_.enable) return -2;
     const int si = slotIndex(f);
     const bool headCandidate =
-        f && si >= 0 && si <= 2 && !isNavSlot(f) && indexSettled_ &&
+        f && si >= 0 && !isNavSlot(f) && indexSettled_ &&
         lba <= f->lbaStart + playDetect_.headLbaSlop;
 
     if (!selectionBarrierActive_) {
@@ -970,21 +1186,54 @@ int32_t UsbMscGadget::onReadLiveStall(uint32_t lba, uint32_t offset, uint8_t* ou
     if (fileOff < stream_->id3Len()) {
         stream_->readAt(fileOff, out, bufsize);
         stallCmdActive_ = false;
+        noteToneSource("id3", bufsize);
         return (int32_t)bufsize;
     }
 
-    // Lead-bytes: ungebremst nach Kopf (Tap-Pfad Vorsprung).
+    // Arm cursor before avail checks (lead + body).
+    if (!stream_->cursorArmed()) {
+        stream_->armCursorAtLiveHead();
+    }
+
+    // Lead-bytes: after head, prefer unthrottled deliver — but NEVER underrun-fill.
+    // Empty ring → BUSY with the same maxMs budget as body (no infinite hang).
     if (stallLeadLeft_ > 0) {
         uint32_t n = bufsize;
         if (n > stallLeadLeft_) n = stallLeadLeft_;
-        stream_->readAt(fileOff, out, n);
-        stallLeadLeft_ -= n;
-        return (int32_t)n;
-    }
-
-    // Arm cursor for availability check (head snap path).
-    if (!stream_->cursorArmed()) {
-        stream_->armCursorAtLiveHead();
+        const bool keyChanged = (lba != stallKeyLba_) || (offset != stallKeyOff_);
+        if (keyChanged && offset == 0) {
+            stallCmdT0_ = millis();
+            stallCmdActive_ = true;
+            stallCmds_++;
+            stallKeyLba_ = lba;
+            stallKeyOff_ = offset;
+        }
+        const uint32_t avail = stream_->liveAvail();
+        if (avail >= n) {
+            stream_->readAt(fileOff, out, n);
+            stallLeadLeft_ -= n;
+            noteToneSource("lead", n);
+            return (int32_t)n;
+        }
+        if (avail >= 512u) {
+            uint32_t m = (avail / 512u) * 512u;
+            if (m > n) m = n;
+            stream_->readAt(fileOff, out, m);
+            stallLeadLeft_ -= m;
+            noteToneSource("lead", m);
+            return (int32_t)m;
+        }
+        const uint32_t waited = millis() - stallCmdT0_;
+        if (stallCmdActive_ && waited >= stall_.maxMs) {
+            // Lead exhausted wait — drop remaining lead budget, fall through to body path.
+            stallLeadLeft_ = 0;
+            stallTimeouts_++;
+            noteToneSource("stall_timeout", 0);
+        } else {
+            stallRetries_++;
+            vTaskDelay(pdMS_TO_TICKS(stall_.retryMs ? stall_.retryMs : 2));
+            return 0;
+        }
     }
 
     // Busy-Retry re-enters with the SAME (lba,offset) — must NOT reset cmd/cb timers or cmds++
@@ -996,6 +1245,7 @@ int32_t UsbMscGadget::onReadLiveStall(uint32_t lba, uint32_t offset, uint8_t* ou
             stallCmdT0_ = millis();
             stallCmdActive_ = true;
             stallCmds_++;
+            PanicTail::breadcrumb(PanicTail::StallEnter, stallCmds_);
             if (stall_.leadBytes && stallLeadLeft_ == 0 && !stream_->cursorArmed()) {
                 stallLeadLeft_ = stall_.leadBytes;
             }
@@ -1023,16 +1273,21 @@ int32_t UsbMscGadget::onReadLiveStall(uint32_t lba, uint32_t offset, uint8_t* ou
         else stallWaitHist_[4]++;
         stallCmdActive_ = (offset + bufsize) != 0;  // TinyUSB continues if more
         if (stall_.timer == 1) stallCbT0_ = millis();
+        noteToneSource("stall_ok", bufsize);
         return (int32_t)bufsize;
     }
 
     if (waited >= stall_.maxMs) {
-        // Fallback: silence like today.
+        // Fallback: deliver whatever ring has (often underrun→CBR silence).
+        const uint32_t u0 = stream_->underruns();
         stream_->readAt(fileOff, out, bufsize);
         stallTimeouts_++;
         stallWaitMsLast_ = waited;
         if (waited > stallWaitMsMax_) stallWaitMsMax_ = waited;
         stallCmdActive_ = false;
+        const uint32_t und = stream_->underruns() - u0;
+        noteToneSource("stall_timeout", bufsize);
+        if (und) noteToneSource("underrun", und);
         return (int32_t)bufsize;
     }
 
@@ -1046,6 +1301,7 @@ int32_t UsbMscGadget::onReadLiveStall(uint32_t lba, uint32_t offset, uint8_t* ou
             stream_->readAt(fileOff, out, n);
             stallPartials_++;
             stallPartialBytes_ += n;
+            noteToneSource("stall_partial", n);
             if (stall_.timer == 1) stallCbT0_ = millis();
             return (int32_t)n;
         }
@@ -1070,6 +1326,9 @@ bool UsbMscGadget::begin(EventLog* events, MenuStore* menu) {
     }
 
     USB.onEvent(usb_event_cb);
+    // USB string descriptors (hosts that skip SCSI INQUIRY). Match PiDrive branding.
+    USB.manufacturerName("PiDrive");
+    USB.productName("USB Media");
     MSC.vendorID("PIDRIVE");
     MSC.productID("USB_MEDIA");
     // Restore sticky MediaStore identity across OTG power-loss reboots (field 2026-09-30).
@@ -1151,12 +1410,14 @@ void UsbMscGadget::onUsbPlugged(bool on) {
         memset(silenceBytesServed_, 0, sizeof(silenceBytesServed_));
         plugCount_++;
         HostScsiProbe::instance().onPlug(plugMs_);
+        PanicTail::breadcrumb(PanicTail::UsbMount, plugCount_);
         if (events_) events_->push("usb.otg.up", "car-host");
         setPhase(Phase::Scan, "plug");
     } else {
         unplugCount_++;
-        // Physical / power-loss unplug: bump serial so HU MediaStore cannot reuse PD0001.
-        // Soft D+ cycle (lab/orchestrator): keep identity — soft-usb cell forbids serial drift.
+        PanicTail::breadcrumb(PanicTail::UsbUmount, unplugCount_);
+        // Physical / power-loss unplug: bump serial for stick-generation hygiene (lab).
+        // Serial/Label/Vol are not an NBT Resume-Key (R34). Soft D+ cycle keeps identity.
         const bool keepId = softUsbKeepIdentityArm_;
         softUsbKeepIdentityArm_ = false;
         if (!keepId) applyUsbIdentity();
@@ -1404,7 +1665,7 @@ void UsbMscGadget::emitPlayReject(PlayEval eval, const MscFileMap* f, uint32_t s
 }
 
 void UsbMscGadget::noteColdBodyRead(const MscFileMap* f, uint32_t lba, uint32_t bufsize) {
-    if (!f || f < &slots_[0] || f > &slots_[2]) return;
+    if (slotIndex(f) < 0) return;
     // Warm-head touch — not a cold body burst; reset accumulator.
     if (lba <= f->lbaStart + playDetect_.headLbaSlop) {
         coldBodyFile_ = nullptr;
@@ -1744,6 +2005,22 @@ void UsbMscGadget::toJson(JsonObject obj) const {
     obj["fatMode"] = "static";
     obj["phase"] = phaseName(phase_);
     obj["mediaPresented"] = mediaPresented_;
+    {
+        // PiDrive↔HU contract (hu-probe 22./23.10.): structure+head, body dynamic;
+        // menu updates use soft D+ cycle, not Soft-Remount / Fresh library scan.
+        JsonObject c = obj["huContract"].to<JsonObject>();
+        c["scanHeadBlocks"] = kHuScanHeadBlocks;
+        c["scanHeadBytes"] = kHuScanHeadBytes;
+        c["menuReread"] = "usb_cycle";
+        c["softRemount"] = "noop_on_nbt";
+        c["freshNotRequired"] = true;
+        c["bodyDynamic"] = true;
+        c["fullMenu"] = MscGeo::kFullMenu;
+        c["slots"] = (int)kSlots;
+        c["slotBytes"] = (int)(MscGeo::kFullMenu ? (MscGeo::kSlotSectorsEqual * 512u)
+                                                 : (MscGeo::kSlotSectors0 * 512u));
+        c["geo"] = MscGeo::kReadyDetail;
+    }
     obj["remountGen"] = remountGen_;
     {
         char ser[12];
@@ -1810,6 +2087,20 @@ void UsbMscGadget::toJson(JsonObject obj) const {
         for (int i = 0; i < 5; i++) h.add(stallWaitHist_[i]);
     }
     {
+        // Which MSC payload path fed the host — primary Lab discriminator for "why tone".
+        JsonObject t = obj["tone"].to<JsonObject>();
+        t["last"] = lastToneSource_;
+        t["liveRing"] = toneLiveRing_;
+        t["id3"] = toneLiveId3_;
+        t["underrun"] = toneUnderrun_;
+        t["silenceSlot"] = toneSilenceSlot_;
+        t["stallLead"] = toneStallLead_;
+        t["stallOk"] = toneStallOk_;
+        t["stallPartial"] = toneStallPartial_;
+        t["stallTimeout"] = toneStallTimeout_;
+        t["seed"] = toneSeed_;
+    }
+    {
         JsonObject x = obj["xfer"].to<JsonObject>();
         x["n512"] = xfer512_;
         x["n2k"] = xfer2k_;
@@ -1835,7 +2126,9 @@ void UsbMscGadget::toJson(JsonObject obj) const {
     // Keep this explicit so transport epochs are never cited as BOT resets.
     obj["botResetObservable"] = false;
     obj["sectorCount"] = kVirtSectorCount;
-    obj["imageBytes"] = DEMO_FAT_SIZE;
+    // Capacity advertised to the host (= virt geometry), not the embedded demo image size.
+    obj["imageBytes"] = (uint32_t)kVirtSectorCount * (uint32_t)DEMO_FAT_SECTOR_SIZE;
+    obj["demoImageBytes"] = DEMO_FAT_SIZE;
     obj["dataStartLba"] = kDataStartLba;
     obj["slots"] = (int)kSlots;
     obj["port"] = "otg";
@@ -1875,6 +2168,7 @@ void UsbMscGadget::applyMenuSlots(const MenuStore&) {}
 void UsbMscGadget::presentMedia(const char*) {}
 void UsbMscGadget::remountMedia(const char*) {}
 void UsbMscGadget::remountMediaKeepIdentity(const char*) {}
+bool UsbMscGadget::requestHostReread(const char*, uint16_t) { return false; }
 void UsbMscGadget::remountMediaInternal(const char*, bool) {}
 void UsbMscGadget::setVolumeLabelOverride(const char*) {}
 void UsbMscGadget::formatVolumeLabel(char* vol, size_t n) const {

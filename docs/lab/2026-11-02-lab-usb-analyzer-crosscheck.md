@@ -119,3 +119,15 @@ Host 0.0.49 · tur=32 · scan_blocks=160 · file_lba0=81 · Dauer **174 ms**:
 - NBT-Replay (bestehend): [`docs/planung/NBT-REPLAY.md`](../planung/NBT-REPLAY.md)  
 - Schwesterbericht hu-probe: `docs/feld/2026-11-02-lab-usb-analyzer-crosscheck.md`  
 - PiDrive (Pi) Kurzverweis: `docs/betrieb/2026-11-02-esp-usb-analyzer-crosscheck.md`
+
+---
+
+## 7. Fix verification · 0.4.61-dev (same day)
+
+| Bug | After OTA L3 `.89` |
+|-----|--------------------|
+| B1 `imageBytes` | **16777216** (= 32768×512); `demoImageBytes` keeps 262144 |
+| B2 `version` | **`0.4.61-dev`** (also `fwVersion`) |
+| B3 USB product string | Host DUT product **`USB Media`** (was DevKitC…) |
+
+BMW stimulus `bmw_mount_scan` still byte-exact vs gadget counters (Analyzer 0.0.50).

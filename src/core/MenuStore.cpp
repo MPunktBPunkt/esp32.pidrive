@@ -25,10 +25,11 @@ void MenuStore::loadDemo() {
         strncpy(it.kind, kind, sizeof(it.kind) - 1);
         it.playing = false;
     };
-    add("FAVORITEN/01ROCK.MP3", "ROCK FM", "demo:rock_fm", "station");
-    add("FAVORITEN/02ANTENN.MP3", "Antenne 1", "demo:antenne", "station");
-    add("FAVORITEN/03SWR3.MP3", "SWR3", "demo:swr3", "station");
-    add("MENUE/ABOUT.MP3", "Menue", "action:about", "action");
+    add("0ZULETZT.MP3", "Zuletzt", "zuletzt", "station");
+    add("FAVORIT/01.MP3", "ROCK FM", "demo:rock_fm", "station");
+    add("FAVORIT/02.MP3", "Antenne 1", "demo:antenne", "station");
+    add("FAVORIT/03.MP3", "SWR3", "demo:swr3", "station");
+    add("STEUER/STOP.MP3", "Stop", "pump:stop", "action");
 }
 
 bool MenuStore::loadFromNvs() {
@@ -56,13 +57,18 @@ bool MenuStore::loadFromNvs() {
         strncpy(it.name, name, sizeof(it.name) - 1);
         strncpy(it.uid, uid, sizeof(it.uid) - 1);
         strncpy(it.kind, kind, sizeof(it.kind) - 1);
+        const char* pathIn = v["path"] | "";
         char path[48];
-        // Live stations live under Favoriten/; actions under Menue/ (root = folders only).
-        if (strcmp(kind, "action") == 0 || strncmp(uid, "pump:", 5) == 0 ||
-            strncmp(uid, "action:", 7) == 0) {
-            snprintf(path, sizeof(path), "MENUE/%02u.MP3", (unsigned)count_);
+        if (pathIn[0]) {
+            strncpy(path, pathIn, sizeof(path) - 1);
+            path[sizeof(path) - 1] = 0;
+        } else if (strcmp(uid, "zuletzt") == 0) {
+            snprintf(path, sizeof(path), "0ZULETZT.MP3");
+        } else if (strcmp(kind, "action") == 0 || strncmp(uid, "pump:", 5) == 0 ||
+                   strncmp(uid, "action:", 7) == 0) {
+            snprintf(path, sizeof(path), "STEUER/%02u.MP3", (unsigned)count_);
         } else {
-            snprintf(path, sizeof(path), "FAVORITEN/%02u.MP3", (unsigned)count_);
+            snprintf(path, sizeof(path), "FAVORIT/%02u.MP3", (unsigned)count_);
         }
         strncpy(it.path, path, sizeof(it.path) - 1);
         it.playing = false;
@@ -83,6 +89,7 @@ void MenuStore::saveToNvs() const {
         o["uid"] = items_[i].uid;
         o["name"] = items_[i].name;
         o["kind"] = items_[i].kind;
+        if (items_[i].path[0]) o["path"] = items_[i].path;
     }
     String blob;
     serializeJson(doc, blob);
@@ -111,12 +118,18 @@ bool MenuStore::setFromJson(JsonArrayConst items, uint32_t rev) {
         strncpy(it.name, name, sizeof(it.name) - 1);
         strncpy(it.uid, uidBuf, sizeof(it.uid) - 1);
         strncpy(it.kind, kind, sizeof(it.kind) - 1);
+        const char* pathIn = v["path"] | "";
         char path[48];
-        if (strcmp(kind, "action") == 0 || strncmp(uidBuf, "pump:", 5) == 0 ||
-            strncmp(uidBuf, "action:", 7) == 0) {
-            snprintf(path, sizeof(path), "MENUE/%02u.MP3", (unsigned)n);
+        if (pathIn[0]) {
+            strncpy(path, pathIn, sizeof(path) - 1);
+            path[sizeof(path) - 1] = 0;
+        } else if (strcmp(uidBuf, "zuletzt") == 0) {
+            snprintf(path, sizeof(path), "0ZULETZT.MP3");
+        } else if (strcmp(kind, "action") == 0 || strncmp(uidBuf, "pump:", 5) == 0 ||
+                   strncmp(uidBuf, "action:", 7) == 0) {
+            snprintf(path, sizeof(path), "STEUER/%02u.MP3", (unsigned)n);
         } else {
-            snprintf(path, sizeof(path), "FAVORITEN/%02u.MP3", (unsigned)n);
+            snprintf(path, sizeof(path), "FAVORIT/%02u.MP3", (unsigned)n);
         }
         strncpy(it.path, path, sizeof(it.path) - 1);
         it.playing = (playingUid_[0] && strcmp(playingUid_, it.uid) == 0);

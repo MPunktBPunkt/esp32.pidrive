@@ -1,7 +1,12 @@
 #include "App.h"
+#include "core/DiagLog.h"
+#include "core/HwInfo.h"
 #include "core/NetUtil.h"
+#include "core/PanicTail.h"
+#include "core/PhaseGate.h"
 #include "msc/LabBodySeed.h"
 #include "msc/MessCapture.h"
+#include "msc/Mp3Silence.h"
 #include "web/UiPages.h"
 #include <WiFi.h>
 #include <WiFiManager.h>
@@ -39,6 +44,26 @@ void App::begin() {
     Serial.printf("\n=== esp32.pidrive v%s ===\n", FW_VERSION);
     Serial.println("[MODE] TinyUSB OTG MSC + UART/TCP PUMP (OTG->car, UART or WLAN->Pi)");
 
+    // Diagnostics before MSC: HwInfo stalls caches briefly; PanicTail/PhaseGate/DiagLog
+    // capture prior-boot crash breadcrumbs (hu-probe lesson 2026-10-21 trip hang).
+    PanicTail::begin();
+    DiagLog::begin();
+    PhaseGate::begin();
+    HwInfo::begin();
+    if (!stream.begin()) {
+        Serial.println("[STREAM] buffer alloc FAILED — MSC live ring unavailable");
+        DiagLog::printf("[STREAM] buffer alloc FAILED\n");
+    } else {
+        Serial.printf("[STREAM] cap=%u id3Max=%u psram=%d freeHeap=%u freePsram=%u\n",
+                      (unsigned)stream.capacity(), (unsigned)stream.id3Max(),
+                      stream.buffersInPsram() ? 1 : 0, (unsigned)ESP.getFreeHeap(),
+                      (unsigned)ESP.getFreePsram());
+    }
+    PanicTail::setSession(FW_VERSION);
+    DiagLog::printf("[BOOT] v%s reset=%s module=%s psram_en=%u\n", FW_VERSION,
+                    PanicTail::resetReason(), HwInfo::moduleGuess(),
+                    (unsigned)ESP.getPsramSize());
+
     led.begin();
 
     config.begin();
@@ -51,9 +76,15 @@ void App::begin() {
     menu.begin();
     events.push("boot", FW_VERSION);
 
+    // Sticky ID3 for 0ZULETZT across reboot (SPIFFS) — before MSC serves reads.
+    if (!id3Store.begin()) {
+        Serial.println("[id3store] empty or mount failed — zuletzt head = silence until play");
+    }
+
     // MSC before WiFi so car USB enumerates quickly when bus-powered
     msc.begin(&events, &menu);
     msc.setStreamBuffer(&stream);
+    msc.setId3Store(&id3Store);
     applyPlayDetectFromConfig();
     applyStallFromConfig();
     // Apply last-known / demo names; present immediately if restored from NVS.
@@ -62,7 +93,7 @@ void App::begin() {
         msc.presentMedia("nvs");
     }
     uart.begin(&events);
-    pump.begin(&events, &menu, &msc, &uart, &stream);
+    pump.begin(&events, &menu, &msc, &uart, &stream, &id3Store);
     msc.setPlayHandler([](const char* uid) { App::instance().pump.sendPlayUid(uid); });
     msc.setDiagHandler([](const char* code, const char* detail) {
         if (!MessCapture::instance().captureActive())
@@ -189,7 +220,9 @@ void App::setupWeb() {
     server_.on("/api/lab/mess", HTTP_GET, [this]() { handleApiLabMess(); });
     server_.on("/api/lab/mess", HTTP_POST, [this]() { handleApiLabMess(); });
     server_.on("/api/lab/situation", HTTP_POST, [this]() { handleApiLabSituation(); });
+    server_.on("/api/lab/tone_smoke", HTTP_POST, [this]() { handleApiLabToneSmoke(); });
     server_.on("/api/metrics", HTTP_GET, [this]() { handleApiMetrics(); });
+    server_.on("/api/diag/log", HTTP_GET, [this]() { handleApiDiagLog(); });
     server_.on("/api/restart", HTTP_POST, [this]() { handleRestart(); });
     server_.on(
         "/ota-upload", HTTP_POST,
@@ -197,11 +230,14 @@ void App::setupWeb() {
             server_.sendHeader(F("Connection"), F("close"));
             if (Update.hasError()) {
                 events.push("ota.fail", "upload");
+                PhaseGate::pass(PhaseGate::OtaFlash);
                 server_.send(500, F("text/plain"), F("OTA fail"));
             } else {
                 events.push("ota.done", "upload");
+                PhaseGate::pass(PhaseGate::OtaFlash);
                 server_.send(200, F("text/plain"), F("OK"));
                 delay(400);
+                PanicTail::noteRestart(PanicTail::RestartWebUi);
                 ESP.restart();
             }
         },
@@ -238,7 +274,7 @@ void App::buildHeartbeat(JsonDocument& doc) {
     doc["name"] = config.deviceName;
     doc["hwType"] = "esp32";
     doc["chipModel"] = "esp32s3";
-    doc["version"] = FW_VERSION;
+    doc["version"] = FW_VERSION_STR;
     doc["fwType"] = FW_TYPE;
     doc["ip"] = WiFi.status() == WL_CONNECTED ? NetUtil::localIp() : softApIp;
     doc["rssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
@@ -271,7 +307,8 @@ void App::buildHeartbeat(JsonDocument& doc) {
 
 void App::buildStatus(JsonDocument& doc) {
     doc["ok"] = true;
-    doc["version"] = FW_VERSION;
+    doc["version"] = FW_VERSION_STR;
+    doc["fwVersion"] = FW_VERSION_STR;
     doc["fwType"] = FW_TYPE;
     doc["name"] = config.deviceName;
     doc["ip"] = WiFi.status() == WL_CONNECTED ? NetUtil::localIp() : "";
@@ -284,6 +321,8 @@ void App::buildStatus(JsonDocument& doc) {
     doc["resetReason"] = resetReasonName(esp_reset_reason());
     doc["resetReasonCode"] = (int)esp_reset_reason();
     doc["freeHeap"] = ESP.getFreeHeap();
+    doc["freePsram"] = ESP.getFreePsram();
+    doc["psramSize"] = ESP.getPsramSize();
     doc["wifiRssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
     doc["hubOk"] = hub.lastOk();
     doc["usbEnumerated"] = msc.plugged();
@@ -305,6 +344,10 @@ void App::buildStatus(JsonDocument& doc) {
     doc["menuRev"] = menu.rev();
     doc["menuCount"] = (int)menu.count();
     {
+        JsonObject z = doc["zuletztId3"].to<JsonObject>();
+        id3Store.toJson(z);
+    }
+    {
         JsonObject cover = doc["cover"].to<JsonObject>();
         cover["src"] = pump.coverSrc();
         cover["path"] = pump.coverPath();
@@ -315,10 +358,25 @@ void App::buildStatus(JsonDocument& doc) {
     if (stream.active()) {
         JsonObject s = doc["stream"].to<JsonObject>();
         stream.toJson(s);
+    } else {
+        JsonObject s = doc["stream"].to<JsonObject>();
+        s["cap"] = (int)stream.capacity();
+        s["psram"] = stream.buffersInPsram();
+        s["active"] = false;
     }
     doc["labMode"] = config.labMode;
     doc["chipModel"] = NetUtil::chipModel();
     doc["led"] = led.modeName();
+    JsonObject hw = doc["hw"].to<JsonObject>();
+    HwInfo::toJson(hw);
+    {
+        JsonObject root = doc.as<JsonObject>();
+        PanicTail::appendPrevious(root);
+        PanicTail::appendCurrent(root);
+        PhaseGate::appendStatus(root);
+        DiagLog::appendStatus(root);
+        DiagLog::appendPreviousTail(root);
+    }
     JsonObject m = doc["msc"].to<JsonObject>();
     msc.toJson(m);
     JsonObject mess = doc["mess"].to<JsonObject>();
@@ -355,6 +413,9 @@ void App::buildStatus(JsonDocument& doc) {
     tcp["up"] = pump.tcpClientUp();
     tcp["peer"] = pump.tcpClientIp();
     tcp["sense"] = "tcp-client";
+    // Re-stamp version last — large status docs previously corrupted early string slots.
+    doc["version"] = FW_VERSION_STR;
+    doc["fwVersion"] = FW_VERSION_STR;
 }
 
 void App::handleRoot() {
@@ -625,7 +686,7 @@ void App::handleApiLabOverlayRead() {
 }
 
 void App::handleApiLabCover() {
-    static uint8_t jpeg[StreamBuffer::kId3Max];
+    static uint8_t jpeg[StreamBuffer::kId3MaxPsram];
     size_t n = stream.extractApicJpeg(jpeg, sizeof(jpeg));
     if (!n) {
         server_.send(204, F("text/plain"), F(""));
@@ -884,8 +945,71 @@ void App::handleApiLabSituation() {
     doc["otgPlugged"] = msc.plugged();
     doc["mediaPresented"] = msc.mediaPresented();
     doc["streamActive"] = stream.active();
-    doc["note"] = "soft_usb≠VBUS; media_remount≠usb_cycle";
+    doc["note"] = "soft_usb≠VBUS; media_remount=NOT_READY(noop on NBT); usb_cycle=D+ FS-Enum";
     NetUtil::sendJson(server_, ok ? 200 : 500, doc);
+}
+
+void App::handleApiLabToneSmoke() {
+    if (!config.labMode) {
+        NetUtil::sendError(server_, 403, "labMode aus");
+        return;
+    }
+    JsonDocument body;
+    if (!NetUtil::readJsonBody(server_, body)) return;
+    const char* uid = body["uid"] | "zuletzt";
+    uint32_t prefill = body["prefill"] | 81920u;  // ≥ Media-Leiter head
+    if (prefill < 4096u) prefill = 4096u;
+    const uint32_t cap = (uint32_t)stream.capacity();
+    if (prefill + 4096u > cap) prefill = cap > 4096u ? cap - 4096u : cap;
+
+    // Ensure stall on for smoke (keep existing lead/max from config).
+    if (!config.stallEnable) {
+        config.stallEnable = true;
+        if (config.stallMaxMs < 5000) config.stallMaxMs = 15000;
+        if (config.leadBytes < 4096) config.leadBytes = 122880;
+        config.save();
+        applyStallFromConfig();
+    }
+
+    stream.start(uid);
+    stream.clearId3();
+    uint8_t head[Mp3Silence::kHeadLen];
+    Mp3Silence::writeHead(head, 163840u);
+    stream.appendId3(head, Mp3Silence::kHeadLen);
+    // Persist minimal ID3 so 0ZULETZT keeps a valid head across reboot (lab path).
+    if (id3Store.set(head, Mp3Silence::kHeadLen)) {
+        id3Store.saveIfDirty();
+    }
+
+    uint8_t chunk[2048];
+    uint32_t filled = 0;
+    uint32_t fileOff = Mp3Silence::kHeadLen;
+    while (filled < prefill) {
+        uint32_t n = prefill - filled;
+        if (n > sizeof(chunk)) n = sizeof(chunk);
+        Mp3Silence::fill(chunk, n, fileOff, 163840u);
+        size_t w = stream.push(chunk, n);
+        if (w == 0) break;
+        filled += (uint32_t)w;
+        fileOff += (uint32_t)w;
+    }
+
+    menu.setPlaying(uid);
+    msc.startStream(uid);
+    msc.armStallAfterPlayGuess();
+    events.push("lab.tone_smoke", uid);
+
+    JsonDocument doc;
+    doc["ok"] = true;
+    doc["uid"] = uid;
+    doc["id3Len"] = (int)stream.id3Len();
+    doc["prefill"] = (int)filled;
+    doc["liveAvail"] = (int)stream.liveAvailBytes();
+    doc["stallEnable"] = config.stallEnable;
+    doc["leadBytes"] = (int)config.leadBytes;
+    doc["stallArmed"] = msc.stallArmed();
+    doc["zuletztId3Len"] = (int)id3Store.len();
+    NetUtil::sendJson(server_, 200, doc);
 }
 
 void App::handleApiLabListen() {
@@ -954,10 +1078,37 @@ void App::handleApiMetrics() {
     NetUtil::sendJson(server_, 200, doc);
 }
 
+void App::handleApiDiagLog() {
+    const size_t n = DiagLog::size();
+    size_t offset = 0;
+    if (server_.hasArg("offset")) offset = (size_t)server_.arg("offset").toInt();
+    size_t want = 2048;
+    if (server_.hasArg("n")) want = (size_t)server_.arg("n").toInt();
+    if (want > 4096) want = 4096;  // keep HTTP chunk small (8 KiB stack crashed SoftAP)
+    if (offset > n) offset = n;
+    size_t avail = n - offset;
+    if (want > avail) want = avail;
+    char* buf = (char*)malloc(want + 1);
+    if (!buf) {
+        server_.send(500, F("text/plain"), F("oom"));
+        return;
+    }
+    size_t got = DiagLog::copyOut(offset, buf, want);
+    buf[got] = 0;
+    server_.sendHeader(F("Cache-Control"), F("no-store"));
+    server_.sendHeader(F("X-Diag-Total"), String(n));
+    server_.sendHeader(F("X-Diag-Offset"), String(offset));
+    server_.sendHeader(F("X-Diag-Got"), String(got));
+    server_.send(200, F("text/plain"), buf);
+    free(buf);
+}
+
 void App::handleOtaUpload() {
     HTTPUpload& upload = server_.upload();
     if (upload.status == UPLOAD_FILE_START) {
         events.push("ota.start", upload.filename.c_str());
+        PhaseGate::enter(PhaseGate::OtaFlash);
+        PanicTail::breadcrumb(PanicTail::OtaBegin);
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) Update.printError(Serial);
     } else if (upload.status == UPLOAD_FILE_WRITE) {
         if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) Update.printError(Serial);
@@ -970,6 +1121,7 @@ void App::handleRestart() {
     events.push("restart", "web");
     server_.send(200, F("text/plain"), F("OK"));
     delay(300);
+    PanicTail::noteRestart(PanicTail::RestartWebUi);
     ESP.restart();
 }
 
@@ -1006,9 +1158,10 @@ void App::applyStallFromConfig() {
     msc.setSelectionBarrierParams(b);
     msc.setVolumeLabelOverride(config.volumeLabel.c_str());
     msc.setFatVolumeIdOverride(config.fatVolumeId);
-    Serial.printf("[MSC] stall en=%d scope=%u timer=%u max=%ums chunk=%u retry=%ums vol='%s' id=%08lX\n",
+    Serial.printf("[MSC] stall en=%d scope=%u timer=%u max=%ums chunk=%u lead=%u retry=%ums vol='%s' id=%08lX\n",
                   (int)s.enable, (unsigned)s.scope, (unsigned)s.timer, (unsigned)s.maxMs,
-                  (unsigned)s.chunkBytes, (unsigned)s.retryMs, config.volumeLabel.c_str(),
+                  (unsigned)s.chunkBytes, (unsigned)s.leadBytes, (unsigned)s.retryMs,
+                  config.volumeLabel.c_str(),
                   (unsigned long)config.fatVolumeId);
 }
 

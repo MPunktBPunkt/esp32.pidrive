@@ -45,7 +45,7 @@ public:
     uint16_t stallMaxMs = 500;
     uint16_t stallChunkBytes = 4096;
     uint8_t stallRetryMs = 2;
-    uint16_t leadBytes = 0;
+    uint32_t leadBytes = 0;  // ≥1 CBW (120 KiB) empfohlen for live; was uint16 (max 64 KiB)
     bool underrunCursorHold = false;
     bool silenceMatchLive = false;
     /** Experimental selection barrier. Production default MUST remain false. */

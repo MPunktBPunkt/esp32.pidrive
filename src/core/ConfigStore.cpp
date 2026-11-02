@@ -82,7 +82,7 @@ void ConfigStore::load() {
         stallMaxMs = prefs.getUShort("stall_ms", stallMaxMs);
         stallChunkBytes = prefs.getUShort("stall_ch", stallChunkBytes);
         stallRetryMs = prefs.getUChar("stall_rt", stallRetryMs);
-        leadBytes = prefs.getUShort("lead_b", leadBytes);
+        leadBytes = prefs.getUInt("lead_b", leadBytes);
         underrunCursorHold = prefs.getBool("stall_hold", underrunCursorHold);
         silenceMatchLive = prefs.getBool("sil_live", silenceMatchLive);
         volumeLabel = prefs.getString("vol_lab", volumeLabel);
@@ -151,7 +151,7 @@ void ConfigStore::save() {
     prefs.putUShort("stall_ms", stallMaxMs);
     prefs.putUShort("stall_ch", stallChunkBytes);
     prefs.putUChar("stall_rt", stallRetryMs);
-    prefs.putUShort("lead_b", leadBytes);
+    prefs.putUInt("lead_b", leadBytes);
     prefs.putBool("stall_hold", underrunCursorHold);
     prefs.putBool("sil_live", silenceMatchLive);
     prefs.putString("vol_lab", volumeLabel);
@@ -234,7 +234,7 @@ bool ConfigStore::fromJson(JsonVariantConst obj) {
     if (!obj["stallMaxMs"].isNull()) stallMaxMs = obj["stallMaxMs"].as<uint16_t>();
     if (!obj["stallChunkBytes"].isNull()) stallChunkBytes = obj["stallChunkBytes"].as<uint16_t>();
     if (!obj["stallRetryMs"].isNull()) stallRetryMs = obj["stallRetryMs"].as<uint8_t>();
-    if (!obj["leadBytes"].isNull()) leadBytes = obj["leadBytes"].as<uint16_t>();
+    if (!obj["leadBytes"].isNull()) leadBytes = obj["leadBytes"].as<uint32_t>();
     if (!obj["underrunCursorHold"].isNull()) underrunCursorHold = obj["underrunCursorHold"].as<bool>();
     if (!obj["silenceMatchLive"].isNull()) silenceMatchLive = obj["silenceMatchLive"].as<bool>();
     if (obj["volumeLabel"].is<const char*>()) volumeLabel = obj["volumeLabel"].as<String>();

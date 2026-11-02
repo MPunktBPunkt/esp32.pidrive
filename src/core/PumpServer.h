@@ -7,6 +7,7 @@
 #include "core/MenuStore.h"
 #include "core/UartLinkMonitor.h"
 #include "core/StreamBuffer.h"
+#include "core/Id3Store.h"
 #include "msc/UsbMscGadget.h"
 #include "msc/MessCapture.h"
 
@@ -18,7 +19,7 @@
 class PumpServer {
 public:
     void begin(EventLog* events, MenuStore* menu, UsbMscGadget* msc, UartLinkMonitor* uart,
-               StreamBuffer* stream);
+               StreamBuffer* stream, Id3Store* id3Store = nullptr);
     /** Listen for Pi PUMP clients after WiFi/SoftAP is up. port=0 → disabled. */
     void startTcp(uint16_t port);
     void loop();
@@ -55,12 +56,18 @@ private:
     void setCoverMeta(const char* src, const char* path, const char* tryList);
     void clearCoverMeta();
     void armOverlayIfWarm();
+    void maybeCaptureId3_(bool force);
+    void maybePersistId3_();
 
     EventLog* events_ = nullptr;
     MenuStore* menu_ = nullptr;
     UsbMscGadget* msc_ = nullptr;
     UartLinkMonitor* uart_ = nullptr;
     StreamBuffer* stream_ = nullptr;
+    Id3Store* id3Store_ = nullptr;
+    /** Debounce: last 0x56 append time; capture after quiet / first 0x55. */
+    uint32_t id3LastAppendMs_ = 0;
+    bool id3CapturePending_ = false;
     bool up_ = false;
     char line_[1536];
     size_t lineLen_ = 0;
@@ -81,7 +88,11 @@ private:
     char clientIp_[16] = {0};
     bool tcpLinked_ = false;
     uint32_t tcpDownSinceMs_ = 0;
-    /** Serialize line sends (USB diag/play vs loop msc.reads). Never spinlock — TCP needs IRQs. */
+    /**
+     * Serialize line sends (USB diag/play vs loop msc.reads). Never spinlock — TCP needs IRQs.
+     * Ownership (hu-probe 0.3.9): no second task may call into WiFiClient while the loop
+     * pumps it; FreeRTOS mutex only (portENTER_CRITICAL around WiFi TCP → WDT 0.4.32).
+     */
     SemaphoreHandle_t sendMu_ = nullptr;
     /** Last play.guess uid — re-emit on hello if bridge missed it (TCP was down). */
     char queuedPlayUid_[24] = {0};

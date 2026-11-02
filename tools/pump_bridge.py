@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PiDrive ↔ esp32.pidrive PUMP bridge (line-JSON + binary audio over UART or TCP).
 
-- Syncs /tmp/pidrive_menu.json via menu_set with soft paging (≤4 MSC slots)
+- Syncs /tmp/pidrive_menu.json via menu_set — full Dir menu (≤32 MSC slots; no soft-paging)
 - P0 MSC session lock: freeze published names/UIDs while USB host is plugged
   (--msc-lock / --no-msc-lock; HTTP poll + usb.otg.* edges)
 - On play_uid: activate:<uid> + live MP3 (audio_start + ID3/APIC + 0x01 0x55)
@@ -75,8 +75,11 @@ FAVORITES_JSON_PATHS = [
     Path("/home/martin/projects/pidrive/pidrive/config/favorites.json"),
 ]
 DEFAULT_COVER_REL = "default.jpg"  # immer, wenn kein Station-/APIC-Cover
-MAX_SLOTS = 4
-PAGE_CONTENT = 3  # when paging: 3 items + Mehr/Seite1
+# FULLMENU (esp32.pidrive ≥0.4.56): complete level in Dir; bodies dynamic.
+# Soft-paging kept only as fallback if ESP hello_ack.slots < MAX_SLOTS.
+MAX_SLOTS = 32
+PAGE_CONTENT = 3  # legacy soft-page chunk when slots < len(nodes)
+FULL_MENU = True  # export whole level up to MAX_SLOTS; no Mehr…
 FRAME_MAX = 256
 ID3_BUDGET = 8 * 1024
 # SoftAP listen needs ≥ realtime fill. Scaled from --bitrate (see audio_target_bps).
@@ -231,20 +234,44 @@ class MscSessionLock:
             pass
 
 
-def fetch_esp_plugged(host: str, http_port: int = 80, timeout: float = 2.0) -> bool | None:
-    """GET /api/status → msc.plugged / otgUp. None on error."""
+def fetch_esp_status(host: str, http_port: int = 80, timeout: float = 2.0) -> dict | None:
+    """GET /api/status as dict, or None on error."""
     if not host:
         return None
     url = f"http://{host}:{http_port}/api/status"
     try:
         with urllib.request.urlopen(url, timeout=timeout) as r:
-            doc = json.loads(r.read().decode())
-        msc = doc.get("msc") or {}
-        if "plugged" in msc:
-            return bool(msc.get("plugged"))
-        return bool(doc.get("otgUp") or doc.get("usbEnumerated"))
+            return json.loads(r.read().decode())
     except Exception:
         return None
+
+
+def fetch_esp_plugged(host: str, http_port: int = 80, timeout: float = 2.0) -> bool | None:
+    """GET /api/status → msc.plugged / otgUp. None on error."""
+    doc = fetch_esp_status(host, http_port, timeout)
+    if doc is None:
+        return None
+    msc = doc.get("msc") or {}
+    if "plugged" in msc:
+        return bool(msc.get("plugged"))
+    return bool(doc.get("otgUp") or doc.get("usbEnumerated"))
+
+
+def esp_live_avail_bytes(doc: dict | None) -> int:
+    if not doc:
+        return 0
+    msc = doc.get("msc") or {}
+    stream = msc.get("stream") or doc.get("stream") or {}
+    for key in ("liveAvailBytes", "liveAvail"):
+        if key in stream:
+            try:
+                return int(stream.get(key) or 0)
+            except (TypeError, ValueError):
+                pass
+    try:
+        return int(doc.get("liveAvailBytes") or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def remember_uid_nodes(
@@ -485,8 +512,17 @@ def read_menu_nodes() -> tuple[int, list[dict], dict[str, dict]]:
 
 
 def page_items(nodes: list[dict], page: int) -> tuple[list[dict], int]:
-    """Build ≤4 slot items; soft-page when more than MAX_SLOTS."""
-    if len(nodes) <= MAX_SLOTS:
+    """Build MSC slot items for one menu level.
+
+    FULL_MENU: all nodes up to MAX_SLOTS (complete Dir); overflow truncated with log.
+    Legacy: soft-page PAGE_CONTENT + Mehr/Seite1 when ESP has only 4 slots.
+    """
+    if FULL_MENU or len(nodes) <= MAX_SLOTS:
+        if len(nodes) > MAX_SLOTS:
+            print(
+                f"[menu] FULL_MENU truncate {len(nodes)} → {MAX_SLOTS} (raise MENU_MAX/slots)",
+                flush=True,
+            )
         items = [
             {
                 "uid": str(n["uid"]),
@@ -701,6 +737,69 @@ def station_submenu_page(presets: list[dict], page: int) -> tuple[list[dict], in
     return items, page, extra
 
 
+def build_zielbild_items(presets: list[dict], extra: dict[str, dict]) -> list[dict]:
+    """MSC snapshot matching docs/planung/MENUESTRUKTUR-MSC.md."""
+    items: list[dict] = [
+        {
+            "uid": "zuletzt",
+            "name": fat_safe_name("Zuletzt"),
+            "kind": "station",
+            "path": "0ZULETZT.MP3",
+        }
+    ]
+    fav_room = MAX_SLOTS - 6
+    for i, n in enumerate(presets[: max(0, fav_room)]):
+        uid = str(n["uid"])
+        items.append(
+            {
+                "uid": uid,
+                "name": fat_safe_name(n.get("label") or n.get("id") or "?"),
+                "kind": "station",
+                "path": f"FAVORIT/{i + 1:02d}.MP3",
+            }
+        )
+        extra[uid] = n
+    if not presets:
+        for i, (uid, label) in enumerate(
+            (("demo:rock_fm", "ROCK FM"), ("demo:antenne", "Antenne 1"), ("demo:swr3", "SWR3"))
+        ):
+            items.append(
+                {
+                    "uid": uid,
+                    "name": fat_safe_name(label),
+                    "kind": "station",
+                    "path": f"FAVORIT/{i + 1:02d}.MP3",
+                }
+            )
+    for folder, uid, label in (
+        ("DAB", "pump:dab", "DAB"),
+        ("FM", "pump:fm", "FM"),
+        ("MP3", "pump:mp3", "MP3"),
+        ("SCANNER", "pump:scanner", "Scanner"),
+        ("AIRBAND", "pump:airband", "Airband"),
+    ):
+        if len(items) >= MAX_SLOTS:
+            break
+        items.append(
+            {
+                "uid": uid,
+                "name": fat_safe_name(label),
+                "kind": "action",
+                "path": f"{folder}/01.MP3",
+            }
+        )
+    if len(items) < MAX_SLOTS:
+        items.append(
+            {
+                "uid": STOP_UID,
+                "name": fat_safe_name("Stop"),
+                "kind": "action",
+                "path": "STEUER/STOP.MP3",
+            }
+        )
+    return items[:MAX_SLOTS]
+
+
 def menu_nodes_for_page(path_ids: list | None, nodes: list[dict], page: int) -> tuple[list[dict], int, dict[str, dict]]:
     """Root page 0 = favorite presets as MSC slots (BMW hears stations, not demos once streamed).
 
@@ -719,7 +818,11 @@ def menu_nodes_for_page(path_ids: list | None, nodes: list[dict], page: int) -> 
             ordered += [p for p in presets if str(p["uid"]) != focus]
             return station_submenu_page(ordered or presets, page)
     if is_root_menu(path_ids):
-        presets = load_preset_stations(limit=6)
+        presets = load_preset_stations(limit=MAX_SLOTS)
+        if FULL_MENU:
+            _PRESET_BY_UID = {str(p["uid"]): p for p in presets} if presets else {}
+            items = build_zielbild_items(presets or [], extra)
+            return items, 0, extra
         if presets:
             _PRESET_BY_UID = {str(p["uid"]): p for p in presets}
             if page <= 0:
@@ -1079,6 +1182,9 @@ class AudioFwd:
         marker_period: float = 10.0,
         target_bps: int | None = None,
         re_local: bool = False,
+        preroll_bytes: int = 81920,
+        esp_host: str = "",
+        esp_http_port: int = 80,
     ):
         self.ser = ser
         self.bitrate = bitrate
@@ -1086,6 +1192,9 @@ class AudioFwd:
         self.marker_period = float(marker_period)
         self.re_local = bool(re_local)
         self.target_bps = int(target_bps) if target_bps else audio_target_bps(bitrate)
+        self.preroll_bytes = max(0, int(preroll_bytes))
+        self.esp_host = esp_host or ""
+        self.esp_http_port = int(esp_http_port)
         self.proc: subprocess.Popen | None = None
         self.uid = ""
         self.started_at: float = 0.0
@@ -1093,6 +1202,7 @@ class AudioFwd:
         self.last_id3: bytes = b""
         self.hold_menu_until: float = 0.0
         self.marker_t0: float | None = None
+        self.preroll_sent: int = 0
 
     def stop(self, status_cover: bool = False) -> None:
         """Stop ffmpeg + ESP stream.
@@ -1349,7 +1459,7 @@ class AudioFwd:
             env=env,
             bufsize=0,
         )
-        self._next_pump_ts = time.time() + 0.2
+        self._next_pump_ts = time.time() + 0.05
         self._audio_bytes_window = 0
         self._audio_window_t0 = time.time()
         if self.marker:
@@ -1357,6 +1467,52 @@ class AudioFwd:
             print(f"[audio] marker_t0={self.marker_t0:.3f}", flush=True)
         else:
             self.marker_t0 = None
+        if self.preroll_bytes > 0:
+            self.preroll(self.preroll_bytes)
+
+    def preroll(self, min_bytes: int, timeout: float = 20.0) -> int:
+        """Burst-fill ring until local sent or ESP liveAvail ≥ min_bytes (Ready-Semantik)."""
+        want = max(0, int(min_bytes))
+        if want <= 0 or not self.proc:
+            return 0
+        t0 = time.time()
+        sent = 0
+        avail = 0
+        old_target = self.target_bps
+        # Fill faster than realtime for the first window (still chunked for SoftAP).
+        # Burst above realtime so the ring is Ready before HU past Prefill.
+        self.target_bps = max(old_target * 2, 24000)
+        self._next_pump_ts = 0.0
+        self._audio_bytes_window = 0
+        self._audio_window_t0 = time.time()
+        last_poll = 0.0
+        print(f"[audio] preroll begin want={want} bps={self.target_bps}", flush=True)
+        while time.time() - t0 < timeout:
+            n = self.pump()
+            sent += n
+            now = time.time()
+            if self.esp_host and (now - last_poll >= 0.2 or (avail == 0 and sent > 4096)):
+                avail = esp_live_avail_bytes(
+                    fetch_esp_status(self.esp_host, self.esp_http_port, timeout=1.0)
+                )
+                last_poll = now
+            if sent >= want or avail >= want:
+                break
+            if n == 0:
+                nxt = float(getattr(self, "_next_pump_ts", now))
+                time.sleep(max(0.005, min(0.05, nxt - now)))
+        self.target_bps = old_target
+        self.preroll_sent = sent
+        if self.esp_host:
+            avail = esp_live_avail_bytes(
+                fetch_esp_status(self.esp_host, self.esp_http_port, timeout=1.0)
+            )
+        print(
+            f"[audio] preroll done sent={sent} esp_avail={avail} want={want} "
+            f"dt={time.time() - t0:.2f}s",
+            flush=True,
+        )
+        return sent
 
     def pump(self) -> int:
         if not self.proc or not self.proc.stdout:
@@ -1463,6 +1619,18 @@ def _ffmpeg_cmd_for_source(
             "pulse",
             "-i",
             mon,
+        ]
+    elif src.startswith("lavfi:"):
+        # Lab/synthetic: lavfi:sine=frequency=440:sample_rate=22050
+        base_in = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            src[len("lavfi:") :],
         ]
     else:
         # -reconnect* is an HTTP/HTTPS option; local files reject it
@@ -1606,6 +1774,13 @@ def main() -> int:
         action="store_true",
         help="ffmpeg -re for local files (realtime like a station instead of ~1.5×)",
     )
+    ap.add_argument(
+        "--preroll-bytes",
+        type=int,
+        default=81920,
+        help="after audio_start+ID3, burst-fill at least N MP3 bytes before steady pump "
+        "(0=off; default 80 KiB ≈ Media-Leiter head)",
+    )
     ap.add_argument("--no-audio", action="store_true", help="menu/activate only")
     ap.add_argument(
         "--reconnect",
@@ -1687,10 +1862,14 @@ def main() -> int:
         marker_period=args.marker_period,
         target_bps=args.target_bps or None,
         re_local=bool(args.re_local),
+        preroll_bytes=int(args.preroll_bytes),
+        esp_host=str(args.host or ""),
+        esp_http_port=int(args.esp_http_port),
     )
     print(
         f"[audio] target_bps={audio.target_bps} bitrate={args.bitrate} marker={bool(args.marker)}"
-        f" marker_period={args.marker_period:g} re_local={bool(args.re_local)}",
+        f" marker_period={args.marker_period:g} re_local={bool(args.re_local)}"
+        f" preroll={int(args.preroll_bytes)}",
         flush=True,
     )
     msc_lock = MscSessionLock(enabled=bool(args.msc_lock))

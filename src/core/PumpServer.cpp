@@ -4,17 +4,20 @@
 #include <cstring>
 
 void PumpServer::begin(EventLog* events, MenuStore* menu, UsbMscGadget* msc, UartLinkMonitor* uart,
-                       StreamBuffer* stream) {
+                       StreamBuffer* stream, Id3Store* id3Store) {
     events_ = events;
     menu_ = menu;
     msc_ = msc;
     uart_ = uart;
     stream_ = stream;
+    id3Store_ = id3Store;
     lineLen_ = 0;
     up_ = false;
     binState_ = BinState::Idle;
     active_ = Link::SerialLink;
     tcpPort_ = 0;
+    id3LastAppendMs_ = 0;
+    id3CapturePending_ = false;
     if (!sendMu_) sendMu_ = xSemaphoreCreateMutex();
     if (events_) events_->push("pump.init", "line-json+bin uart/tcp");
 }
@@ -201,7 +204,11 @@ void PumpServer::handleBinaryByte(uint8_t c) {
                 if (stream_ && stream_->active()) {
                     if (binKind_ == 0x56) {
                         stream_->appendId3(binBuf_, binLen_);
+                        id3LastAppendMs_ = millis();
+                        id3CapturePending_ = true;
                     } else {
+                        // First audio frame ⇒ sticky ID3 for this start is complete.
+                        if (id3CapturePending_) maybeCaptureId3_(true);
                         stream_->push(binBuf_, binLen_);
                     }
                     armOverlayIfWarm();
@@ -262,8 +269,9 @@ void PumpServer::handleLine(char* line) {
         ack["t"] = "hello_ack";
         ack["ver"] = FW_VERSION;
         ack["fw"] = FW_TYPE;
-        ack["slots"] = 4;
-        ack["page"] = true;  // bridge soft-paging (Mehr… / Seite 1)
+        ack["slots"] = (int)UsbMscGadget::kSlots;
+        ack["page"] = !MscGeo::kFullMenu;  // soft-paging only on legacy 4-slot geo
+        ack["fullMenu"] = MscGeo::kFullMenu;
         ack["audio"] = true;
         ack["bin"] = true;
         ack["tcp"] = tcpPort_ != 0;
@@ -352,6 +360,9 @@ void PumpServer::handleLine(char* line) {
     if (!strcmp(t, "audio_stop")) {
         pendingOverlayUid_[0] = 0;
         queuedPlayUid_[0] = 0;
+        // Keep zuletzt sticky head: capture before stream goes idle.
+        maybeCaptureId3_(true);
+        maybePersistId3_();
         if (stream_) stream_->stop();
         if (msc_) {
             msc_->clearPreWarmWatch();
@@ -482,6 +493,30 @@ void PumpServer::armOverlayIfWarm() {
     pendingOverlayUid_[0] = 0;
 }
 
+void PumpServer::maybeCaptureId3_(bool force) {
+    if (!id3Store_ || !stream_) return;
+    if (!id3CapturePending_ && !force) return;
+    const size_t n = stream_->id3Len();
+    if (n < 10) return;
+    if (!force && id3LastAppendMs_ && (millis() - id3LastAppendMs_) < 400) return;
+    if (id3Store_->captureFromStream(*stream_)) {
+        id3CapturePending_ = false;
+        if (events_) {
+            char d[32];
+            snprintf(d, sizeof(d), "len=%u", (unsigned)id3Store_->len());
+            events_->push("id3.capture", d);
+        }
+    }
+}
+
+void PumpServer::maybePersistId3_() {
+    if (!id3Store_) return;
+    maybeCaptureId3_(false);
+    if (id3Store_->saveIfDirty()) {
+        if (events_) events_->push("id3.persist", "spiffs");
+    }
+}
+
 void PumpServer::loop() {
     acceptTcp();
     // Prefer draining the active link first to keep binary frames contiguous
@@ -493,4 +528,5 @@ void PumpServer::loop() {
         drainTcp();
     }
     armOverlayIfWarm();
+    maybePersistId3_();
 }
